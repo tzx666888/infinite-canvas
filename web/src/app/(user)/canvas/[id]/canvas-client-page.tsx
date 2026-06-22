@@ -1186,18 +1186,20 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            if (connectingParamsRef.current && !pendingConnectionCreateRef.current) {
-                const dropTarget = getConnectionDropTarget(event.clientX, event.clientY, connectingParamsRef.current);
-                connectionTargetNodeIdRef.current = dropTarget.nodeId;
-                setConnectionTargetNodeId(dropTarget.nodeId);
-                setMouseWorld(screenToCanvas(event.clientX, event.clientY));
-            }
         },
-        [finishNodeDrag, getConnectionDropTarget, screenToCanvas],
+        [],
     );
 
     const handleGlobalPointerMove = useCallback(
         (event: PointerEvent) => {
+            const currentConnection = connectingParamsRef.current;
+            if (currentConnection && !pendingConnectionCreateRef.current) {
+                const dropTarget = getConnectionDropTarget(event.clientX, event.clientY, currentConnection);
+                connectionTargetNodeIdRef.current = dropTarget.nodeId;
+                setConnectionTargetNodeId(dropTarget.nodeId);
+                setMouseWorld(screenToCanvas(event.clientX, event.clientY));
+            }
+
             const currentSelection = selectionBoxRef.current;
             if (!currentSelection) return;
 
@@ -1227,7 +1229,30 @@ function InfiniteCanvasPage() {
             setSelectionBox(nextSelectionBox);
             setSelectedNodeIds(nextSelected);
         },
-        [screenToCanvas],
+        [getConnectionDropTarget, screenToCanvas],
+    );
+
+    const finishConnectionDrag = useCallback(
+        (clientX: number, clientY: number) => {
+            if (pendingConnectionCreateRef.current) return;
+
+            const currentConnection = connectingParamsRef.current;
+            if (!currentConnection) return;
+
+            const dropTarget = getConnectionDropTarget(clientX, clientY, currentConnection);
+            if (dropTarget.nodeId) {
+                connectNodes(currentConnection, dropTarget.nodeId);
+                setConnecting(null);
+            } else if (dropTarget.isNearNode) {
+                setConnecting(null);
+            } else {
+                const position = screenToCanvas(clientX, clientY);
+                setMouseWorld(position);
+                pendingConnectionCreateRef.current = { connection: currentConnection, position };
+                setPendingConnectionCreate({ connection: currentConnection, position });
+            }
+        },
+        [connectNodes, getConnectionDropTarget, screenToCanvas, setConnecting],
     );
 
     const handleGlobalMouseUp = useCallback(
@@ -1237,27 +1262,15 @@ function InfiniteCanvasPage() {
             selectionBoxRef.current = null;
             setSelectionBox(null);
 
-            if (pendingConnectionCreateRef.current) return;
-
-            const currentConnection = connectingParamsRef.current;
-            if (currentConnection) {
-                const dropTarget = getConnectionDropTarget(event.clientX, event.clientY, currentConnection);
-                if (dropTarget.nodeId) {
-                    connectNodes(currentConnection, dropTarget.nodeId);
-                    setConnecting(null);
-                } else if (dropTarget.isNearNode) {
-                    setConnecting(null);
-                } else {
-                    setMouseWorld(screenToCanvas(event.clientX, event.clientY));
-                    setPendingConnectionCreate({ connection: currentConnection, position: screenToCanvas(event.clientX, event.clientY) });
-                }
-            }
         },
-        [connectNodes, finishNodeDrag, getConnectionDropTarget, screenToCanvas, setConnecting],
+        [finishNodeDrag],
     );
 
     useEffect(() => {
-        const handlePointerUp = (event: PointerEvent) => finishNodeDrag(event.clientX, event.clientY);
+        const handlePointerUp = (event: PointerEvent) => {
+            finishNodeDrag(event.clientX, event.clientY);
+            finishConnectionDrag(event.clientX, event.clientY);
+        };
         const cancelNodeDrag = () => finishNodeDrag();
         window.addEventListener("mousemove", handleGlobalMouseMove);
         window.addEventListener("mouseup", handleGlobalMouseUp);
@@ -1273,7 +1286,7 @@ function InfiniteCanvasPage() {
             window.removeEventListener("blur", cancelNodeDrag);
             window.removeEventListener("pointermove", handleGlobalPointerMove);
         };
-    }, [finishNodeDrag, handleGlobalMouseMove, handleGlobalMouseUp, handleGlobalPointerMove]);
+    }, [finishConnectionDrag, finishNodeDrag, handleGlobalMouseMove, handleGlobalMouseUp, handleGlobalPointerMove]);
 
     const createImageFileNode = useCallback(async (file: File, position: Position) => {
         const image = await uploadImage(file);
@@ -1447,8 +1460,10 @@ function InfiniteCanvasPage() {
     }, [copySelectedNodes, deleteConnection, deleteNodes, pasteCopiedNodes, pasteSystemClipboard, redoCanvas, selectedConnectionId, setConnecting, undoCanvas]);
 
     const handleConnectStart = useCallback(
-        (event: ReactMouseEvent, nodeId: string, handleType: "source" | "target") => {
+        (event: ReactPointerEvent, nodeId: string, handleType: "source" | "target") => {
             event.stopPropagation();
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
             setMouseWorld(screenToCanvas(event.clientX, event.clientY));
             setConnecting({ nodeId, handleType });
             connectionTargetNodeIdRef.current = null;
