@@ -1,6 +1,6 @@
 services:
   app:
-    image: infinite-canvas:huanjing-brand-v2-20260620
+    image: infinite-canvas:latest
     container_name: infinite-canvas
     network_mode: host
     env_file:
