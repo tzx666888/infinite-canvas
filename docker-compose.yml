@@ -1,0 +1,11 @@
+services:
+  app:
+    image: infinite-canvas:huanjing-brand-v2-20260620
+    container_name: infinite-canvas
+    network_mode: host
+    env_file:
+      - /opt/infinite-canvas-secrets/tokaxis-canvas-proxy.env
+    environment:
+      PORT: "3100"
+      TOKAXIS_INTERNAL_ORIGIN: "http://127.0.0.1:3000"
+    restart: unless-stopped
