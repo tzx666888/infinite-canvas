@@ -78,13 +78,13 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const body = new FormData();
     body.append("model", modelOptionName(model));
-    body.append("prompt", prompt);
+    body.append("prompt", buildReferenceVideoPrompt(prompt, references.length));
     body.append("seconds", normalizeModelVideoSeconds(config.videoSeconds, modelOptionName(model)));
     if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
     body.append("resolution_name", normalizeVideoResolution(config.vquality));
     body.append("preset", "normal");
     const files = await Promise.all(references.slice(0, 7).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
-    files.forEach((file) => body.append("input_reference[]", file));
+    files.forEach((file) => body.append("input_reference", file));
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
         if (!created.id) throw new Error("视频接口没有返回任务 ID");
@@ -92,6 +92,17 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     } catch (error) {
         throw new Error(readAxiosError(error, "视频任务创建失败"));
     }
+}
+
+function buildReferenceVideoPrompt(prompt: string, referenceCount: number) {
+    if (!referenceCount) return prompt;
+    return [
+        "The supplied reference image(s) are mandatory visual direction, not optional inspiration.",
+        "Preserve the same subject identity, facial and body features, clothing or product geometry, object count, colors, materials, logos, environment, and camera orientation unless the user explicitly requests a change.",
+        "Perform only the requested subject motion and camera motion. Do not replace the subject, redesign the product, invent an unrelated scene, or introduce extra objects.",
+        "For a single-frame reference, use it as the opening frame. For a multi-panel storyboard reference, follow the panels in reading order as action and shot guidance; do not render the panel grid itself in the final video.",
+        `User direction: ${prompt.trim() || "Animate the reference naturally while preserving visual identity and scene continuity."}`,
+    ].join("\n");
 }
 
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
@@ -240,7 +251,10 @@ function assertVideoConfig(config: AiConfig, model: string) {
 function normalizeVideoSize(value: string) {
     if (value === "auto") return null;
     const size = value || "1280x720";
-    if (/^\d+x\d+$/.test(size)) return size;
+    const supportedSizes = new Set(["720x1280", "1280x720", "1024x1792", "1792x1024"]);
+    if (supportedSizes.has(size)) return size;
+    const dimensions = /^(\d+)x(\d+)$/.exec(size);
+    if (dimensions) return Number(dimensions[2]) > Number(dimensions[1]) ? "720x1280" : "1280x720";
     return ["9:16", "2:3", "3:4"].includes(size) ? "720x1280" : "1280x720";
 }
 
