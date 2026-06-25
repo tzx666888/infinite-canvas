@@ -21,6 +21,61 @@ export type CanvasNodeStatus = "idle" | "success" | "loading" | "error";
 export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasImageGenerationType = "generation" | "edit";
 
+export type CanvasProductBreakdownPlan = {
+    productName?: string;
+    category?: string;
+    identity?: string;
+    materials?: string[];
+    components?: string[];
+    visibleMarks?: string[];
+    packageAccessories?: string[];
+    shots?: Array<{
+        title?: string;
+        focus?: string;
+        prompt?: string;
+    }>;
+};
+
+export type CanvasSceneExpansionPlan = {
+    productName?: string;
+    identity?: string;
+    scenes?: Array<{
+        title?: string;
+        focus?: string;
+        prompt?: string;
+    }>;
+};
+
+export type CanvasCommerceVideoPlan = {
+    productCategory?: string;
+    selectedHookType?: string;
+    hookDescription?: string;
+    beats?: Array<{
+        index: number;
+        phase: "hook" | "pain" | "demo" | "cta" | string;
+        timeRange: string;
+        shotType?: string;
+        cameraMove?: string;
+        description: string;
+        eightElements?: {
+            subject?: string;
+            action?: string;
+            scene?: string;
+            lighting?: string;
+            camera?: string;
+            style?: string;
+            quality?: string;
+            constraint?: string;
+        };
+    }>;
+    compliance?: {
+        mustInclude?: string[];
+        mustNotInclude?: string[];
+        riskLevel?: string;
+    };
+    enhancementWords?: string;
+};
+
 export type CanvasNodeMetadata = {
     content?: string;
     composerContent?: string;
@@ -58,8 +113,19 @@ export type CanvasNodeMetadata = {
     productBreakdown?: boolean;
     productDetailShot?: boolean;
     productDetailTitle?: string;
+    productBreakdownPlan?: CanvasProductBreakdownPlan;
     sceneExpansion?: boolean;
     sceneExpansionTitle?: string;
+    sceneExpansionPlan?: CanvasSceneExpansionPlan;
+    commerceVideoPlan?: CanvasCommerceVideoPlan;
+    selectedHookType?: string;
+    excludedHookTypes?: string[];
+    storyboardPlanId?: string;
+    storyboardRole?: "review-sheet" | "keyframe";
+    storyboardBeatIndex?: number;
+    targetVideoModel?: string;
+    targetVideoSeconds?: 4 | 8 | 12 | 15 | number;
+    targetVideoSize?: string;
     storageKey?: string;
     mimeType?: string;
     bytes?: number;
