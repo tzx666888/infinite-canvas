@@ -1,4 +1,4 @@
-const GROK_DURATION_OPTIONS = [6, 10, 15] as const;
+const GROK_DURATION_OPTIONS = [15] as const;
 
 export function fixedVideoDurationOptions(model: string): readonly number[] | null {
     const normalized = model.trim().toLowerCase().split("::").at(-1) || "";
