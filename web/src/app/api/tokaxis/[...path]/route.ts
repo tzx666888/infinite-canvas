@@ -110,7 +110,7 @@ async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorizatio
         form.append("resolution_name", legacyVideoResolution(payload.resolution));
         form.append("preset", "normal");
 
-        const references = Array.isArray(payload.reference_images) ? payload.reference_images.slice(0, 7) : [];
+        const references = Array.isArray(payload.reference_images) ? payload.reference_images.slice(0, 12) : [];
         for (const [index, reference] of references.entries()) {
             const blob = await legacyReferenceImageBlob(reference?.url);
             if (blob) form.append("input_reference", blob, `reference-${index + 1}.${legacyImageExtension(blob.type)}`);
