@@ -142,6 +142,7 @@ export async function hydrateNodeGenerationContext(context: NodeGenerationContex
 
 function readNodeTextInput(node: CanvasNodeData) {
     if (node.type === CanvasNodeType.Text) return node.metadata?.content || node.metadata?.prompt || "";
+    if (node.type === CanvasNodeType.Image && node.metadata?.content && node.metadata?.storyboardRole === "review-sheet") return "";
     return node.metadata?.prompt || "";
 }
 
