@@ -53,7 +53,7 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
     const selectedModel = selectGrokVideoModel(config);
     if (!selectedModel) throw new Error("视频模型只支持 Grok，请先同步模型或配置 Grok 视频模型");
-    const requestConfig = { ...resolveModelRequestConfig(config, selectedModel), videoSeconds: "15" };
+    const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (isSeedanceVideoConfig(requestConfig)) {
         return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
@@ -79,13 +79,14 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const modelName = modelOptionName(model);
-    const promptText = buildReferenceVideoPrompt(prompt, references.length).trim();
+    const seconds = normalizeModelVideoSeconds(config.videoSeconds, modelName);
+    const promptText = buildReferenceVideoPrompt(prompt, references.length, seconds).trim();
     if (!promptText && !references.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
 
     const body = new FormData();
     body.append("model", modelName);
     body.append("prompt", promptText);
-    body.append("seconds", normalizeModelVideoSeconds(config.videoSeconds, modelName));
+    body.append("seconds", seconds);
     if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
     body.append("resolution_name", normalizeVideoResolution(config.vquality));
     body.append("preset", "normal");
@@ -109,19 +110,29 @@ function selectGrokVideoModel(config: AiConfig) {
     return candidates.map((model) => model.trim()).find(isGrokVideoModel) || "";
 }
 
-function buildReferenceVideoPrompt(prompt: string, referenceCount: number) {
+function buildReferenceVideoPrompt(prompt: string, referenceCount: number, seconds: string) {
     if (!referenceCount) return prompt;
+    const duration = normalizeDurationNumber(seconds);
+    const perReferenceSeconds = formatDuration(duration / Math.max(1, Math.min(12, referenceCount)));
     return [
         "Use the attached reference image(s) as visual guidance.",
         "Keep the same subject or product identity, packaging geometry, colors, logo placement, object count, environment, and camera orientation.",
         "Apply the requested motion while preserving visual continuity.",
         referenceCount >= 8
-            ? "When many reference images are attached, treat them as an ordered direct-response ecommerce storyboard sequence. Follow upload order as the 15-second timeline, about 1.25 seconds per reference: exaggerated hook/problem, product-as-solution reveal, demonstration/proof, product/result reassurance, final hero and purchase-intent beat. Ignore storyboard artifacts such as corner numbers, panel labels, black badges, grid borders, captions, or sheet layout. Keep the product visible in the opening third, middle proof section, and final shot. Avoid repetitive action-only footage, looping the first frame, and unrelated scenes."
+            ? `When many reference images are attached, treat them as an ordered direct-response ecommerce storyboard sequence. Follow upload order as the ${duration}-second timeline, about ${perReferenceSeconds} seconds per reference: 0-20% hook/problem, 20-35% product-as-solution reveal, 35-70% demonstration/proof, 70-87% product/result reassurance, 87-100% final hero and purchase-intent beat. Ignore storyboard artifacts such as corner numbers, panel labels, black badges, grid borders, captions, or sheet layout. Use clean edited shot cuts between different subjects or angles; do not morph, cross-dissolve, or interpolate human faces, hands, products, and stove surfaces into one another. Keep the product visible in the opening third, middle proof section, and final shot. Avoid repetitive action-only footage, looping the first frame, and unrelated scenes.`
             : "If a reference is a storyboard sheet, treat it as shot-order guidance and render clean full-frame video shots without grid borders, panel numbers, labels, arrows, captions, or collage layout.",
         "For cleaning or problem-solution products, the final shot must resolve the visible problem with a clean result plus product hero, not another before-state mess.",
-        "Make the hook dramatic but believable. Do not add fake prices, discounts, endorsements, certifications, medical effects, or impossible results.",
+        "Make the hook dramatic but believable. Do not add fake prices, discounts, endorsements, certifications, medical effects, impossible results, warped people, distorted faces, extra fingers, melted hands, or product/person hybrids.",
         `User direction: ${prompt.trim() || "Animate the reference naturally while preserving visual identity and scene continuity."}`,
     ].join("\n");
+}
+
+function normalizeDurationNumber(value: string) {
+    return Math.max(1, Math.floor(Number(value) || 6));
+}
+
+function formatDuration(value: number) {
+    return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {

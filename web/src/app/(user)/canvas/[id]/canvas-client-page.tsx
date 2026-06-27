@@ -29,6 +29,7 @@ import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { buildIdentityPreservingImageEditPrompt } from "@/lib/image-reference-prompt";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
+import { normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { BrandMark } from "@/components/brand/brand-mark";
 import { useAssetStore } from "@/stores/use-asset-store";
@@ -117,7 +118,7 @@ const STORYBOARD_REVIEW_NODE_MAX_HEIGHT = 720;
 const STORYBOARD_REVIEW_COLUMNS = 3;
 const STORYBOARD_REVIEW_ROWS = 4;
 const STORYBOARD_REVIEW_PANEL_COUNT = STORYBOARD_REVIEW_COLUMNS * STORYBOARD_REVIEW_ROWS;
-const STORYBOARD_VIDEO_FRAME_CROP = { x: 0.055, y: 0.05, width: 0.89, height: 0.9 };
+const STORYBOARD_VIDEO_FRAME_CROP = { x: 0.14, y: 0.055, width: 0.82, height: 0.88 };
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
 const CONNECTION_NODE_HIT_PADDING = 32;
 const NODE_STATUS_IDLE = "idle" as const;
@@ -2776,11 +2777,13 @@ function InfiniteCanvasPage() {
             const gap = 96;
             setRunningNodeId(planNode.id);
             const controller = startGenerationRequest(planNode.id, planNode.id, planNode.id);
+            const videoModel = generationConfig.model || generationConfig.videoModel || effectiveConfig.videoModel || effectiveConfig.model;
+            const videoSeconds = normalizeModelVideoSeconds(generationConfig.videoSeconds, videoModel);
 
             const compiledPrompt = compileVideoPrompt(plan, {
                 model: "grok",
-                duration: 15,
-                aspectRatio: effectiveConfig.size === "16:9" ? "16:9" : effectiveConfig.size === "1:1" ? "1:1" : "9:16",
+                duration: Number(videoSeconds),
+                aspectRatio: generationConfig.size === "16:9" ? "16:9" : generationConfig.size === "1:1" ? "1:1" : "9:16",
                 referenceMode: "i2v",
             });
 
@@ -2797,12 +2800,12 @@ function InfiniteCanvasPage() {
                     metadata: {
                         prompt: compiledPrompt,
                         status: NODE_STATUS_LOADING,
-                        model: effectiveConfig.videoModel || effectiveConfig.model,
-                        size: effectiveConfig.size,
-                        seconds: effectiveConfig.videoSeconds,
-                        vquality: effectiveConfig.vquality,
-                        generateAudio: effectiveConfig.videoGenerateAudio,
-                        watermark: effectiveConfig.videoWatermark,
+                        model: videoModel,
+                        size: generationConfig.size,
+                        seconds: videoSeconds,
+                        vquality: generationConfig.vquality,
+                        generateAudio: generationConfig.videoGenerateAudio,
+                        watermark: generationConfig.videoWatermark,
                         storyboardPlanId: planId,
                         storyboardBeatIndex: beat.index,
                     },
@@ -2828,7 +2831,7 @@ function InfiniteCanvasPage() {
                     const referenceImages = sourceNodeReferenceImages(entry.kfNode);
                     try {
                         const video = await storeGeneratedVideo(await requestVideoGeneration(
-                            { ...generationConfig, model: effectiveConfig.videoModel || effectiveConfig.model },
+                            { ...generationConfig, model: videoModel, videoSeconds },
                             compiledPrompt,
                             referenceImages,
                             [],
@@ -3081,7 +3084,7 @@ function InfiniteCanvasPage() {
                     const storyboardReferenceFrames = await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current);
                     const videoReferenceImages = mergeReferenceImages(storyboardReferenceFrames, generationContext.referenceImages);
                     const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, videoReferenceImages.length);
-                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(effectivePrompt, storyboardReferenceFrames.length);
+                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(effectivePrompt, storyboardReferenceFrames.length, videoGenerationConfig.videoSeconds);
                     if (!videoPrompt && !videoReferenceImages.length && !generationContext.referenceVideos.length && !generationContext.referenceAudios.length) {
                         throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
                     }
@@ -3291,7 +3294,7 @@ function InfiniteCanvasPage() {
                 }
                 if (node.type === CanvasNodeType.Video) {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
-                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(prompt, storyboardRetryImages.length);
+                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(prompt, storyboardRetryImages.length, generationConfig.videoSeconds);
                     const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, width: videoSize.width, height: videoSize.height, position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 }, metadata: { ...item.metadata, ...videoMetadata(video), prompt: videoPrompt, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, vquality: generationConfig.vquality, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, references: generationReferenceUrls({ referenceImages: retryImages, referenceVideos: context?.referenceVideos || [], referenceAudios: context?.referenceAudios || [] }) } } : item)));
@@ -4172,7 +4175,7 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
     const defaultModel = mode === "image" ? config.imageModel : mode === "video" ? config.videoModel : mode === "audio" ? config.audioModel : config.textModel;
     const configuredModel = node?.metadata?.model;
     const resolvedModel = configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : config.model || defaultConfig.model);
-    const resolvedVideoSeconds = mode === "video" && isGrokVideoModelName(resolvedModel) ? "15" : node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds;
+    const resolvedVideoSeconds = node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds;
     return {
         ...config,
         model: resolvedModel,
@@ -4188,11 +4191,6 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
         audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,
         count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultConfig.count),
     };
-}
-
-function isGrokVideoModelName(model: string | undefined) {
-    const normalized = (model || "").trim().toLowerCase();
-    return normalized === "grok-imagine-video" || normalized.endsWith("::grok-imagine-video");
 }
 
 function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
@@ -4296,38 +4294,51 @@ async function cropStoryboardVideoFrame(dataUrl: string) {
     }
 }
 
-function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferenceCount: number) {
+function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferenceCount: number, videoSeconds = "15") {
     const text = normalizeVideoGenerationPrompt(prompt);
     if (!storyboardReferenceCount) return text;
+    const duration = normalizeStoryboardVideoSeconds(videoSeconds);
+    const perReferenceSeconds = formatStoryboardSeconds(duration / Math.max(1, Math.min(STORYBOARD_REVIEW_PANEL_COUNT, storyboardReferenceCount)));
+    const maxLingerSeconds = formatStoryboardSeconds(Math.max(duration / Math.max(1, storyboardReferenceCount), duration / 10));
     if (storyboardReferenceCount >= STORYBOARD_REVIEW_PANEL_COUNT) {
         return [
-            compactStoryboardVideoPrompt(text),
-            "Create a 15-second vertical direct-response ecommerce video with a fast sales arc: 0-3s exaggerated hook and problem, 3-5s product-as-solution reveal, 5-10s demonstration and proof, 10-13s product/result reassurance, 13-15s final hero and purchase-intent beat.",
+            compactStoryboardVideoPrompt(text, duration),
+            `Create a ${duration}-second vertical direct-response ecommerce video. Map the storyboard by percentage, not fixed seconds: 0-20% hook/problem, 20-35% product-as-solution reveal, 35-70% demonstration and proof, 70-87% product/result reassurance, 87-100% final hero and purchase-intent beat.`,
             `The ${STORYBOARD_REVIEW_PANEL_COUNT} supplied reference images are the exact storyboard timeline in order: reference image 1 is the opening shot, reference image ${STORYBOARD_REVIEW_PANEL_COUNT} is the final shot.`,
-            "Follow the reference images sequentially from 1 to 12, using each reference as one short beat of about 1.25 seconds. Do not linger on any single reference for more than 2 seconds, do not loop the opening shot, and do not skip directly from hook to final product shot.",
-            "Match each frame's subject, composition, product position, action state, background, lighting, and camera distance as the corresponding moment in the video, then add smooth connective motion between beats.",
+            `Follow reference images sequentially from 1 to 12, using each reference as one short beat of about ${perReferenceSeconds} seconds. Do not linger on any single reference for more than about ${maxLingerSeconds} seconds, do not loop the opening shot, and do not skip directly from hook to final product shot.`,
+            "Use clean edited shot cuts between different subjects, angles, or camera distances. Do not morph, cross-dissolve, or interpolate human faces, hands, bodies, product bottles, and stove surfaces into one another.",
+            "Inside each shot, keep motion local and physically stable: facial features stay anatomically correct, hands keep the right number of fingers, the product label stays attached to the bottle, and the stove geometry remains rigid.",
             "Ignore and remove all storyboard artifacts from the references: no corner numbers, panel labels, borders, black badges, grid lines, captions, or sheet layout may appear in the video.",
             "Keep the first second thumb-stopping when the references support it: startled reaction, sudden mess, visible pain point, product pushed toward camera, or urgent camera push-in. Make it dramatic but believable.",
             "Keep the product visible in the opening third, middle proof section, and final hero shot, but avoid endless bottle close-ups. Do not spend the whole video on repetitive wiping, spraying, or generic motion.",
-            "For cleaning or problem-solution products, the final 2 seconds must resolve the visual problem: show the cleaned or improved result behind a clear product packshot. If an earlier reference still shows dirt or mess, treat it as before-state context, not the final outcome.",
-            "Do not add fake prices, fake discounts, endorsements, certifications, or exaggerated claims.",
+            "For cleaning or problem-solution products, the final 13% of the video must resolve the visual problem: show the cleaned or improved result behind a clear product packshot. If an earlier reference still shows dirt or mess, treat it as before-state context, not the final outcome.",
+            "Do not add fake prices, fake discounts, endorsements, certifications, exaggerated claims, warped people, distorted faces, extra fingers, melted hands, or product/person hybrids.",
             "Render only clean full-frame video shots with no panel numbers, grid borders, labels, arrows, captions, watermarks, or storyboard sheet layout.",
         ].join("\n");
     }
     return [
-        compactStoryboardVideoPrompt(text),
-        "Create a 15-second vertical direct-response ecommerce video: exaggerated first-second hook, product reveal, believable action/proof, then final product hero and purchase-intent beat.",
+        compactStoryboardVideoPrompt(text, duration),
+        `Create a ${duration}-second vertical direct-response ecommerce video: exaggerated first-second hook, product reveal, believable action/proof, then final product hero and purchase-intent beat.`,
         "The supplied storyboard frame references are mandatory shot-order guidance. Interpret the references as sequential beats and recreate them as clean full-frame video shots.",
+        "Use clean cuts between different shots. Do not morph human faces, hands, bodies, products, or backgrounds between references.",
         "Render only clean full-frame shots; omit visible grid layout, panel borders, panel numbers, labels, arrows, captions, collage format, and storyboard sheet presentation.",
         "Preserve the product identity, colors, label placement, scene logic, and camera orientation implied by the panels while turning them into smooth continuous motion.",
     ].join("\n");
 }
 
-function compactStoryboardVideoPrompt(prompt: string) {
+function compactStoryboardVideoPrompt(prompt: string, duration = 15) {
     if (prompt.length > 900) {
-        return "Create a 15-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order. Use an exaggerated but believable first-second hook, fast product reveal, demo/proof, and final packshot-plus-result hero. Preserve the product shape, colors, label placement, scene style, and camera framing shown in each frame.";
+        return `Create a ${duration}-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order. Use an exaggerated but believable first-second hook, fast product reveal, demo/proof, and final packshot-plus-result hero. Use clean shot cuts instead of morphing between human, product, and surface references. Preserve the product shape, colors, label placement, scene style, and camera framing shown in each frame.`;
     }
-    return prompt || "Create a 15-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order, ending on a product hero plus result shot.";
+    return prompt || `Create a ${duration}-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order, ending on a product hero plus result shot.`;
+}
+
+function normalizeStoryboardVideoSeconds(value: string) {
+    return Math.max(1, Math.floor(Number(normalizeModelVideoSeconds(value || "15", "grok-imagine-video")) || 15));
+}
+
+function formatStoryboardSeconds(value: number) {
+    return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function normalizeVideoGenerationPrompt(prompt: string) {
