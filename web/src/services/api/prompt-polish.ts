@@ -199,26 +199,28 @@ const VIDEO_PROMPT_SYSTEM = `角色
 - 客户的产品描述、视频目标或自由文本
 - 可能包含 CommerceVideoPlan JSON，也可能只是普通中文说明
 - 可能包含参考图、关键帧、产品图或场景图
-- 如果参考图是带编号的宫格/分镜候选图，把每个编号面板当作顺序镜头；最终视频必须是干净全屏镜头，不得出现宫格边框、编号、拼图版式或分镜页
+- 如果参考图是宫格/分镜候选图，把面板的阅读顺序当作镜头顺序；最终视频必须是干净全屏镜头，不得出现宫格边框、角标、拼图版式或分镜页
 
 输出格式
 只输出 Grok 版本：
 
 ## Grok Version
-输出 100-180 词英文单段 prompt。不要分段，不要时间轴。用逗号、then、while、as 连接成一条连续主线。强调主体一致、动作连续、物理真实、镜头跟随自然。
+输出 120-220 词英文单段 prompt。不要分段，不要时间轴。用逗号、then、while、as 连接成一条连续主线。强调主体一致、动作连续、物理真实、镜头跟随自然。
 
 编写规则
 - 所有视觉描述必须具体：主体、动作、场景、光影、镜头、风格、画质、约束都要明确。
-- Grok 适合简洁连续单主线，不要写时间轴分段。
+- Grok 适合简洁连续单主线，自由文本 prompt 不要写复杂时间轴；宫格转视频由画布单独补百分比节奏。
+- 必须像爆款带货短视频：夸张但可信的第一眼冲突或真人反应，产品迅速救场，过程有可见证明，结果有反差，最后回到产品英雄镜头和购买意图。
 - 4s 只保留 hook + cta；8s 加 pain；12s 加 demo；15s 使用完整 Hook → Pain → Demo → CTA 节奏。
 - 如果输入包含参考图，追加保真约束：Maintain visual continuity with the reference image, preserve subject appearance, color palette, product shape, label placement, and composition.
-- 如果输入包含12宫格或分镜候选图，追加：Use the numbered storyboard panels as shot-order guidance only; recreate them as clean full-frame shots and never show the grid, panel borders, labels, or collage layout.
+- 如果输入包含宫格或分镜候选图，追加：Use the storyboard grid as ordered shot guidance only; recreate each panel as a clean full-frame shot and never show the grid, panel borders, badges, labels, or collage layout.
+- 如果人物只在部分参考图中出现，把人物当作短反应/认可切镜；不要让人物贯穿产品、台面、包装等纯物体镜头，也不要在人和物之间变形过渡。
 - 如果输入明显是参考视频或动作序列，追加：Use the reference video as motion and rhythm guidance, preserve the subject and key visual elements from the reference frames.
 - 9:16 竖屏：主体居中偏上，避免裁切头脚或产品边缘。
 - 16:9 横屏：保留环境空间，让场景关系清楚。
 - 1:1 方图：主体居中，构图紧凑，避免空白过多。
 - 尾部追加强化词：4K ultra HD, cinematic quality, natural body proportions, smooth continuous motion, no frame skipping, consistent appearance throughout.
-- 末尾追加 Negative prompt：no storyboard labels, no arrows, no grid, no captions, no watermark, no distorted hands, no extra limbs, no unreadable product labels, no false medical claims.
+- 末尾追加 Negative prompt：no storyboard labels, no arrows, no grid, no captions, no watermark, no warped faces, no distorted hands, no extra limbs, no unreadable product labels, no false medical claims.
 
 合规约束
 - 保健品、医疗、护理类不得承诺治疗、康复、减肥、变美或永久效果。
@@ -482,18 +484,18 @@ export function buildSceneExpansionImagePrompt(plan: SceneExpansionPlan, scene: 
 }
 
 const STORYBOARD_REVIEW_MOMENTS = [
-    "0-1.0s human reaction plus visible problem in the same frame, not only a mess close-up",
-    "1.0-2.0s product jumps into the foreground as the obvious rescue solution, label readable",
-    "2.0-3.0s macro close-up of the problem or pain point, maximum visual tension",
-    "3.0-4.2s first product application begins with fast hand movement",
-    "4.2-5.4s visible product reaction, foam, mist, texture change, or active use process",
-    "5.4-6.8s wipe, peel, pour, press, or reveal action that starts the transformation",
-    "6.8-8.2s half-before half-after proof in one believable frame",
-    "8.2-9.6s macro proof of the improved result, shine, texture, or solved detail",
-    "9.6-10.8s product hero beside the improved result",
-    "10.8-12.2s human satisfaction, relief, approval gesture, or lifestyle ease moment",
-    "12.2-13.6s label-readable reassurance shot with product held forward and result behind it",
-    "13.6-15.0s final hero packshot plus clear result, product in front",
+    "opening human reaction plus visible problem in the same frame, not only a mess close-up",
+    "product jumps into the foreground as the obvious rescue solution, label readable",
+    "macro close-up of the problem or pain point, maximum visual tension",
+    "first product application begins with fast hand movement",
+    "visible product reaction, foam, mist, texture change, or active use process",
+    "wipe, peel, pour, press, or reveal action that starts the transformation",
+    "half-before half-after proof in one believable frame",
+    "macro proof of the improved result, shine, texture, or solved detail",
+    "product hero beside the improved result",
+    "human satisfaction, relief, approval gesture, or lifestyle ease moment",
+    "label-readable reassurance shot with product held forward and result behind it",
+    "final hero packshot plus clear result, product in front",
 ] as const;
 
 function beatForStoryboardPanel(beats: NonNullable<CanvasCommerceVideoPlan["beats"]>, panelIndex: number) {
@@ -517,14 +519,14 @@ function beatForStoryboardPanel(beats: NonNullable<CanvasCommerceVideoPlan["beat
 function storyboardReviewFrames(plan: CanvasCommerceVideoPlan, totalPanels = 12) {
     const beats = [...(plan.beats || [])].sort((a, b) => a.index - b.index);
     if (!beats.length) {
-        return Array.from({ length: totalPanels }, (_, index) => `Panel ${index + 1}: ${STORYBOARD_REVIEW_MOMENTS[index % STORYBOARD_REVIEW_MOMENTS.length]}.`);
+        return Array.from({ length: totalPanels }, (_, index) => `Hidden storyboard instruction: ${STORYBOARD_REVIEW_MOMENTS[index % STORYBOARD_REVIEW_MOMENTS.length]}.`);
     }
 
     return Array.from({ length: totalPanels }, (_, index) => {
         const beat = beatForStoryboardPanel(beats, index);
         const el = beat.eightElements;
         const detail = [el?.subject, el?.action, el?.scene, el?.lighting, el?.camera, el?.style, el?.constraint].filter(Boolean).join(", ") || beat.description;
-        return `Panel ${index + 1}: ${STORYBOARD_REVIEW_MOMENTS[index % STORYBOARD_REVIEW_MOMENTS.length]}. Use beat ${beat.index} ${beat.phase} (${beat.timeRange || "planned timing"}) as source material. ${detail}`;
+        return `Hidden storyboard instruction: ${STORYBOARD_REVIEW_MOMENTS[index % STORYBOARD_REVIEW_MOMENTS.length]}. Use the matching ${beat.phase} source material. ${detail}`;
     });
 }
 
@@ -536,30 +538,31 @@ export function buildStoryboardReviewSheetPrompt(plan: CanvasCommerceVideoPlan, 
         "Variant direction: cleaner studio/product-proof style with sharper detail frames and a confident CTA.",
     ];
     return [
-        "Create ONE strict 12-frame storyboard contact sheet for a direct-response e-commerce short video.",
-        "The top priority is geometry: exactly 3 columns x 4 rows, exactly 12 equal rectangular panels, clear dark panel dividers, no missing cells, no merged cells, no hero panel.",
+        "Create ONE strict twelve-frame storyboard contact sheet for a direct-response e-commerce short video.",
+        "The top priority is geometry: exactly three columns by four rows, exactly twelve equal rectangular panels, clear dark panel dividers, no missing cells, no merged cells, no hero panel.",
         "Each panel must be a separate full-bleed video thumbnail. The result must look like a storyboard sheet, not a product poster, not an advertising banner, not a collage with unequal blocks.",
+        "Keep every panel corner clean and photograph-only. The following sequence notes are hidden production instructions only: do not add overlay badges, labels, text, step markers, corner tags, or ordering glyphs inside the panels.",
         "This image is for human review and later video generation. It must communicate a selling video arc, not just pretty keyframes.",
         `Product category: ${plan.productCategory || "e-commerce product"}.`,
         plan.hookDescription ? `Hook strategy: ${plan.hookDescription}.` : "",
         plan.enhancementWords ? `Shared style and quality: ${plan.enhancementWords}.` : "",
         variantNotes[(Math.max(1, variantIndex) - 1) % variantNotes.length],
-        "Panel plan:",
+        "Hidden sequence plan:",
         ...storyboardReviewFrames(plan).map((line) => `- ${line}`),
         "Rules:",
         "- Preserve one consistent product identity, packaging, colors, materials, logo placement, scale, and lighting logic across all panels.",
-        "- Show 12 visibly different storyboard moments, not one repeated image and not fewer than 12 panels. Do not repeat the same wiping, spraying, hand pose, or camera angle in 4 or more panels.",
-        "- Build a high-retention sales rhythm: panel 1 must include a human reaction or human interruption plus the problem in frame when people are plausible; panels 2-3 introduce the product and problem tension; panels 4-8 show ordered action and proof; panels 9-12 return to product hero, result, and purchase intent.",
+        "- Show twelve visibly different storyboard moments, not one repeated image and not fewer than twelve panels. Do not repeat the same wiping, spraying, hand pose, or camera angle too many times.",
+        "- Build a high-retention sales rhythm: the opening panel must include a human reaction or human interruption plus the problem in frame when people are plausible; the next early panels introduce the product and problem tension; the middle panels show ordered action and proof; the final row returns to product hero, result, and purchase intent.",
         "- Prefer social-ad style hooks when relevant: startled facial reaction, sudden spill or mess, embarrassing everyday problem, dramatic close-up of the pain point, product pushed toward camera, fast hand movement, urgent camera push-in. Keep it visually exaggerated, but not false.",
         "- Follow cause-and-effect order. Do not show wiping before product application for cleaning products, do not solve the problem before the proof panel, and do not jump from dirty to clean without an action frame.",
-        "- At most 2 panels may be pure problem-only close-ups. Every other panel should include a product, a person, an action, a contrast, or a result.",
+        "- At most two panels may be pure problem-only close-ups. Every other panel should include a product, a person, an action, a contrast, or a result.",
         "- For cleaning, kitchen, beauty, home, tool, and daily-use products, avoid unsafe or illogical contact: do not show bare hands touching grease, chemicals, grime, sharp objects, or hot surfaces. Use a cloth, sponge, glove, applicator, or safe hand pose.",
-        "- The product or packaging must be clearly visible by panel 2 or 3, again around the middle proof moment, and in the final 2 panels. Keep label readability when a label is naturally visible.",
+        "- The product or packaging must be clearly visible early, again around the middle proof moment, and in the final two panels. Keep label readability when a label is naturally visible.",
         "- Include one strong before/after or problem/result contrast inside a single middle panel, plus one clean result proof panel after it. Keep the transformation visually realistic for the product category.",
-        "- Panels 11 and 12 must not be near-duplicates. Panel 11 should be a label-readable hand-held product reassurance shot; panel 12 should be the clean final packshot with product in front and result or lifestyle context behind it.",
-        "- Do not add poster headlines, Chinese marketing slogans, CTA banners, big title text, dense captions, callout arrows, UI chrome, or watermark. Small corner numbers 1-12 are allowed only if they do not replace the images.",
+        "- The last two panels must not be near-duplicates. The penultimate panel should be a label-readable hand-held product reassurance shot; the final panel should be the clean final packshot with product in front and result or lifestyle context behind it.",
+        "- Do not add poster headlines, Chinese marketing slogans, CTA banners, big title text, dense captions, callout arrows, UI chrome, watermark, sequence labels, step badges, corner tags, ordering glyphs, or ordering text.",
         "- Keep all claims visually conservative and realistic. Do not invent certifications, prices, discounts, medical effects, user reviews, or impossible before/after results.",
-        "- Output a single vertical 12-panel storyboard sheet. If there is any ambiguity, prefer a clean 3x4 grid over decorative advertising design.",
+        "- Output a single vertical twelve-panel storyboard sheet. If there is any ambiguity, prefer a clean three-by-four grid over decorative advertising design.",
     ].filter(Boolean).join("\n");
 }
 
