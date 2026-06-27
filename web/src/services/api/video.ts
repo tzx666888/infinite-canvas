@@ -89,7 +89,7 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
     body.append("resolution_name", normalizeVideoResolution(config.vquality));
     body.append("preset", "normal");
-    const files = await Promise.all(references.slice(0, 7).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
+    const files = await Promise.all(references.slice(0, 12).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
     files.forEach((file) => body.append("input_reference", file));
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
@@ -115,7 +115,9 @@ function buildReferenceVideoPrompt(prompt: string, referenceCount: number) {
         "Use the attached reference image(s) as visual guidance.",
         "Keep the same subject or product identity, packaging geometry, colors, logo placement, object count, environment, and camera orientation.",
         "Apply the requested motion while preserving visual continuity.",
-        "If a reference is a numbered storyboard grid, treat the panels as shot-order guidance and render clean full-frame video shots without grid borders, panel numbers, labels, arrows, captions, or collage layout.",
+        referenceCount >= 8
+            ? "When many reference images are attached, treat them as an ordered storyboard sequence. Follow them in upload order as the video timeline, connecting them with smooth motion and no unrelated scenes."
+            : "If a reference is a storyboard sheet, treat it as shot-order guidance and render clean full-frame video shots without grid borders, panel numbers, labels, arrows, captions, or collage layout.",
         `User direction: ${prompt.trim() || "Animate the reference naturally while preserving visual identity and scene continuity."}`,
     ].join("\n");
 }

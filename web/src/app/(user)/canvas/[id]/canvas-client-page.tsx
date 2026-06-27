@@ -114,6 +114,9 @@ const VIDEO_NODE_MAX_WIDTH = 420;
 const VIDEO_NODE_MAX_HEIGHT = 420;
 const STORYBOARD_REVIEW_NODE_MAX_WIDTH = 420;
 const STORYBOARD_REVIEW_NODE_MAX_HEIGHT = 720;
+const STORYBOARD_REVIEW_COLUMNS = 3;
+const STORYBOARD_REVIEW_ROWS = 4;
+const STORYBOARD_REVIEW_PANEL_COUNT = STORYBOARD_REVIEW_COLUMNS * STORYBOARD_REVIEW_ROWS;
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
 const CONNECTION_NODE_HIT_PADDING = 32;
 const NODE_STATUS_IDLE = "idle" as const;
@@ -3074,10 +3077,10 @@ function InfiniteCanvasPage() {
 
                 if (mode === "video") {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
-                    const storyboardReferenceImages = storyboardReviewSheetReferenceImages(nodeId, nodesRef.current, connectionsRef.current);
-                    const videoReferenceImages = mergeReferenceImages(generationContext.referenceImages, storyboardReferenceImages);
+                    const storyboardReferenceFrames = await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current);
+                    const videoReferenceImages = mergeReferenceImages(storyboardReferenceFrames, generationContext.referenceImages);
                     const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, videoReferenceImages.length);
-                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(effectivePrompt, storyboardReferenceImages.length);
+                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(effectivePrompt, storyboardReferenceFrames.length);
                     if (!videoPrompt && !videoReferenceImages.length && !generationContext.referenceVideos.length && !generationContext.referenceAudios.length) {
                         throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
                     }
@@ -3088,7 +3091,7 @@ function InfiniteCanvasPage() {
                     const videoNode: CanvasNodeData = {
                         id: videoId,
                         type: CanvasNodeType.Video,
-                        title: effectivePrompt.slice(0, 32) || (storyboardReferenceImages.length ? "Storyboard Video" : "Generated Video"),
+                        title: effectivePrompt.slice(0, 32) || (storyboardReferenceFrames.length ? "Storyboard Video" : "Generated Video"),
                         position: isEmptyVideoNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y },
                         width: isEmptyVideoNode ? sourceNode.width : spec.width,
                         height: isEmptyVideoNode ? sourceNode.height : spec.height,
@@ -3229,7 +3232,7 @@ function InfiniteCanvasPage() {
             const retryBasePrompt = node.type === CanvasNodeType.Video ? node.metadata?.prompt || sourceNode.metadata?.prompt || "" : sourceNode.metadata?.prompt || node.metadata?.prompt || "";
             const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, retryBasePrompt));
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
-            const storyboardRetryImages = node.type === CanvasNodeType.Video ? storyboardReviewSheetReferenceImages(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
+            const storyboardRetryImages = node.type === CanvasNodeType.Video ? await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const hasVideoReferences = node.type === CanvasNodeType.Video && Boolean(storyboardRetryImages.length || context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
             if (!prompt && !hasVideoReferences) {
                 message.warning("找不到提示词，无法重试");
@@ -3245,7 +3248,7 @@ function InfiniteCanvasPage() {
                 return;
             }
             const retrySourceImages = hasSavedImageMetadata ? [] : sourceNodeReferenceImages(sourceNode);
-            const retryImages = mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
+            const retryImages = node.type === CanvasNodeType.Video ? mergeReferenceImages(storyboardRetryImages, retrySourceImages, retryReferenceImages || []) : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
             if (node.type === CanvasNodeType.Video) generationConfig = resolveReferenceImageVideoConfig(generationConfig, retryImages.length);
             const retryPrompt = savedImageMetadata?.productDetailShot
                 ? prompt
@@ -4243,25 +4246,53 @@ function findRetrySourceNode(nodeId: string, nodes: CanvasNodeData[], connection
     return null;
 }
 
-function storyboardReviewSheetReferenceImages(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+async function storyboardReviewSheetReferenceFrames(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const node = nodes.find((item) => item.id === nodeId);
     const reviewSheets = [
         ...(node && isStoryboardReviewSheetNode(node) ? [node] : []),
         ...getGenerationResourceNodes(nodeId, nodes, connections).filter(isStoryboardReviewSheetNode),
     ];
-    return mergeReferenceImages(...reviewSheets.map((item) => sourceNodeReferenceImages(item)));
+    const frameGroups = await Promise.all(reviewSheets.map((item) => splitStoryboardReviewSheetNode(item)));
+    return mergeReferenceImages(...frameGroups);
 }
 
 function isStoryboardReviewSheetNode(node: CanvasNodeData) {
     return node.type === CanvasNodeType.Image && node.metadata?.storyboardRole === "review-sheet";
 }
 
+async function splitStoryboardReviewSheetNode(node: CanvasNodeData): Promise<ReferenceImage[]> {
+    const [reference] = sourceNodeReferenceImages(node);
+    if (!reference) return [];
+    const dataUrl = await imageToDataUrl(reference);
+    if (!dataUrl) return [];
+    try {
+        const pieces = await splitDataUrl(dataUrl, { rows: STORYBOARD_REVIEW_ROWS, columns: STORYBOARD_REVIEW_COLUMNS });
+        return pieces.slice(0, STORYBOARD_REVIEW_PANEL_COUNT).map((piece, index) => ({
+            id: `${reference.id}-storyboard-frame-${index + 1}`,
+            name: `${node.title || reference.id}-frame-${String(index + 1).padStart(2, "0")}.png`,
+            type: "image/png",
+            dataUrl: piece.dataUrl,
+        }));
+    } catch {
+        return [reference];
+    }
+}
+
 function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferenceCount: number) {
     const text = normalizeVideoGenerationPrompt(prompt);
     if (!storyboardReferenceCount) return text;
+    if (storyboardReferenceCount >= STORYBOARD_REVIEW_PANEL_COUNT) {
+        return [
+            compactStoryboardVideoPrompt(text),
+            `The ${STORYBOARD_REVIEW_PANEL_COUNT} supplied reference images are the exact storyboard timeline in order: reference image 1 is the opening shot, reference image ${STORYBOARD_REVIEW_PANEL_COUNT} is the final shot.`,
+            "Follow the reference images sequentially from 1 to 12. Match each frame's subject, composition, product position, action state, background, lighting, and camera distance as the corresponding moment in the video.",
+            "Create smooth motion that connects the frames; do not invent unrelated scenes, do not reshuffle the order, and do not turn the references into a collage or split-screen.",
+            "Render only clean full-frame video shots with no panel numbers, grid borders, labels, arrows, captions, watermarks, or storyboard sheet layout.",
+        ].join("\n");
+    }
     return [
         compactStoryboardVideoPrompt(text),
-        "The supplied numbered storyboard grid is mandatory shot-order guidance. Interpret the numbered panels as sequential beats and recreate them as clean full-frame video shots.",
+        "The supplied storyboard frame references are mandatory shot-order guidance. Interpret the references as sequential beats and recreate them as clean full-frame video shots.",
         "Render only clean full-frame shots; omit visible grid layout, panel borders, panel numbers, labels, arrows, captions, collage format, and storyboard sheet presentation.",
         "Preserve the product identity, colors, label placement, scene logic, and camera orientation implied by the panels while turning them into smooth continuous motion.",
     ].join("\n");
@@ -4269,9 +4300,9 @@ function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferen
 
 function compactStoryboardVideoPrompt(prompt: string) {
     if (prompt.length > 900) {
-        return "Create a vertical ecommerce video following the attached numbered storyboard grid from panel 1 to panel 12. Use smooth natural camera movement, realistic lighting, consistent product identity, and a clear action-to-hero-shot rhythm. Preserve the product shape, colors, label placement, scene style, and camera framing shown in the grid.";
+        return "Create a vertical ecommerce video following the supplied 12 storyboard reference frames in exact order. Use smooth natural camera movement, realistic lighting, consistent product identity, and a clear action-to-hero-shot rhythm. Preserve the product shape, colors, label placement, scene style, and camera framing shown in each frame.";
     }
-    return prompt || "Create a vertical ecommerce video following the attached numbered storyboard grid from panel 1 to panel 12.";
+    return prompt || "Create a vertical ecommerce video following the supplied 12 storyboard reference frames in exact order.";
 }
 
 function normalizeVideoGenerationPrompt(prompt: string) {
