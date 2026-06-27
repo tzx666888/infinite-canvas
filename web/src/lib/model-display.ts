@@ -12,7 +12,7 @@ export function modelDisplayInfo(model: string): ModelDisplayInfo {
     if (lower === "grok-imagine-video") {
         return {
             label: "Grok 视频",
-            description: "适合创意短视频和动态镜头，当前固定使用 15s。",
+            description: "适合创意短视频和动态镜头，支持 6s / 10s / 15s。",
             badge: "Grok",
         };
     }

@@ -105,7 +105,7 @@ async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorizatio
         const form = new FormData();
         form.append("model", stringValue(payload.model) || "grok-imagine-video");
         form.append("prompt", stringValue(payload.prompt));
-        form.append("seconds", "15");
+        form.append("seconds", legacyGrokVideoSeconds(payload.seconds));
         form.append("size", legacyVideoSize(payload.aspect_ratio));
         form.append("resolution_name", legacyVideoResolution(payload.resolution));
         form.append("preset", "normal");
@@ -146,6 +146,7 @@ async function proxyLegacyGrokVideoPoll(upstreamUrl: URL, authorization: string,
 type LegacyGrokVideoPayload = {
     model?: unknown;
     prompt?: unknown;
+    seconds?: unknown;
     reference_images?: Array<{ url?: unknown } | null>;
     aspect_ratio?: unknown;
     resolution?: unknown;
@@ -221,6 +222,13 @@ function legacyVideoSize(value: unknown) {
 function legacyVideoResolution(value: unknown) {
     const resolution = stringValue(value).replace(/p$/i, "") || "720";
     return `${resolution}p`;
+}
+
+function legacyGrokVideoSeconds(value: unknown) {
+    const raw = typeof value === "number" ? value : Number(stringValue(value));
+    const seconds = Math.floor(Number.isFinite(raw) && raw > 0 ? raw : 15);
+    const options = [6, 10, 15];
+    return String(options.reduce((best, candidate) => (Math.abs(candidate - seconds) < Math.abs(best - seconds) ? candidate : best)));
 }
 
 function legacyImageExtension(mimeType: string) {

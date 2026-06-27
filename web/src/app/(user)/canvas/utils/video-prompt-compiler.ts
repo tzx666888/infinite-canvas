@@ -4,7 +4,7 @@ export type VideoTargetModel = "grok" | "veo";
 
 export type VideoPromptContext = {
     model: VideoTargetModel;
-    duration: 4 | 8 | 12 | 15;
+    duration: number;
     aspectRatio: "9:16" | "16:9" | "1:1";
     referenceMode: "t2v" | "i2v" | "r2v";
 };
@@ -62,14 +62,14 @@ function compileGrokPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBe
         : `open with an exaggerated but believable social-ad hook for ${category}, reveal the product as the obvious solution, demonstrate proof, then finish with a product hero shot and a purchase cue`;
     const prompt = [
         `Create a ${context.duration}-second ${aspectText(context.aspectRatio)} commerce video for ${category}.`,
-        `Use a direct-response short-video rhythm: 0-3s dramatic mishap, pain reaction, or visual shock; 3-5s product pushed into the foreground as the solution; 5-10s clear demo and proof; 10-15s result reassurance and final hero.`,
+        `Use a direct-response short-video rhythm by percentage: 0-20% dramatic mishap, pain reaction, or visual shock; 20-35% product pushed into the foreground as the solution; 35-70% clear demo and proof; 70-100% result reassurance and final hero.`,
         `Use one continuous visual storyline: ${actionChain}.`,
         `Keep the subject consistent, the camera movement smooth, and the product clearly visible in every important moment.`,
-        `Make the hook thumb-stopping with fast camera energy, expressive human reaction, sudden mess, visible pain point, or product-forward close-up when relevant, but keep it believable.`,
+        `Make the hook thumb-stopping with fast camera energy, expressive human reaction, sudden mess, visible pain point, or product-forward close-up when relevant, but keep it believable. If people appear, keep faces, hands, fingers, and body proportions anatomically stable.`,
         `Use realistic lighting, believable physical motion, and a clean conversion-focused ending that shows the product with the result without inventing claims.`,
         referenceConstraint(context.referenceMode),
         plan.enhancementWords || DEFAULT_ENHANCEMENT_WORDS,
-        "Negative prompt: no fake medical claims, no fake endorsements, no unreadable text overlays, no distorted hands, no duplicated subjects, no sudden scene jumps.",
+        "Negative prompt: no fake medical claims, no fake endorsements, no unreadable text overlays, no distorted hands, no warped faces, no extra fingers, no melted people, no product/person hybrids, no duplicated subjects, no sudden scene jumps.",
     ]
         .filter(Boolean)
         .join(" ");
