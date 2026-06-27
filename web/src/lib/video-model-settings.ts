@@ -1,9 +1,7 @@
-const VEO_DURATION_OPTIONS = [4, 8, 12, 15] as const;
 const GROK_DURATION_OPTIONS = [6, 10, 15] as const;
 
 export function fixedVideoDurationOptions(model: string): readonly number[] | null {
     const normalized = model.trim().toLowerCase().split("::").at(-1) || "";
-    if (normalized.startsWith("veo_3_1_")) return VEO_DURATION_OPTIONS;
     if (normalized === "grok-imagine-video") return GROK_DURATION_OPTIONS;
     return null;
 }

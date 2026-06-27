@@ -16,22 +16,11 @@ export function selectReferenceImageVideoModel(config: AiConfig, referenceImageC
     const currentModel = config.model || config.videoModel;
     if (!referenceImageCount || isGrokReferenceVideoModel(currentModel)) return currentModel;
     const grokModel = pickVideoModel(config, isGrokReferenceVideoModel);
-    if (grokModel) return grokModel;
-    if (supportsReferenceImageVideoModel(currentModel)) return currentModel;
-    return pickVideoModel(config, isMultiReferenceVeoModel) || pickVideoModel(config, isImageReferenceVeoModel) || currentModel;
-}
-
-export function shouldUseVeoPromptForVideo(config: AiConfig, referenceImageCount: number) {
-    return modelOptionName(config.model || config.videoModel).toLowerCase().includes("veo");
+    return grokModel || "default::grok-imagine-video";
 }
 
 function pickVideoModel(config: AiConfig, predicate: (model: string) => boolean) {
     return config.videoModels.find((model) => predicate(model) && matchesRequestedOrientation(model, config.size)) || config.videoModels.find(predicate);
-}
-
-function supportsReferenceImageVideoModel(model: string) {
-    const value = modelOptionName(model).toLowerCase();
-    return isGrokReferenceVideoModel(value) || isImageReferenceVeoModel(value) || value.includes("seedance");
 }
 
 function isGrokReferenceVideoModel(model: string) {
@@ -41,15 +30,6 @@ function isGrokReferenceVideoModel(model: string) {
 function normalizeGrokReferenceVideoSeconds(value: string) {
     const seconds = Math.floor(Number(value) || 6);
     return String(Math.max(1, Math.min(10, seconds)));
-}
-
-function isMultiReferenceVeoModel(model: string) {
-    return modelOptionName(model).toLowerCase().startsWith("veo_3_1_r2v");
-}
-
-function isImageReferenceVeoModel(model: string) {
-    const value = modelOptionName(model).toLowerCase();
-    return value.startsWith("veo_3_1_r2v") || value.startsWith("veo_3_1_i2v");
 }
 
 function matchesRequestedOrientation(model: string, size: string) {
