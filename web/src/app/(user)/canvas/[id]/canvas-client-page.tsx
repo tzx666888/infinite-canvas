@@ -117,6 +117,7 @@ const STORYBOARD_REVIEW_NODE_MAX_HEIGHT = 720;
 const STORYBOARD_REVIEW_COLUMNS = 3;
 const STORYBOARD_REVIEW_ROWS = 4;
 const STORYBOARD_REVIEW_PANEL_COUNT = STORYBOARD_REVIEW_COLUMNS * STORYBOARD_REVIEW_ROWS;
+const STORYBOARD_VIDEO_FRAME_CROP = { x: 0.055, y: 0.05, width: 0.89, height: 0.9 };
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
 const CONNECTION_NODE_HIT_PADDING = 32;
 const NODE_STATUS_IDLE = "idle" as const;
@@ -4274,14 +4275,24 @@ async function splitStoryboardReviewSheetNode(node: CanvasNodeData): Promise<Ref
     if (!dataUrl) return [];
     try {
         const pieces = await splitDataUrl(dataUrl, { rows: STORYBOARD_REVIEW_ROWS, columns: STORYBOARD_REVIEW_COLUMNS });
-        return pieces.slice(0, STORYBOARD_REVIEW_PANEL_COUNT).map((piece, index) => ({
-            id: `${reference.id}-storyboard-frame-${index + 1}`,
-            name: `${node.title || reference.id}-frame-${String(index + 1).padStart(2, "0")}.png`,
-            type: "image/png",
-            dataUrl: piece.dataUrl,
-        }));
+        return Promise.all(
+            pieces.slice(0, STORYBOARD_REVIEW_PANEL_COUNT).map(async (piece, index) => ({
+                id: `${reference.id}-storyboard-frame-${index + 1}`,
+                name: `${node.title || reference.id}-frame-${String(index + 1).padStart(2, "0")}.png`,
+                type: "image/png",
+                dataUrl: await cropStoryboardVideoFrame(piece.dataUrl),
+            })),
+        );
     } catch {
         return [reference];
+    }
+}
+
+async function cropStoryboardVideoFrame(dataUrl: string) {
+    try {
+        return await cropDataUrl(dataUrl, STORYBOARD_VIDEO_FRAME_CROP);
+    } catch {
+        return dataUrl;
     }
 }
 
@@ -4293,11 +4304,13 @@ function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferen
             compactStoryboardVideoPrompt(text),
             "Create a 15-second vertical direct-response ecommerce video with a fast sales arc: 0-3s exaggerated hook and problem, 3-5s product-as-solution reveal, 5-10s demonstration and proof, 10-13s product/result reassurance, 13-15s final hero and purchase-intent beat.",
             `The ${STORYBOARD_REVIEW_PANEL_COUNT} supplied reference images are the exact storyboard timeline in order: reference image 1 is the opening shot, reference image ${STORYBOARD_REVIEW_PANEL_COUNT} is the final shot.`,
-            "Follow the reference images sequentially from 1 to 12. Match each frame's subject, composition, product position, action state, background, lighting, and camera distance as the corresponding moment in the video.",
-            "Create smooth motion that connects the frames; do not invent unrelated scenes, do not reshuffle the order, and do not turn the references into a collage or split-screen.",
+            "Follow the reference images sequentially from 1 to 12, using each reference as one short beat of about 1.25 seconds. Do not linger on any single reference for more than 2 seconds, do not loop the opening shot, and do not skip directly from hook to final product shot.",
+            "Match each frame's subject, composition, product position, action state, background, lighting, and camera distance as the corresponding moment in the video, then add smooth connective motion between beats.",
+            "Ignore and remove all storyboard artifacts from the references: no corner numbers, panel labels, borders, black badges, grid lines, captions, or sheet layout may appear in the video.",
             "Keep the first second thumb-stopping when the references support it: startled reaction, sudden mess, visible pain point, product pushed toward camera, or urgent camera push-in. Make it dramatic but believable.",
-            "Keep the product visible in the opening third, middle proof section, and final hero shot. Do not spend the whole video on repetitive wiping, spraying, or generic motion.",
-            "Make the final 2 seconds feel like a clean packshot plus result frame. Do not add fake prices, fake discounts, endorsements, certifications, or exaggerated claims.",
+            "Keep the product visible in the opening third, middle proof section, and final hero shot, but avoid endless bottle close-ups. Do not spend the whole video on repetitive wiping, spraying, or generic motion.",
+            "For cleaning or problem-solution products, the final 2 seconds must resolve the visual problem: show the cleaned or improved result behind a clear product packshot. If an earlier reference still shows dirt or mess, treat it as before-state context, not the final outcome.",
+            "Do not add fake prices, fake discounts, endorsements, certifications, or exaggerated claims.",
             "Render only clean full-frame video shots with no panel numbers, grid borders, labels, arrows, captions, watermarks, or storyboard sheet layout.",
         ].join("\n");
     }
