@@ -4303,10 +4303,11 @@ function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferen
     if (storyboardReferenceCount >= STORYBOARD_REVIEW_PANEL_COUNT) {
         return [
             compactStoryboardVideoPrompt(text, duration),
-            `Create a ${duration}-second vertical direct-response ecommerce video. Map the storyboard by percentage, not fixed seconds: 0-20% hook/problem, 20-35% product-as-solution reveal, 35-70% demonstration and proof, 70-87% product/result reassurance, 87-100% final hero and purchase-intent beat.`,
+            `Create a ${duration}-second vertical direct-response ecommerce video with a viral commerce structure. Map the storyboard by percentage, not fixed seconds: 0-20% exaggerated but believable hook/problem, 20-35% product-as-rescue reveal, 35-70% hands-on demonstration and proof, 70-87% contrast result and reassurance, 87-100% final product hero and purchase-intent beat.`,
             `The ${STORYBOARD_REVIEW_PANEL_COUNT} supplied reference images are the exact storyboard timeline in order: reference image 1 is the opening shot, reference image ${STORYBOARD_REVIEW_PANEL_COUNT} is the final shot.`,
-            `Follow reference images sequentially from 1 to 12, using each reference as one short beat of about ${perReferenceSeconds} seconds. Do not linger on any single reference for more than about ${maxLingerSeconds} seconds, do not loop the opening shot, and do not skip directly from hook to final product shot.`,
+            `Follow reference images sequentially from 1 to 12, using each reference as one short beat of about ${perReferenceSeconds} seconds. Anchor every shot to the corresponding reference beat; do not generate an unrelated autonomous video. Do not linger on any single reference for more than about ${maxLingerSeconds} seconds, do not loop the opening shot, and do not skip directly from hook to final product shot.`,
             "Use clean edited shot cuts between different subjects, angles, or camera distances. Do not morph, cross-dissolve, or interpolate human faces, hands, bodies, product bottles, and stove surfaces into one another.",
+            "When a person appears in only some references, use that person as a short reaction or approval cutaway only. Do not carry the person through product-only, surface-only, or packshot beats, and never transform a person into a product or background.",
             "Inside each shot, keep motion local and physically stable: facial features stay anatomically correct, hands keep the right number of fingers, the product label stays attached to the bottle, and the stove geometry remains rigid.",
             "Ignore and remove all storyboard artifacts from the references: no corner numbers, panel labels, borders, black badges, grid lines, captions, or sheet layout may appear in the video.",
             "Keep the first second thumb-stopping when the references support it: startled reaction, sudden mess, visible pain point, product pushed toward camera, or urgent camera push-in. Make it dramatic but believable.",
@@ -4318,9 +4319,9 @@ function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferen
     }
     return [
         compactStoryboardVideoPrompt(text, duration),
-        `Create a ${duration}-second vertical direct-response ecommerce video: exaggerated first-second hook, product reveal, believable action/proof, then final product hero and purchase-intent beat.`,
+        `Create a ${duration}-second vertical direct-response ecommerce video: exaggerated first-second hook, fast product rescue reveal, believable action/proof, contrast result, then final product hero and purchase-intent beat.`,
         "The supplied storyboard frame references are mandatory shot-order guidance. Interpret the references as sequential beats and recreate them as clean full-frame video shots.",
-        "Use clean cuts between different shots. Do not morph human faces, hands, bodies, products, or backgrounds between references.",
+        "Use clean cuts between different shots. Do not morph human faces, hands, bodies, products, or backgrounds between references; if people appear only in some shots, keep them as brief reaction cutaways.",
         "Render only clean full-frame shots; omit visible grid layout, panel borders, panel numbers, labels, arrows, captions, collage format, and storyboard sheet presentation.",
         "Preserve the product identity, colors, label placement, scene logic, and camera orientation implied by the panels while turning them into smooth continuous motion.",
     ].join("\n");
@@ -4328,9 +4329,9 @@ function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferen
 
 function compactStoryboardVideoPrompt(prompt: string, duration = 15) {
     if (prompt.length > 900) {
-        return `Create a ${duration}-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order. Use an exaggerated but believable first-second hook, fast product reveal, demo/proof, and final packshot-plus-result hero. Use clean shot cuts instead of morphing between human, product, and surface references. Preserve the product shape, colors, label placement, scene style, and camera framing shown in each frame.`;
+        return `Create a ${duration}-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order. Use an exaggerated but believable first-second hook, fast product rescue reveal, demo/proof, contrast result, and final packshot-plus-result hero. Anchor every shot to the matching reference beat; do not generate unrelated footage. Use clean shot cuts instead of morphing between human, product, and surface references. Preserve the product shape, colors, label placement, scene style, and camera framing shown in each frame.`;
     }
-    return prompt || `Create a ${duration}-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order, ending on a product hero plus result shot.`;
+    return prompt || `Create a ${duration}-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order, using a strong hook, product rescue, proof, contrast result, and final product hero plus result shot.`;
 }
 
 function normalizeStoryboardVideoSeconds(value: string) {
@@ -4351,15 +4352,23 @@ function extractVideoPromptVersion(prompt: string) {
 }
 
 function extractPromptSection(prompt: string, heading: string) {
-    const pattern = new RegExp(`##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\nCreate ONE strict \\d+-frame storyboard contact sheet|\\nRules:\\s*|\\nThe supplied numbered storyboard grid|$)`, "i");
+    const pattern = new RegExp(`##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\nCreate ONE strict (?:\\d+|twelve)-frame storyboard contact sheet|\\nHidden sequence plan:\\s*|\\nRules:\\s*|\\nThe supplied (?:numbered )?storyboard grid|$)`, "i");
     return prompt.match(pattern)?.[1]?.trim() || "";
 }
 
 function stripStoryboardSheetPrompt(prompt: string) {
-    const markers = ["\nCreate ONE strict 12-frame storyboard contact sheet", "\nPanel plan:", "\nRules:\n- Preserve one consistent product identity", "\nThe supplied numbered storyboard grid is mandatory shot-order guidance"];
+    const markers = [
+        "\nCreate ONE strict 12-frame storyboard contact sheet",
+        "\nCreate ONE strict twelve-frame storyboard contact sheet",
+        "\nPanel plan:",
+        "\nHidden sequence plan:",
+        "\nRules:\n- Preserve one consistent product identity",
+        "\nThe supplied numbered storyboard grid is mandatory shot-order guidance",
+        "\nThe supplied storyboard grid is mandatory shot-order guidance",
+    ];
     const firstMarker = markers.map((marker) => prompt.indexOf(marker)).filter((index) => index >= 0).sort((a, b) => a - b)[0];
     const text = firstMarker === undefined ? prompt : prompt.slice(0, firstMarker);
-    return text.replace(/\n?Output a single vertical 12-panel storyboard sheet\.[\s\S]*$/i, "");
+    return text.replace(/\n?Output a single vertical (?:12|twelve)-panel storyboard sheet\.[\s\S]*$/i, "");
 }
 
 function sanitizeVideoProviderPrompt(prompt: string) {
