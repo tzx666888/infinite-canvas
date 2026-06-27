@@ -2774,7 +2774,7 @@ function InfiniteCanvasPage() {
             const controller = startGenerationRequest(planNode.id, planNode.id, planNode.id);
 
             const compiledPrompt = compileVideoPrompt(plan, {
-                model: (effectiveConfig.videoModel || "").toLowerCase().includes("veo") ? "veo" : "grok",
+                model: "grok",
                 duration: (plan.beats!.length <= 2 ? 4 : plan.beats!.length <= 3 ? 8 : plan.beats!.length <= 5 ? 12 : 15) as 4 | 8 | 12 | 15,
                 aspectRatio: effectiveConfig.size === "16:9" ? "16:9" : effectiveConfig.size === "1:1" ? "1:1" : "9:16",
                 referenceMode: "i2v",
@@ -4280,7 +4280,7 @@ function normalizeVideoGenerationPrompt(prompt: string) {
 }
 
 function extractVideoPromptVersion(prompt: string) {
-    return extractPromptSection(prompt, "Veo Version") || extractPromptSection(prompt, "Grok Version");
+    return extractPromptSection(prompt, "Grok Version");
 }
 
 function extractPromptSection(prompt: string, heading: string) {

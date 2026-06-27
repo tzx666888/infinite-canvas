@@ -58,7 +58,8 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const selectedModel = (config.model || config.videoModel).trim();
+    const selectedModel = selectGrokVideoModel(config);
+    if (!selectedModel) throw new Error("视频模型只支持 Grok，请先同步模型或配置 Grok 视频模型");
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (isSeedanceVideoConfig(requestConfig)) {
@@ -112,6 +113,11 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
 
 function isGrokVideoModel(model: string) {
     return modelOptionName(model).trim().toLowerCase() === "grok-imagine-video";
+}
+
+function selectGrokVideoModel(config: AiConfig) {
+    const candidates = [config.model, config.videoModel, ...config.videoModels, ...config.models, "default::grok-imagine-video", "grok-imagine-video"];
+    return candidates.map((model) => model.trim()).find(isGrokVideoModel) || "";
 }
 
 function buildReferenceVideoPrompt(prompt: string, referenceCount: number) {

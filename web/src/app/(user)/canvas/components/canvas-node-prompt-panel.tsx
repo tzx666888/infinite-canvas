@@ -31,7 +31,7 @@ import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
-import { selectReferenceImageVideoModel, shouldUseVeoPromptForVideo } from "../utils/video-reference-model";
+import { selectReferenceImageVideoModel } from "../utils/video-reference-model";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasCommerceVideoPlan, type CanvasNodeData } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 
@@ -175,7 +175,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             const result = await polishPrompt(config, text, polishMode, template, defaultConfig.textModel || "default::gpt-5.5", referenceImages);
             const promptModel = mode === "video" && template === "videoprompt" ? selectReferenceImageVideoModel(config, referenceImages.length) : config.model;
             if (mode === "video" && template === "videoprompt" && promptModel && promptModel !== config.model) onConfigChange(node.id, { model: promptModel });
-            const finalPrompt = mode === "video" && template === "videoprompt" ? selectVideoPromptForModel(result, promptModel, shouldUseVeoPromptForVideo({ ...config, model: promptModel }, referenceImages.length)) : result;
+            const finalPrompt = mode === "video" && template === "videoprompt" ? selectVideoPromptForModel(result) : result;
             updatePrompt(finalPrompt);
             message.success(mode === "video" && template === "videoprompt" ? (promptModel !== config.model ? "已切换到参考图视频模型并回填提示词" : "已回填当前模型的视频提示词") : "已回填润色结果");
         } catch (error) {
@@ -330,11 +330,8 @@ async function loadPolishReferenceImages(references: CanvasResourceReference[]):
     return images.filter((image): image is PolishReferenceImage => Boolean(image?.dataUrl));
 }
 
-function selectVideoPromptForModel(raw: string, model: string, useVeoPrompt: boolean) {
-    const normalized = model.toLowerCase();
-    const heading = useVeoPrompt || normalized.includes("veo") ? "Veo Version" : normalized.includes("grok") ? "Grok Version" : "";
-    if (!heading) return raw;
-    const pattern = new RegExp(`##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|$)`, "i");
+function selectVideoPromptForModel(raw: string) {
+    const pattern = /##\s*Grok Version\s*\n([\s\S]*?)(?=\n##\s|$)/i;
     const match = raw.match(pattern);
     return match?.[1]?.trim() || raw;
 }

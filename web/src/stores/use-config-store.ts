@@ -65,9 +65,10 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const TOKAXIS_CHANNEL_ID = "default";
 const TOKAXIS_BASE_URL = "/api/tokaxis";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-const TOKAXIS_DEFAULTS_VERSION = 5;
+const TOKAXIS_DEFAULTS_VERSION = 6;
 const TOKAXIS_FALLBACK_MODELS = [
     "gpt-image-2",
+    "grok-imagine-video",
     "gpt-5.5",
     "gpt-5.4",
     "gpt-5.4-mini",
@@ -75,15 +76,9 @@ const TOKAXIS_FALLBACK_MODELS = [
     "tts-1",
 ];
 const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
+const TOKAXIS_DISABLED_VIDEO_MODEL_RE = /^veo_3_1_/;
 const TOKAXIS_VIDEO_MODEL_IDS = new Set([
     "grok-imagine-video",
-    "veo_3_1_i2v_s_fast_fl",
-    "veo_3_1_i2v_s_fast_portrait_fl",
-    "veo_3_1_r2v_fast",
-    "veo_3_1_r2v_fast_landscape",
-    "veo_3_1_r2v_fast_portrait",
-    "veo_3_1_t2v_fast_landscape",
-    "veo_3_1_t2v_fast_portrait",
 ]);
 const TOKAXIS_FALLBACK_MODEL_OPTIONS = TOKAXIS_FALLBACK_MODELS.map((model) => encodeChannelModel(TOKAXIS_CHANNEL_ID, model));
 const TOKAXIS_IMAGE_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "image");
@@ -109,7 +104,7 @@ export const defaultConfig: AiConfig = {
     ],
     model: "default::gpt-image-2",
     imageModel: "default::gpt-image-2",
-    videoModel: "",
+    videoModel: "default::grok-imagine-video",
     textModel: "default::gpt-5.5",
     audioModel: "default::gpt-4o-mini-tts",
     audioVoice: "alloy",
@@ -157,6 +152,7 @@ type ConfigStore = {
 
 function isVideoModelName(model: string) {
     const value = modelOptionName(model).toLowerCase();
+    if (isDisabledModelName(value)) return false;
     return TOKAXIS_VIDEO_MODEL_IDS.has(value);
 }
 
@@ -171,10 +167,12 @@ function isAudioModelName(model: string) {
 }
 
 function isTextModelName(model: string) {
+    if (isDisabledModelName(model)) return false;
     return !isImageModelName(model) && !isVideoModelName(model) && !isAudioModelName(model);
 }
 
 export function modelMatchesCapability(model: string, capability?: ModelCapability) {
+    if (isDisabledModelName(model)) return false;
     if (!capability) return true;
     if (capability === "image") return isImageModelName(model);
     if (capability === "video") return isVideoModelName(model);
@@ -512,7 +510,7 @@ function modelListsFromModels(models: string[]) {
 
 function sanitizeTokaxisModels(models: string[]) {
     const visibleModels = uniqueRawModels(models).filter(
-        (model) => !TOKAXIS_DISABLED_IMAGE_MODEL_RE.test(model) && (!isImageModelName(model) || model === "gpt-image-2"),
+        (model) => !isDisabledModelName(model) && !TOKAXIS_DISABLED_IMAGE_MODEL_RE.test(model) && (!isImageModelName(model) || model === "gpt-image-2"),
     );
     return visibleModels.length ? visibleModels : TOKAXIS_FALLBACK_MODELS;
 }
@@ -532,7 +530,11 @@ function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
 }
 
 function uniqueRawModels(models: string[]) {
-    return Array.from(new Set((models || []).map((model) => modelOptionName(model).trim()).filter(Boolean)));
+    return Array.from(new Set((models || []).map((model) => modelOptionName(model).trim()).filter((model) => Boolean(model) && !isDisabledModelName(model))));
+}
+
+function isDisabledModelName(model: string) {
+    return TOKAXIS_DISABLED_VIDEO_MODEL_RE.test(modelOptionName(model).trim().toLowerCase());
 }
 
 function uniqueModelOptions(models: string[]) {
