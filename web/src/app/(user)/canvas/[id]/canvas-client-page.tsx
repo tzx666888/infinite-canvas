@@ -60,7 +60,7 @@ import { AssetPickerModal, type InsertAssetPayload } from "../components/asset-p
 import { CanvasZoomControls } from "../components/canvas-zoom-controls";
 import { useCanvasStore } from "../stores/use-canvas-store";
 import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
-import { buildCanvasResourceReferences, buildInputMentionReferences, buildNodeMentionReferences } from "../utils/canvas-resource-references";
+import { buildCanvasResourceReferences, buildInputMentionReferences, buildNodeMentionReferences, getGenerationResourceNodes } from "../utils/canvas-resource-references";
 import type { CanvasAgentMode } from "../components/canvas-agent-chat-ui";
 import {
     CanvasNodeType,
@@ -119,6 +119,7 @@ const NODE_STATUS_IDLE = "idle" as const;
 const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_SUCCESS = "success" as const;
 const NODE_STATUS_ERROR = "error" as const;
+const STORYBOARD_REVIEW_SHEET_VIDEO_ERROR = "12宫格分镜候选不能直接生成视频。请先在候选图上点“关键帧”，再用生成出的干净关键帧生成视频。";
 const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
 
 要求：
@@ -2820,10 +2821,7 @@ function InfiniteCanvasPage() {
             try {
                 await runWithConcurrency(videoIds, 1, async (videoId, index) => {
                     const entry = videoEntries[index];
-                    const kfImageUrl = entry.kfNode.metadata?.content || "";
-                    const referenceImages: ReferenceImage[] = kfImageUrl
-                        ? [{ id: entry.kfNode.id, name: `keyframe-beat-${entry.beat.index}`, type: "image", dataUrl: "", storageKey: kfImageUrl.startsWith("http") ? undefined : kfImageUrl, url: kfImageUrl.startsWith("http") ? kfImageUrl : undefined }]
-                        : [];
+                    const referenceImages = sourceNodeReferenceImages(entry.kfNode);
                     try {
                         const video = await storeGeneratedVideo(await requestVideoGeneration(
                             { ...generationConfig, model: effectiveConfig.videoModel || effectiveConfig.model },
@@ -3076,6 +3074,10 @@ function InfiniteCanvasPage() {
 
                 if (mode === "video") {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
+                    if (hasStoryboardReviewSheetInput(nodeId, nodesRef.current, connectionsRef.current)) throw new Error(STORYBOARD_REVIEW_SHEET_VIDEO_ERROR);
+                    if (!effectivePrompt && !generationContext.referenceImages.length && !generationContext.referenceVideos.length && !generationContext.referenceAudios.length) {
+                        throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
+                    }
                     const spec = nodeSizeFromRatio(generationConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
                     const isEmptyVideoNode = sourceNode?.type === CanvasNodeType.Video && !sourceNode.metadata?.content;
                     const videoId = isEmptyVideoNode ? nodeId : nanoid();
@@ -3223,7 +3225,14 @@ function InfiniteCanvasPage() {
 
             const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, sourceNode.metadata?.prompt || node.metadata?.prompt || ""));
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
-            if (!prompt) {
+            const hasReviewSheetVideoInput = node.type === CanvasNodeType.Video && hasStoryboardReviewSheetInput(sourceNode.id, nodesRef.current, connectionsRef.current);
+            if (hasReviewSheetVideoInput) {
+                message.error(STORYBOARD_REVIEW_SHEET_VIDEO_ERROR);
+                setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: STORYBOARD_REVIEW_SHEET_VIDEO_ERROR } } : item)));
+                return;
+            }
+            const hasVideoReferences = node.type === CanvasNodeType.Video && Boolean(context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
+            if (!prompt && !hasVideoReferences) {
                 message.warning("找不到提示词，无法重试");
                 return;
             }
@@ -4231,6 +4240,15 @@ function findRetrySourceNode(nodeId: string, nodes: CanvasNodeData[], connection
         connections.filter((connection) => connection.toNodeId === id).forEach((connection) => queue.push(connection.fromNodeId));
     }
     return null;
+}
+
+function hasStoryboardReviewSheetInput(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const node = nodes.find((item) => item.id === nodeId);
+    return Boolean((node && isStoryboardReviewSheetNode(node)) || getGenerationResourceNodes(nodeId, nodes, connections).some(isStoryboardReviewSheetNode));
+}
+
+function isStoryboardReviewSheetNode(node: CanvasNodeData) {
+    return node.type === CanvasNodeType.Image && node.metadata?.storyboardRole === "review-sheet";
 }
 
 function mergeReferenceImages(...groups: ReferenceImage[][]) {

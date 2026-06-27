@@ -24,6 +24,8 @@ export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: stri
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
+const GROK_IMAGE_REFERENCE_ERROR = "Grok 视频当前不支持参考图生成视频。请切换到 Veo 多参考图，或断开参考图后用文字提示词生成。";
+
 function aiApiUrl(config: AiConfig, path: string) {
     return buildApiUrl(config.baseUrl, path);
 }
@@ -76,10 +78,15 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
 }
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const modelName = modelOptionName(model);
+    if (isGrokVideoModel(modelName) && references.length) throw new Error(GROK_IMAGE_REFERENCE_ERROR);
+    const promptText = buildReferenceVideoPrompt(prompt, references.length).trim();
+    if (!promptText && !references.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
+
     const body = new FormData();
-    body.append("model", modelOptionName(model));
-    body.append("prompt", buildReferenceVideoPrompt(prompt, references.length));
-    body.append("seconds", normalizeModelVideoSeconds(config.videoSeconds, modelOptionName(model)));
+    body.append("model", modelName);
+    body.append("prompt", promptText);
+    body.append("seconds", normalizeModelVideoSeconds(config.videoSeconds, modelName));
     if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
     body.append("resolution_name", normalizeVideoResolution(config.vquality));
     body.append("preset", "normal");
@@ -92,6 +99,10 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     } catch (error) {
         throw new Error(readAxiosError(error, "视频任务创建失败"));
     }
+}
+
+function isGrokVideoModel(model: string) {
+    return model.trim().toLowerCase() === "grok-imagine-video";
 }
 
 function buildReferenceVideoPrompt(prompt: string, referenceCount: number) {
@@ -288,10 +299,11 @@ function readAxiosError(error: unknown, fallback: string) {
     if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; code?: number }>(error)) {
         if (error.response?.status === 502) return statusMessage(502, fallback);
         const responseData = error.response?.data;
-        return responseData?.msg || responseData?.error?.message || statusMessage(error.response?.status, fallback);
+        const providerMessage = responseData?.msg || responseData?.error?.message;
+        return providerMessage ? normalizeVideoProviderError(providerMessage, fallback) : statusMessage(error.response?.status, fallback);
     }
     if (error instanceof DOMException && error.name === "AbortError") return "请求已取消";
-    return error instanceof Error ? error.message : fallback;
+    return error instanceof Error ? normalizeVideoProviderError(error.message, fallback) : fallback;
 }
 
 function statusMessage(status: number | undefined, fallback: string) {
@@ -299,6 +311,18 @@ function statusMessage(status: number | undefined, fallback: string) {
     if (status === 429) return "请求被限流或额度不足，请稍后重试";
     if (status === 502) return "视频上游暂时不可用，或当前模型参数不受支持，请稍后重试";
     return status ? `${fallback}（${status}）` : fallback;
+}
+
+function normalizeVideoProviderError(message: string, fallback: string) {
+    const text = message.trim();
+    const lower = text.toLowerCase();
+    if (lower.includes("not_found") || lower.includes("generation_not_found") || lower.includes("not found")) {
+        return "视频上游没有找到生成结果，通常是模型参数或参考图不受支持，请换用干净关键帧/其他视频模型后重试";
+    }
+    if (lower.includes("bad request") || lower.includes("invalid") || lower.includes("unsupported")) {
+        return "视频参数或参考图不被当前模型支持，请检查模型、时长、尺寸和参考图后重试";
+    }
+    return text || fallback;
 }
 
 async function assertVideoBlob(blob: Blob) {
@@ -310,7 +334,8 @@ async function assertVideoBlob(blob: Blob) {
         return;
     }
     if (typeof payload.code === "number" && payload.code !== 0) throw new Error(payload.msg || "视频下载失败");
-    if (payload.error?.message) throw new Error(payload.error.message);
+    const providerMessage = payload.msg || payload.error?.message;
+    if (providerMessage) throw new Error(normalizeVideoProviderError(providerMessage, "视频下载失败"));
 }
 
 function isPublicMediaUrl(value: string) {
