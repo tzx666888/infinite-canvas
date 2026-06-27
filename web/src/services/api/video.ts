@@ -116,8 +116,9 @@ function buildReferenceVideoPrompt(prompt: string, referenceCount: number) {
         "Keep the same subject or product identity, packaging geometry, colors, logo placement, object count, environment, and camera orientation.",
         "Apply the requested motion while preserving visual continuity.",
         referenceCount >= 8
-            ? "When many reference images are attached, treat them as an ordered direct-response ecommerce storyboard sequence. Follow upload order as the 15-second timeline: exaggerated hook/problem, product-as-solution reveal, demonstration/proof, product/result reassurance, final hero and purchase-intent beat. Keep the product visible in the opening third, middle proof section, and final shot. Avoid repetitive action-only footage and unrelated scenes."
+            ? "When many reference images are attached, treat them as an ordered direct-response ecommerce storyboard sequence. Follow upload order as the 15-second timeline, about 1.25 seconds per reference: exaggerated hook/problem, product-as-solution reveal, demonstration/proof, product/result reassurance, final hero and purchase-intent beat. Ignore storyboard artifacts such as corner numbers, panel labels, black badges, grid borders, captions, or sheet layout. Keep the product visible in the opening third, middle proof section, and final shot. Avoid repetitive action-only footage, looping the first frame, and unrelated scenes."
             : "If a reference is a storyboard sheet, treat it as shot-order guidance and render clean full-frame video shots without grid borders, panel numbers, labels, arrows, captions, or collage layout.",
+        "For cleaning or problem-solution products, the final shot must resolve the visible problem with a clean result plus product hero, not another before-state mess.",
         "Make the hook dramatic but believable. Do not add fake prices, discounts, endorsements, certifications, medical effects, or impossible results.",
         `User direction: ${prompt.trim() || "Animate the reference naturally while preserving visual identity and scene continuity."}`,
     ].join("\n");
