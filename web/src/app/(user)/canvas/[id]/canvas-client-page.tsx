@@ -559,6 +559,46 @@ function InfiniteCanvasPage() {
         return screenToCanvas((rect?.left || 0) + (rect?.width || size.width) / 2, (rect?.top || 0) + (rect?.height || size.height) / 2);
     }, [screenToCanvas, size.height, size.width]);
 
+    const focusNodesInViewport = useCallback(
+        (targetNodes: CanvasNodeData[]) => {
+            const visibleTargets = targetNodes.filter(Boolean);
+            if (!visibleTargets.length) return;
+
+            const bounds = visibleTargets.reduce(
+                (acc, node) => ({
+                    left: Math.min(acc.left, node.position.x),
+                    top: Math.min(acc.top, node.position.y),
+                    right: Math.max(acc.right, node.position.x + node.width),
+                    bottom: Math.max(acc.bottom, node.position.y + node.height),
+                }),
+                { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity },
+            );
+            if (!Number.isFinite(bounds.left) || !Number.isFinite(bounds.top) || !Number.isFinite(bounds.right) || !Number.isFinite(bounds.bottom)) return;
+
+            const rect = containerRef.current?.getBoundingClientRect();
+            const width = rect?.width || size.width;
+            const height = rect?.height || size.height;
+            const padding = 140;
+            const availableWidth = Math.max(240, width - padding * 2);
+            const availableHeight = Math.max(240, height - padding * 2);
+            const boundsWidth = Math.max(1, bounds.right - bounds.left);
+            const boundsHeight = Math.max(1, bounds.bottom - bounds.top);
+            const fitScale = Math.min(1, availableWidth / boundsWidth, availableHeight / boundsHeight);
+            const preferredScale = Math.min(Math.max(viewportRef.current.k, 0.6), 1);
+            const nextScale = Math.min(preferredScale, Math.max(0.35, fitScale));
+            const centerX = (bounds.left + bounds.right) / 2;
+            const centerY = (bounds.top + bounds.bottom) / 2;
+
+            setViewport({
+                x: width / 2 - centerX * nextScale,
+                y: height / 2 - centerY * nextScale,
+                k: nextScale,
+            });
+            setContextMenu(null);
+        },
+        [size.height, size.width],
+    );
+
     const setConnecting = useCallback((next: ConnectionHandle | null) => {
         connectingParamsRef.current = next;
         setConnectingParams(next);
@@ -1265,12 +1305,13 @@ function InfiniteCanvasPage() {
     const handleGlobalMouseUp = useCallback(
         (event: MouseEvent) => {
             finishNodeDrag(event.clientX, event.clientY);
+            finishConnectionDrag(event.clientX, event.clientY);
 
             selectionBoxRef.current = null;
             setSelectionBox(null);
 
         },
-        [finishNodeDrag],
+        [finishConnectionDrag, finishNodeDrag],
     );
 
     useEffect(() => {
@@ -2464,6 +2505,7 @@ function InfiniteCanvasPage() {
             setConnections((prev) => [...prev, ...nextConnections]);
             setSelectedNodeIds(new Set([rootId]));
             setSelectedConnectionId(null);
+            focusNodesInViewport([analysisNode, rootNode, ...childNodes]);
             targetIds.forEach((targetId) => startGenerationRequest(targetId, nodeId, nodeId, controller));
 
             let successCount = 0;
@@ -2523,7 +2565,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+        [effectiveConfig, finishGenerationRequest, focusNodesInViewport, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
 
     const handleGenerateStoryboardKeyframes = useCallback(
@@ -2641,6 +2683,7 @@ function InfiniteCanvasPage() {
             setConnections((prev) => [...prev, ...nextConnections]);
             setSelectedNodeIds(new Set([rootId]));
             setSelectedConnectionId(null);
+            focusNodesInViewport([reviewNode, rootNode, ...childNodes]);
             targetIds.forEach((targetId) => startGenerationRequest(targetId, reviewNode.id, reviewNode.id, controller));
 
             let successCount = 0;
@@ -2698,7 +2741,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+        [effectiveConfig, finishGenerationRequest, focusNodesInViewport, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
 
 
