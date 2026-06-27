@@ -108,10 +108,10 @@ function isGrokVideoModel(model: string) {
 function buildReferenceVideoPrompt(prompt: string, referenceCount: number) {
     if (!referenceCount) return prompt;
     return [
-        "The supplied reference image(s) are mandatory visual direction, not optional inspiration.",
-        "Preserve the same subject identity, facial and body features, clothing or product geometry, object count, colors, materials, logos, environment, and camera orientation unless the user explicitly requests a change.",
-        "Perform only the requested subject motion and camera motion. Do not replace the subject, redesign the product, invent an unrelated scene, or introduce extra objects.",
-        "If a reference is a storyboard sheet or numbered grid, use it only as shot-order and composition guidance; recreate clean full-frame video shots and never render grid borders, panel numbers, labels, arrows, captions, or collage layout.",
+        "Use the attached reference image(s) as visual guidance.",
+        "Keep the same subject or product identity, packaging geometry, colors, logo placement, object count, environment, and camera orientation.",
+        "Apply the requested motion while preserving visual continuity.",
+        "If a reference is a numbered storyboard grid, treat the panels as shot-order guidance and render clean full-frame video shots without grid borders, panel numbers, labels, arrows, captions, or collage layout.",
         `User direction: ${prompt.trim() || "Animate the reference naturally while preserving visual identity and scene continuity."}`,
     ].join("\n");
 }
