@@ -1,13 +1,12 @@
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImageCount: number): AiConfig {
-    if (!referenceImageCount) return config;
-    const model = selectReferenceImageVideoModel(config, referenceImageCount);
+    const model = referenceImageCount ? selectReferenceImageVideoModel(config, referenceImageCount) : config.model || config.videoModel;
     const nextConfig = model && model !== config.model ? { ...config, model } : config;
     if (!isGrokReferenceVideoModel(model || nextConfig.model)) return nextConfig;
     return {
         ...nextConfig,
-        videoSeconds: normalizeGrokReferenceVideoSeconds(nextConfig.videoSeconds),
+        videoSeconds: "15",
         vquality: "720",
     };
 }
@@ -25,11 +24,6 @@ function pickVideoModel(config: AiConfig, predicate: (model: string) => boolean)
 
 function isGrokReferenceVideoModel(model: string) {
     return modelOptionName(model).toLowerCase() === "grok-imagine-video";
-}
-
-function normalizeGrokReferenceVideoSeconds(value: string) {
-    const seconds = Math.floor(Number(value) || 6);
-    return String(Math.max(1, Math.min(10, seconds)));
 }
 
 function matchesRequestedOrientation(model: string, size: string) {

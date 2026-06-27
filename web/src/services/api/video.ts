@@ -60,7 +60,7 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
     const selectedModel = selectGrokVideoModel(config);
     if (!selectedModel) throw new Error("视频模型只支持 Grok，请先同步模型或配置 Grok 视频模型");
-    const requestConfig = resolveModelRequestConfig(config, selectedModel);
+    const requestConfig = { ...resolveModelRequestConfig(config, selectedModel), videoSeconds: "15" };
     assertVideoConfig(requestConfig, requestConfig.model);
     if (isSeedanceVideoConfig(requestConfig)) {
         return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
@@ -337,9 +337,8 @@ function normalizeVideoResolution(value: string) {
     return `${resolution}p`;
 }
 
-function normalizeXaiReferenceVideoDuration(value: string) {
-    const seconds = Math.floor(Number(value) || 6);
-    return Math.max(1, Math.min(10, seconds));
+function normalizeXaiReferenceVideoDuration(_value: string) {
+    return 15;
 }
 
 function normalizeXaiAspectRatio(value: string) {

@@ -65,7 +65,7 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const TOKAXIS_CHANNEL_ID = "default";
 const TOKAXIS_BASE_URL = "/api/tokaxis";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-const TOKAXIS_DEFAULTS_VERSION = 6;
+const TOKAXIS_DEFAULTS_VERSION = 7;
 const TOKAXIS_FALLBACK_MODELS = [
     "gpt-image-2",
     "grok-imagine-video",
@@ -111,7 +111,7 @@ export const defaultConfig: AiConfig = {
     audioFormat: "mp3",
     audioSpeed: "1",
     audioInstructions: "",
-    videoSeconds: "6",
+    videoSeconds: "15",
     vquality: "720",
     videoGenerateAudio: "true",
     videoWatermark: "false",
@@ -284,7 +284,7 @@ export const useConfigStore = create<ConfigStore>()(
                         audioFormat: config.audioFormat || defaultConfig.audioFormat,
                         audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
                         audioInstructions: config.audioInstructions || "",
-                        videoSeconds: config.videoSeconds || "6",
+                        videoSeconds: shouldMigrateTokaxisDefaults ? "15" : config.videoSeconds || "15",
                         vquality: config.vquality || "720",
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
