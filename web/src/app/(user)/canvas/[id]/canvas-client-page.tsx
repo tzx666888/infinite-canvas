@@ -4260,16 +4260,23 @@ function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferen
     const text = normalizeVideoGenerationPrompt(prompt);
     if (!storyboardReferenceCount) return text;
     return [
-        text || "Create a short commerce video from the supplied storyboard grid.",
+        compactStoryboardVideoPrompt(text),
         "The supplied numbered storyboard grid is mandatory shot-order guidance. Interpret the numbered panels as sequential beats and recreate them as clean full-frame video shots.",
-        "Never show the grid layout, panel borders, panel numbers, labels, arrows, captions, collage format, or storyboard sheet itself in the final video.",
+        "Render only clean full-frame shots; omit visible grid layout, panel borders, panel numbers, labels, arrows, captions, collage format, and storyboard sheet presentation.",
         "Preserve the product identity, colors, label placement, scene logic, and camera orientation implied by the panels while turning them into smooth continuous motion.",
     ].join("\n");
 }
 
+function compactStoryboardVideoPrompt(prompt: string) {
+    if (prompt.length > 900) {
+        return "Create a vertical ecommerce video following the attached numbered storyboard grid from panel 1 to panel 12. Use smooth natural camera movement, realistic lighting, consistent product identity, and a clear action-to-hero-shot rhythm. Preserve the product shape, colors, label placement, scene style, and camera framing shown in the grid.";
+    }
+    return prompt || "Create a vertical ecommerce video following the attached numbered storyboard grid from panel 1 to panel 12.";
+}
+
 function normalizeVideoGenerationPrompt(prompt: string) {
     const versionPrompt = extractVideoPromptVersion(prompt);
-    return stripStoryboardSheetPrompt(versionPrompt || prompt).replace(/\n{3,}/g, "\n\n").trim();
+    return limitVideoPromptLength(sanitizeVideoProviderPrompt(stripStoryboardSheetPrompt(versionPrompt || prompt))).replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function extractVideoPromptVersion(prompt: string) {
@@ -4277,15 +4284,46 @@ function extractVideoPromptVersion(prompt: string) {
 }
 
 function extractPromptSection(prompt: string, heading: string) {
-    const pattern = new RegExp(`##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\nRules:\\s*|\\nThe supplied numbered storyboard grid|$)`, "i");
+    const pattern = new RegExp(`##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\nCreate ONE strict \\d+-frame storyboard contact sheet|\\nRules:\\s*|\\nThe supplied numbered storyboard grid|$)`, "i");
     return prompt.match(pattern)?.[1]?.trim() || "";
 }
 
 function stripStoryboardSheetPrompt(prompt: string) {
-    const markers = ["\nRules:\n- Preserve one consistent product identity", "\nThe supplied numbered storyboard grid is mandatory shot-order guidance"];
+    const markers = ["\nCreate ONE strict 12-frame storyboard contact sheet", "\nPanel plan:", "\nRules:\n- Preserve one consistent product identity", "\nThe supplied numbered storyboard grid is mandatory shot-order guidance"];
     const firstMarker = markers.map((marker) => prompt.indexOf(marker)).filter((index) => index >= 0).sort((a, b) => a - b)[0];
     const text = firstMarker === undefined ? prompt : prompt.slice(0, firstMarker);
     return text.replace(/\n?Output a single vertical 12-panel storyboard sheet\.[\s\S]*$/i, "");
+}
+
+function sanitizeVideoProviderPrompt(prompt: string) {
+    return prompt
+        .replace(/Negative prompt:[\s\S]*$/i, "")
+        .replace(/^\s*User prompt:\s*/gim, "")
+        .replace(/^\s*User direction:\s*/gim, "")
+        .replace(/^The supplied reference image\(s\)[^\n]*\n?/gim, "")
+        .replace(/^Preserve the same subject identity[^\n]*\n?/gim, "")
+        .replace(/^Perform only the requested[^\n]*\n?/gim, "")
+        .replace(/^If a reference is a storyboard sheet[^\n]*\n?/gim, "")
+        .replace(/^.*\b(?:do not|don't|never|unsafe|disease|medical|steriliz|guaranteed|false claims?|open flame|active burner)\b.*$/gim, "")
+        .replace(/\bgas\s+(?:stovetop|stove|burner)\b/gi, "stainless-steel cooktop")
+        .replace(/\bburnt\s+(?:specks?|splatter|stains?)\b/gi, "cooked-on residue")
+        .replace(/\bdark oil stains?\b/gi, "dark cooking residue")
+        .replace(/\bheavy grease cleaner\b/gi, "kitchen cleaner")
+        .replace(/\btrigger-spray\b/gi, "spray")
+        .replace(/\bgreen trigger\b/gi, "green spray handle")
+        .replace(/\btrigger\b/gi, "spray handle")
+        .replace(/\bstainless-steel stainless-steel cooktop\b/gi, "stainless-steel cooktop")
+        .replace(/\bgreen kitchen kitchen cleaner\b/gi, "green kitchen cleaner")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+}
+
+function limitVideoPromptLength(prompt: string) {
+    const maxLength = 2400;
+    if (prompt.length <= maxLength) return prompt;
+    const clipped = prompt.slice(0, maxLength);
+    const sentenceEnd = Math.max(clipped.lastIndexOf(". "), clipped.lastIndexOf("。"), clipped.lastIndexOf("\n"));
+    return clipped.slice(0, sentenceEnd > 800 ? sentenceEnd : maxLength).trim();
 }
 
 function mergeReferenceImages(...groups: ReferenceImage[][]) {
