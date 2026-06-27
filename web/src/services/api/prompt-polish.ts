@@ -1,6 +1,7 @@
 import axios from "axios";
 
 import { buildApiUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import type { CanvasCommerceVideoPlan } from "@/app/(user)/canvas/types";
 
 export type PolishMode = "image" | "video";
 export type PolishTemplate = "optimize" | "product" | "scene" | "storyboard" | "videoprompt";
@@ -476,6 +477,61 @@ export function buildSceneExpansionImagePrompt(plan: SceneExpansionPlan, scene: 
         "Do not combine multiple locations, times of day, camera angles, or use cases in the same image.",
         "Create a natural scene-specific composition with physically consistent scale, perspective, contact shadows, reflections, lighting direction, and depth of field.",
     ].join("\n");
+}
+
+export function buildStoryboardKeyframePrompt(
+    plan: { productCategory?: string; enhancementWords?: string },
+    beat: {
+        index: number;
+        phase: string;
+        shotType?: string;
+        cameraMove?: string;
+        description: string;
+        eightElements?: {
+            subject?: string; action?: string; scene?: string; lighting?: string;
+            camera?: string; style?: string; quality?: string; constraint?: string;
+        };
+    },
+): string {
+    const parts: string[] = [];
+    const el = beat.eightElements;
+    if (el?.subject) {
+        const elements = [el.subject, el.action, el.scene, el.lighting, el.camera, el.style, el.quality].filter(Boolean);
+        parts.push(elements.join(", ") + ".");
+        if (el.constraint) parts.push(el.constraint + ".");
+    } else {
+        parts.push(beat.description);
+    }
+    if (plan.enhancementWords) parts.push(plan.enhancementWords);
+    parts.push("4K ultra HD, sharp focus, smooth motion, consistent appearance.");
+    parts.push("No storyboard labels, no arrows, no grid panels, no captions, no watermark, no distorted hands.");
+    return parts.join(" ");
+}
+
+export function formatCommerceVideoPlan(plan: CanvasCommerceVideoPlan): string {
+    const lines: string[] = [];
+    lines.push("# 视频分镜规划\n");
+    if (plan.productCategory) lines.push(`品类：${plan.productCategory}`);
+    if (plan.selectedHookType) lines.push(`钩子类型：${plan.selectedHookType}`);
+    if (plan.hookDescription) lines.push(`钩子描述：${plan.hookDescription}`);
+    lines.push("");
+    if (plan.beats?.length) {
+        for (const beat of plan.beats) {
+            const phaseLabel: Record<string, string> = { hook: "Hook", pain: "Pain", demo: "Demo", cta: "CTA" };
+            lines.push(`## Beat ${beat.index} | ${phaseLabel[beat.phase] || beat.phase} | ${beat.timeRange}`);
+            if (beat.shotType) lines.push(`景别：${beat.shotType}`);
+            if (beat.cameraMove) lines.push(`运镜：${beat.cameraMove}`);
+            lines.push(`描述：${beat.description}`);
+            lines.push("");
+        }
+    }
+    if (plan.compliance) {
+        lines.push("## 合规提醒");
+        plan.compliance.mustInclude?.forEach((note) => lines.push(`- ✅ ${note}`));
+        plan.compliance.mustNotInclude?.forEach((note) => lines.push(`- ❌ ${note}`));
+        if (plan.compliance.riskLevel) lines.push(`风险等级：${plan.compliance.riskLevel}`);
+    }
+    return lines.join("\n");
 }
 
 function parseProductBreakdownPlan(content: string): ProductBreakdownPlan {

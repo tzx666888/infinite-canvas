@@ -11,6 +11,7 @@ import {
     analyzeSceneExpansion,
     buildProductCollagePrompt,
     buildSceneCollagePrompt,
+    formatCommerceVideoPlan,
     formatProductBreakdownPlan,
     formatSceneExpansionPlan,
     polishPrompt,
@@ -29,7 +30,8 @@ import { CanvasPromptLibrary } from "./canvas-prompt-library";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
-import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData } from "../types";
+import { extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
+import { CanvasNodeType, type CanvasGenerationMode, type CanvasCommerceVideoPlan, type CanvasNodeData } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
@@ -50,12 +52,13 @@ type CanvasNodePromptPanelProps = {
     onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => void;
     onGenerateProductBreakdown: (nodeId: string, plan: ProductBreakdownPlan) => Promise<void>;
     onGenerateSceneExpansion: (nodeId: string, plan: SceneExpansionPlan) => Promise<void>;
+    onGenerateVideoStoryboard: (nodeId: string, plan: CanvasCommerceVideoPlan) => Promise<void>;
     onStop: (nodeId: string) => void;
     mentionReferences?: CanvasResourceReference[];
     onImageSettingsOpenChange?: (open: boolean) => void;
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onGenerateProductBreakdown, onGenerateSceneExpansion, onStop, mentionReferences = [], onImageSettingsOpenChange }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onGenerateProductBreakdown, onGenerateSceneExpansion, onGenerateVideoStoryboard, onStop, mentionReferences = [], onImageSettingsOpenChange }: CanvasNodePromptPanelProps) {
     const { message } = App.useApp();
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
@@ -70,6 +73,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
     const [productBreakdownPlan, setProductBreakdownPlan] = useState<ProductBreakdownPlan | null>(null);
     const [sceneExpansionPlan, setSceneExpansionPlan] = useState<SceneExpansionPlan | null>(null);
+    const [commerceVideoPlan, setCommerceVideoPlan] = useState<CanvasCommerceVideoPlan | null>(null);
     const credits = requestCreditCost({ channelMode: config.channelMode, model: config.model, count: mode === "image" ? config.count : 1 });
     const canPolish = mode === "image" || mode === "video";
     const canPolishInput = Boolean(prompt.trim() || getPolishTextContext(mentionReferences) || getPolishImageReferences(node, mentionReferences).length);
@@ -78,6 +82,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         setPrompt(isEditingExistingContent ? "" : node.metadata?.prompt || "");
         setProductBreakdownPlan(null);
         setSceneExpansionPlan(null);
+        setCommerceVideoPlan(null);
     }, [isEditingExistingContent, node.id]);
 
     const updatePrompt = (value: string) => {
@@ -105,6 +110,12 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 scenes: sceneExpansionPlan.scenes.slice(0, count),
             }).catch((error) => {
                 message.error(`场景图生成失败：${error instanceof Error ? error.message : "未知错误"}`);
+            });
+            return;
+        }
+        if (commerceVideoPlan && commerceVideoPlan.beats?.length) {
+            void onGenerateVideoStoryboard(node.id, commerceVideoPlan).catch((error) => {
+                message.error(`视频分镜关键帧生成失败：${error instanceof Error ? error.message : "未知错误"}`);
             });
             return;
         }
@@ -143,7 +154,23 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             }
             setProductBreakdownPlan(null);
             setSceneExpansionPlan(null);
-            const polishMode: PolishMode = mode === "video" || template === "storyboard" || template === "videoprompt" ? "video" : "image";
+            setCommerceVideoPlan(null);
+            if (template === "storyboard") {
+                const polishMode: PolishMode = "video";
+                const result = await polishPrompt(config, text, polishMode, template, defaultConfig.textModel || "default::gpt-5.5", referenceImages);
+                const plan = extractCommerceVideoPlan(result);
+                setCommerceVideoPlan(plan);
+                if (plan) {
+                    onConfigChange(node.id, {
+                        commerceVideoPlan: plan,
+                        selectedHookType: plan.selectedHookType,
+                    } as Partial<CanvasNodeData["metadata"]>);
+                }
+                updatePrompt(result);
+                message.success(plan ? "视频分镜规划已解析，点击生成按钮创建关键帧" : "已回填润色结果（JSON 解析失败，可手动修改后重试）");
+                return;
+            }
+            const polishMode: PolishMode = mode === "video" || template === "videoprompt" ? "video" : "image";
             const result = await polishPrompt(config, text, polishMode, template, defaultConfig.textModel || "default::gpt-5.5", referenceImages);
             updatePrompt(result);
             message.success("已回填润色结果");

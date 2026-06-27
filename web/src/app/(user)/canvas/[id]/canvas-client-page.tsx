@@ -12,6 +12,8 @@ import { requestVideoGeneration, storeGeneratedVideo } from "@/services/api/vide
 import {
     buildProductDetailImagePrompt,
     buildSceneExpansionImagePrompt,
+    buildStoryboardKeyframePrompt,
+    formatCommerceVideoPlan,
     formatProductBreakdownPlan,
     formatSceneExpansionPlan,
     reverseVideoPrompt,
@@ -62,6 +64,7 @@ import {
     CanvasNodeType,
     type CanvasAssistantImage,
     type CanvasAssistantSession,
+    type CanvasCommerceVideoPlan,
     type CanvasConnection,
     type CanvasImageGenerationType,
     type CanvasNodeData,
@@ -2344,6 +2347,165 @@ function InfiniteCanvasPage() {
         [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
 
+
+    const handleGenerateVideoStoryboard = useCallback(
+        async (nodeId: string, plan: CanvasCommerceVideoPlan) => {
+            const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+            if (!sourceNode) throw new Error("找不到源节点");
+            const generationConfig = { ...buildGenerationConfig(effectiveConfig, sourceNode, "image"), count: "1" };
+            if (!isAiConfigReady(generationConfig, generationConfig.model)) {
+                openConfigDialog(true);
+                throw new Error("请先配置可用的生图模型");
+            }
+
+            const generationContext = await hydrateNodeGenerationContext(
+                buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, ""),
+            );
+            const referenceImages = mergeReferenceImages(sourceNodeReferenceImages(sourceNode), generationContext.referenceImages);
+
+            const beats = plan.beats;
+            if (!beats?.length) throw new Error("视频分镜没有可生成的 beat");
+            setRunningNodeId(nodeId);
+            const controller = startGenerationRequest(nodeId, nodeId, nodeId);
+            const textSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
+            const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+            const gap = 96;
+            const rowGap = 36;
+            const planId = nanoid();
+            const analysisId = nanoid();
+            const rootId = nanoid();
+            const childIds = beats.slice(1).map(() => nanoid());
+            const targetIds = [rootId, ...childIds];
+
+            const analysisText = formatCommerceVideoPlan(plan);
+            const analysisNode: CanvasNodeData = {
+                id: analysisId,
+                type: CanvasNodeType.Text,
+                title: `${plan.productCategory || "产品"} 视频分镜规划`,
+                position: { x: sourceNode.position.x + sourceNode.width + gap, y: sourceNode.position.y },
+                width: textSpec.width,
+                height: textSpec.height,
+                metadata: {
+                    content: analysisText,
+                    prompt: analysisText,
+                    status: NODE_STATUS_SUCCESS,
+                    fontSize: 14,
+                    storyboardPlanId: planId,
+                    commerceVideoPlan: plan,
+                },
+            };
+
+            const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, referenceImages);
+            const rootBeat = beats[0];
+            const rootPrompt = buildStoryboardKeyframePrompt(plan, rootBeat);
+            const rootNode: CanvasNodeData = {
+                id: rootId,
+                type: CanvasNodeType.Image,
+                title: `Beat ${rootBeat.index} | ${rootBeat.phase} | ${rootBeat.timeRange}`,
+                position: { x: analysisNode.position.x + analysisNode.width + gap, y: analysisNode.position.y },
+                width: imageSpec.width,
+                height: imageSpec.height,
+                metadata: {
+                    ...generationMetadata,
+                    prompt: rootPrompt,
+                    status: NODE_STATUS_LOADING,
+                    isBatchRoot: childIds.length > 0,
+                    batchChildIds: childIds.length > 0 ? childIds : undefined,
+                    batchUsesReferenceImages: referenceImages.length > 0,
+                    imageBatchExpanded: childIds.length > 0 ? true : undefined,
+                    count: beats.length,
+                    storyboardRole: "keyframe" as const,
+                    storyboardBeatIndex: 0,
+                    storyboardPlanId: planId,
+                },
+            };
+            const childNodes = childIds.map((id, index): CanvasNodeData => {
+                const beat = beats[index + 1];
+                const beatPrompt = buildStoryboardKeyframePrompt(plan, beat);
+                return {
+                    id,
+                    type: CanvasNodeType.Image,
+                    title: `Beat ${beat.index} | ${beat.phase} | ${beat.timeRange}`,
+                    position: {
+                        x: rootNode.position.x + rootNode.width + 120 + (index % 2) * (imageSpec.width + 36),
+                        y: rootNode.position.y + Math.floor(index / 2) * (imageSpec.height + rowGap),
+                    },
+                    width: imageSpec.width,
+                    height: imageSpec.height,
+                    metadata: {
+                        ...generationMetadata,
+                        prompt: beatPrompt,
+                        status: NODE_STATUS_LOADING,
+                        batchRootId: rootId,
+                        storyboardRole: "keyframe" as const,
+                        storyboardBeatIndex: index + 1,
+                        storyboardPlanId: planId,
+                    },
+                };
+            });
+
+            const nextConnections: CanvasConnection[] = [
+                { id: nanoid(), fromNodeId: nodeId, toNodeId: analysisId },
+                { id: nanoid(), fromNodeId: analysisId, toNodeId: rootId },
+                ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: rootId, toNodeId: childId })),
+            ];
+
+            setNodes((prev) => [...prev, analysisNode, rootNode, ...childNodes]);
+            setConnections((prev) => [...prev, ...nextConnections]);
+            setSelectedNodeIds(new Set([rootId]));
+            setSelectedConnectionId(null);
+            targetIds.forEach((targetId) => startGenerationRequest(targetId, nodeId, nodeId, controller));
+
+            let successCount = 0;
+            try {
+                const useEdit = referenceImages.length > 0;
+                await runWithConcurrency(targetIds, 2, async (targetId, index) => {
+                    const beat = beats[index];
+                    const beatPrompt = buildStoryboardKeyframePrompt(plan, beat);
+                    try {
+                        const image = useEdit
+                            ? await requestEdit(generationConfig, beatPrompt, referenceImages, undefined, { signal: controller.signal }).then((items) => items[0])
+                            : await requestGeneration(generationConfig, beatPrompt, { signal: controller.signal }).then((items) => items[0]);
+                        const uploaded = await uploadImage(image.dataUrl);
+                        const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageSpec.width, imageSpec.height);
+                        setNodes((prev) =>
+                            prev.map((node) => {
+                                if (node.id !== targetId) return node;
+                                const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
+                                return {
+                                    ...node,
+                                    position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
+                                    width: imageSize.width,
+                                    height: imageSize.height,
+                                    metadata: { ...node.metadata, ...imageMetadata(uploaded), prompt: beatPrompt },
+                                };
+                            }),
+                        );
+                        successCount += 1;
+                    } catch (error) {
+                        if (isGenerationCanceled(error)) return;
+                        const errorDetails = error instanceof Error ? error.message : "关键帧生成失败";
+                        setNodes((prev) =>
+                            prev.map((node) =>
+                                node.id === targetId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } } : node,
+                            ),
+                        );
+                    } finally {
+                        finishGenerationRequest(targetId, controller);
+                    }
+                });
+                if (controller.signal.aborted) return;
+                if (successCount === beats.length) message.success(`${successCount} 张视频关键帧已生成`);
+                else if (successCount > 0) message.error(`已生成 ${successCount} 张，${beats.length - successCount} 张失败，可单独重试`);
+                else message.error("全部关键帧生成失败");
+            } finally {
+                finishGenerationRequest(nodeId, controller);
+                setRunningNodeId(null);
+            }
+        },
+        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+    );
+
     const handleGenerateNode = useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
@@ -3038,6 +3200,7 @@ function InfiniteCanvasPage() {
                                         onGenerate={handleGenerateNode}
                                         onGenerateProductBreakdown={handleGenerateProductBreakdown}
                                         onGenerateSceneExpansion={handleGenerateSceneExpansion}
+                                        onGenerateVideoStoryboard={handleGenerateVideoStoryboard}
                                         onStop={confirmStopGeneration}
                                         onImageSettingsOpenChange={(open) => {
                                             setNodeImageSettingsOpen(open);
