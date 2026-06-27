@@ -59,19 +59,21 @@ function compileGrokPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBe
     const beatText = beats.map((beat) => describeBeat(beat, plan)).filter(Boolean);
     const actionChain = beatText.length
         ? beatText.map((text, index) => (index === 0 ? text : `then ${text}`)).join(", ")
-        : `open with a concrete visual hook for ${category}, then demonstrate the product clearly, then finish with a product hero shot and a purchase cue`;
+        : `open with an exaggerated but believable social-ad hook for ${category}, reveal the product as the obvious solution, demonstrate proof, then finish with a product hero shot and a purchase cue`;
     const prompt = [
         `Create a ${context.duration}-second ${aspectText(context.aspectRatio)} commerce video for ${category}.`,
+        `Use a direct-response short-video rhythm: 0-3s dramatic mishap, pain reaction, or visual shock; 3-5s product pushed into the foreground as the solution; 5-10s clear demo and proof; 10-15s result reassurance and final hero.`,
         `Use one continuous visual storyline: ${actionChain}.`,
         `Keep the subject consistent, the camera movement smooth, and the product clearly visible in every important moment.`,
-        `Use realistic lighting, believable physical motion, and a clean conversion-focused ending that repeats the core product benefit without inventing claims.`,
+        `Make the hook thumb-stopping with fast camera energy, expressive human reaction, sudden mess, visible pain point, or product-forward close-up when relevant, but keep it believable.`,
+        `Use realistic lighting, believable physical motion, and a clean conversion-focused ending that shows the product with the result without inventing claims.`,
         referenceConstraint(context.referenceMode),
         plan.enhancementWords || DEFAULT_ENHANCEMENT_WORDS,
         "Negative prompt: no fake medical claims, no fake endorsements, no unreadable text overlays, no distorted hands, no duplicated subjects, no sudden scene jumps.",
     ]
         .filter(Boolean)
         .join(" ");
-    return normalizeSpaces(limitWords(prompt, 180));
+    return normalizeSpaces(limitWords(prompt, 220));
 }
 
 function compileVeoPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBeat[], context: VideoPromptContext) {
