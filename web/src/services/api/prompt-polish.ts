@@ -124,13 +124,16 @@ const VIDEO_STORYBOARD_SYSTEM = `角色
 
 核心目标
 规划必须回答四个问题：为什么用户会停下来看、为什么用户会继续看、为什么用户会相信产品、为什么用户会点击购买。
+分镜要优先适配信息流带货，不是平铺直叙的产品说明片。前 1 秒必须有强视觉冲突、夸张但可信的痛点反应、突然发生的使用场景麻烦，或产品被推到镜头前的强入场。
+夸张只允许发生在镜头表现、人物反应、构图、节奏和可见问题上；不得编造价格、折扣、认证、销量、评价、医学效果、夸大功效或不可能的前后对比。
 
 分析流程
 1. 先分析产品图，只描述可观察到的外观、包装、材质、颜色、使用场景和可能品类。
 2. 将信息分为四层：visual_observed（图片可确认）、user_supplied（用户明确提供）、verified_product_data（已验证资料）、unknown（未知，不得编造）。
-3. 根据品类匹配钩子类型，内部比较 2-3 种，选择最适合的一种作为 selectedHookType。
+3. 根据品类匹配钩子类型，内部比较 2-3 种，优先选择最容易让用户停留的强钩子作为 selectedHookType。
 4. 钩子类型只能从以下 7 种中选择：contrast、pain-point、visual-shock、counter-intuitive、curiosity、number-impact、before-after。
 5. 按 Hook → Pain → Demo → CTA 规划 beats。4s 输出 2 个 beat（hook、cta）；8s 输出 3 个 beat（hook、pain、cta）；12s 输出 4 个 beat（hook、pain、demo、cta）；15s 输出 5-7 个 beat。用户未说明时长时，默认按 15s 输出 5 个 beat。
+6. 对 15s 带货视频，hook beat 要像社交平台爆款开头：真人惊讶/尴尬/急迫反应、突发污渍或麻烦、极近景痛点、快速推近、产品作为救场方案立刻入画。
 
 CommerceVideoPlan JSON 要求
 第一段必须输出 markdown JSON 代码块，语言名为 json。JSON 结构必须兼容 CanvasCommerceVideoPlan：
@@ -479,19 +482,26 @@ export function buildSceneExpansionImagePrompt(plan: SceneExpansionPlan, scene: 
 }
 
 const STORYBOARD_REVIEW_MOMENTS = [
-    "opening visual hook",
-    "product identity close read",
-    "problem or desire setup",
-    "context reveal",
-    "action start",
-    "main product demonstration",
-    "detail proof point",
-    "lifestyle usage moment",
-    "benefit visualization",
-    "decision moment",
-    "offer or CTA setup",
-    "final hero frame",
+    "0-1.0s exaggerated thumb-stopping mishap, pain reaction, or visual shock hook",
+    "1.0-2.0s product jumps into the foreground as the obvious solution",
+    "2.0-3.2s urgent first product action begins",
+    "3.2-4.8s visible reaction or use process close-up",
+    "4.8-6.0s contrast moment with problem and improved area in one scene",
+    "6.0-7.5s proof-focused detail shot that makes the benefit believable",
+    "7.5-9.0s wider demonstration showing context and ease of use",
+    "9.0-10.5s product hero beside the result",
+    "10.5-12.0s lifestyle ease moment with human hand or natural use",
+    "12.0-13.2s label-readable reassurance shot without fake claims",
+    "13.2-14.2s purchase-intent setup with product held or placed forward",
+    "14.2-15.0s final hero packshot plus clear result",
 ] as const;
+
+function beatForStoryboardPanel(beats: NonNullable<CanvasCommerceVideoPlan["beats"]>, panelIndex: number) {
+    const phasePreference = panelIndex <= 1 ? ["hook", "pain"] : panelIndex <= 3 ? ["pain", "demo", "hook"] : panelIndex <= 7 ? ["demo", "pain"] : panelIndex <= 9 ? ["demo", "cta"] : ["cta", "demo"];
+    const phaseBeat = phasePreference.map((phase) => beats.find((beat) => beat.phase === phase)).find(Boolean);
+    if (phaseBeat) return phaseBeat;
+    return beats[Math.min(beats.length - 1, Math.floor((panelIndex / STORYBOARD_REVIEW_MOMENTS.length) * beats.length))];
+}
 
 function storyboardReviewFrames(plan: CanvasCommerceVideoPlan, totalPanels = 12) {
     const beats = [...(plan.beats || [])].sort((a, b) => a.index - b.index);
@@ -500,11 +510,10 @@ function storyboardReviewFrames(plan: CanvasCommerceVideoPlan, totalPanels = 12)
     }
 
     return Array.from({ length: totalPanels }, (_, index) => {
-        const beatIndex = Math.min(beats.length - 1, Math.floor((index / totalPanels) * beats.length));
-        const beat = beats[beatIndex];
+        const beat = beatForStoryboardPanel(beats, index);
         const el = beat.eightElements;
         const detail = [el?.subject, el?.action, el?.scene, el?.lighting, el?.camera, el?.style, el?.constraint].filter(Boolean).join(", ") || beat.description;
-        return `Panel ${index + 1}: Beat ${beat.index} ${beat.phase} (${beat.timeRange || "planned timing"}), ${STORYBOARD_REVIEW_MOMENTS[index % STORYBOARD_REVIEW_MOMENTS.length]}. ${detail}`;
+        return `Panel ${index + 1}: ${STORYBOARD_REVIEW_MOMENTS[index % STORYBOARD_REVIEW_MOMENTS.length]}. Use beat ${beat.index} ${beat.phase} (${beat.timeRange || "planned timing"}) as source material. ${detail}`;
     });
 }
 
@@ -516,10 +525,10 @@ export function buildStoryboardReviewSheetPrompt(plan: CanvasCommerceVideoPlan, 
         "Variant direction: cleaner studio/product-proof style with sharper detail frames and a confident CTA.",
     ];
     return [
-        "Create ONE strict 12-frame storyboard contact sheet for an e-commerce short video.",
+        "Create ONE strict 12-frame storyboard contact sheet for a direct-response e-commerce short video.",
         "The top priority is geometry: exactly 3 columns x 4 rows, exactly 12 equal rectangular panels, clear dark panel dividers, no missing cells, no merged cells, no hero panel.",
         "Each panel must be a separate full-bleed video thumbnail. The result must look like a storyboard sheet, not a product poster, not an advertising banner, not a collage with unequal blocks.",
-        "This image is for human review and selection before video generation. It is not a final video frame.",
+        "This image is for human review and later video generation. It must communicate a selling video arc, not just pretty keyframes.",
         `Product category: ${plan.productCategory || "e-commerce product"}.`,
         plan.hookDescription ? `Hook strategy: ${plan.hookDescription}.` : "",
         plan.enhancementWords ? `Shared style and quality: ${plan.enhancementWords}.` : "",
@@ -528,7 +537,12 @@ export function buildStoryboardReviewSheetPrompt(plan: CanvasCommerceVideoPlan, 
         ...storyboardReviewFrames(plan).map((line) => `- ${line}`),
         "Rules:",
         "- Preserve one consistent product identity, packaging, colors, materials, logo placement, scale, and lighting logic across all panels.",
-        "- Show 12 visibly different storyboard moments, not one repeated image and not fewer than 12 panels.",
+        "- Show 12 visibly different storyboard moments, not one repeated image and not fewer than 12 panels. Do not repeat the same wiping, spraying, hand pose, or camera angle in 4 or more panels.",
+        "- Build a high-retention sales rhythm: panel 1 is an exaggerated but believable mishap, pain reaction, or visual shock; panels 2-3 introduce the product as the obvious solution; panels 4-8 show action and proof; panels 9-12 return to product hero, result, and purchase intent.",
+        "- Prefer social-ad style hooks when relevant: startled facial reaction, sudden spill or mess, embarrassing everyday problem, dramatic close-up of the pain point, product pushed toward camera, fast hand movement, urgent camera push-in. Keep it visually exaggerated, but not false.",
+        "- The product or packaging must be clearly visible by panel 2 or 3, again around the middle proof moment, and in the final 2 panels. Keep label readability when a label is naturally visible.",
+        "- Include at least one believable before/after or problem/result contrast inside the storyboard, but keep the transformation visually realistic for the product category.",
+        "- The final panel must feel like a clean packshot plus result frame: product in front, result or lifestyle context behind it, no text overlay.",
         "- Do not add poster headlines, Chinese marketing slogans, CTA banners, big title text, dense captions, callout arrows, UI chrome, or watermark. Small corner numbers 1-12 are allowed only if they do not replace the images.",
         "- Keep all claims visually conservative and realistic. Do not invent certifications, prices, discounts, medical effects, user reviews, or impossible before/after results.",
         "- Output a single vertical 12-panel storyboard sheet. If there is any ambiguity, prefer a clean 3x4 grid over decorative advertising design.",

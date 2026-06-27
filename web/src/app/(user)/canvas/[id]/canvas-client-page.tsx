@@ -2778,7 +2778,7 @@ function InfiniteCanvasPage() {
 
             const compiledPrompt = compileVideoPrompt(plan, {
                 model: "grok",
-                duration: (plan.beats!.length <= 2 ? 4 : plan.beats!.length <= 3 ? 8 : plan.beats!.length <= 5 ? 12 : 15) as 4 | 8 | 12 | 15,
+                duration: 15,
                 aspectRatio: effectiveConfig.size === "16:9" ? "16:9" : effectiveConfig.size === "1:1" ? "1:1" : "9:16",
                 referenceMode: "i2v",
             });
@@ -4170,12 +4170,14 @@ function getInputSummary(inputs: NodeGenerationInput[]) {
 function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode): AiConfig {
     const defaultModel = mode === "image" ? config.imageModel : mode === "video" ? config.videoModel : mode === "audio" ? config.audioModel : config.textModel;
     const configuredModel = node?.metadata?.model;
+    const resolvedModel = configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : config.model || defaultConfig.model);
+    const resolvedVideoSeconds = mode === "video" && isGrokVideoModelName(resolvedModel) ? "15" : node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds;
     return {
         ...config,
-        model: configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : config.model || defaultConfig.model),
+        model: resolvedModel,
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
         size: node?.metadata?.size || config.size || defaultConfig.size,
-        videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
+        videoSeconds: resolvedVideoSeconds,
         vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
@@ -4185,6 +4187,11 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
         audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,
         count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultConfig.count),
     };
+}
+
+function isGrokVideoModelName(model: string | undefined) {
+    const normalized = (model || "").trim().toLowerCase();
+    return normalized === "grok-imagine-video" || normalized.endsWith("::grok-imagine-video");
 }
 
 function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
@@ -4284,14 +4291,19 @@ function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferen
     if (storyboardReferenceCount >= STORYBOARD_REVIEW_PANEL_COUNT) {
         return [
             compactStoryboardVideoPrompt(text),
+            "Create a 15-second vertical direct-response ecommerce video with a fast sales arc: 0-3s exaggerated hook and problem, 3-5s product-as-solution reveal, 5-10s demonstration and proof, 10-13s product/result reassurance, 13-15s final hero and purchase-intent beat.",
             `The ${STORYBOARD_REVIEW_PANEL_COUNT} supplied reference images are the exact storyboard timeline in order: reference image 1 is the opening shot, reference image ${STORYBOARD_REVIEW_PANEL_COUNT} is the final shot.`,
             "Follow the reference images sequentially from 1 to 12. Match each frame's subject, composition, product position, action state, background, lighting, and camera distance as the corresponding moment in the video.",
             "Create smooth motion that connects the frames; do not invent unrelated scenes, do not reshuffle the order, and do not turn the references into a collage or split-screen.",
+            "Keep the first second thumb-stopping when the references support it: startled reaction, sudden mess, visible pain point, product pushed toward camera, or urgent camera push-in. Make it dramatic but believable.",
+            "Keep the product visible in the opening third, middle proof section, and final hero shot. Do not spend the whole video on repetitive wiping, spraying, or generic motion.",
+            "Make the final 2 seconds feel like a clean packshot plus result frame. Do not add fake prices, fake discounts, endorsements, certifications, or exaggerated claims.",
             "Render only clean full-frame video shots with no panel numbers, grid borders, labels, arrows, captions, watermarks, or storyboard sheet layout.",
         ].join("\n");
     }
     return [
         compactStoryboardVideoPrompt(text),
+        "Create a 15-second vertical direct-response ecommerce video: exaggerated first-second hook, product reveal, believable action/proof, then final product hero and purchase-intent beat.",
         "The supplied storyboard frame references are mandatory shot-order guidance. Interpret the references as sequential beats and recreate them as clean full-frame video shots.",
         "Render only clean full-frame shots; omit visible grid layout, panel borders, panel numbers, labels, arrows, captions, collage format, and storyboard sheet presentation.",
         "Preserve the product identity, colors, label placement, scene logic, and camera orientation implied by the panels while turning them into smooth continuous motion.",
@@ -4300,9 +4312,9 @@ function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferen
 
 function compactStoryboardVideoPrompt(prompt: string) {
     if (prompt.length > 900) {
-        return "Create a vertical ecommerce video following the supplied 12 storyboard reference frames in exact order. Use smooth natural camera movement, realistic lighting, consistent product identity, and a clear action-to-hero-shot rhythm. Preserve the product shape, colors, label placement, scene style, and camera framing shown in each frame.";
+        return "Create a 15-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order. Use an exaggerated but believable first-second hook, fast product reveal, demo/proof, and final packshot-plus-result hero. Preserve the product shape, colors, label placement, scene style, and camera framing shown in each frame.";
     }
-    return prompt || "Create a vertical ecommerce video following the supplied 12 storyboard reference frames in exact order.";
+    return prompt || "Create a 15-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order, ending on a product hero plus result shot.";
 }
 
 function normalizeVideoGenerationPrompt(prompt: string) {
