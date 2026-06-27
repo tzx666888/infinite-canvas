@@ -20,6 +20,7 @@ const PANEL_MAX_WIDTH = 960;
 const PANEL_DEFAULT_TEXTAREA_HEIGHT = 96;
 const PANEL_MIN_TEXTAREA_HEIGHT = 72;
 const PANEL_MAX_TEXTAREA_HEIGHT = 360;
+const LEGACY_STORYBOARD_REVIEW_VIDEO_ERROR = "12宫格分镜候选不能直接生成视频";
 
 type CanvasNodeProps = {
     data: CanvasNodeData;
@@ -488,9 +489,10 @@ function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
 }
 
 function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "node" | "theme" | "onRetry">) {
+    const errorDetails = normalizeNodeErrorDetails(node.metadata?.errorDetails);
     return (
         <div className="flex max-w-[260px] flex-col items-center gap-3 px-5 text-center">
-            <div className="text-xs leading-5 text-red-300">{node.metadata?.errorDetails || "生成失败"}</div>
+            <div className="text-xs leading-5 text-red-300">{errorDetails}</div>
             <button
                 type="button"
                 className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
@@ -506,6 +508,11 @@ function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "
             </button>
         </div>
     );
+}
+
+function normalizeNodeErrorDetails(errorDetails?: string) {
+    if (errorDetails?.includes(LEGACY_STORYBOARD_REVIEW_VIDEO_ERROR)) return "已支持用12宫格分镜生成视频。请点击重试，系统会把宫格作为分镜参考重新生成。";
+    return errorDetails || "生成失败";
 }
 
 function UnknownNodeContent({ theme }: Pick<NodeContentRendererProps, "theme">) {

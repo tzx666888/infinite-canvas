@@ -61,6 +61,7 @@ import { CanvasZoomControls } from "../components/canvas-zoom-controls";
 import { useCanvasStore } from "../stores/use-canvas-store";
 import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
 import { buildCanvasResourceReferences, buildInputMentionReferences, buildNodeMentionReferences, getGenerationResourceNodes } from "../utils/canvas-resource-references";
+import { resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
 import type { CanvasAgentMode } from "../components/canvas-agent-chat-ui";
 import {
     CanvasNodeType,
@@ -119,7 +120,6 @@ const NODE_STATUS_IDLE = "idle" as const;
 const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_SUCCESS = "success" as const;
 const NODE_STATUS_ERROR = "error" as const;
-const STORYBOARD_REVIEW_SHEET_VIDEO_ERROR = "12宫格分镜候选不能直接生成视频。请先在候选图上点“关键帧”，再用生成出的干净关键帧生成视频。";
 const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
 
 要求：
@@ -3074,31 +3074,34 @@ function InfiniteCanvasPage() {
 
                 if (mode === "video") {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
-                    if (hasStoryboardReviewSheetInput(nodeId, nodesRef.current, connectionsRef.current)) throw new Error(STORYBOARD_REVIEW_SHEET_VIDEO_ERROR);
-                    if (!effectivePrompt && !generationContext.referenceImages.length && !generationContext.referenceVideos.length && !generationContext.referenceAudios.length) {
+                    const storyboardReferenceImages = storyboardReviewSheetReferenceImages(nodeId, nodesRef.current, connectionsRef.current);
+                    const videoReferenceImages = mergeReferenceImages(generationContext.referenceImages, storyboardReferenceImages);
+                    const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, videoReferenceImages.length);
+                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(effectivePrompt, storyboardReferenceImages.length);
+                    if (!videoPrompt && !videoReferenceImages.length && !generationContext.referenceVideos.length && !generationContext.referenceAudios.length) {
                         throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
                     }
-                    const spec = nodeSizeFromRatio(generationConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
+                    const spec = nodeSizeFromRatio(videoGenerationConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
                     const isEmptyVideoNode = sourceNode?.type === CanvasNodeType.Video && !sourceNode.metadata?.content;
                     const videoId = isEmptyVideoNode ? nodeId : nanoid();
                     const parent = sourceNode?.position || { x: 0, y: 0 };
                     const videoNode: CanvasNodeData = {
                         id: videoId,
                         type: CanvasNodeType.Video,
-                        title: effectivePrompt.slice(0, 32) || "Generated Video",
+                        title: effectivePrompt.slice(0, 32) || (storyboardReferenceImages.length ? "Storyboard Video" : "Generated Video"),
                         position: isEmptyVideoNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y },
                         width: isEmptyVideoNode ? sourceNode.width : spec.width,
                         height: isEmptyVideoNode ? sourceNode.height : spec.height,
-                        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, vquality: generationConfig.vquality, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, references: generationReferenceUrls(generationContext) },
+                        metadata: { prompt: videoPrompt, status: NODE_STATUS_LOADING, model: videoGenerationConfig.model, size: videoGenerationConfig.size, seconds: videoGenerationConfig.videoSeconds, vquality: videoGenerationConfig.vquality, generateAudio: videoGenerationConfig.videoGenerateAudio, watermark: videoGenerationConfig.videoWatermark, references: generationReferenceUrls({ ...generationContext, referenceImages: videoReferenceImages }) },
                     };
                     pendingChildIds = [videoId];
                     setNodes((prev) => (isEmptyVideoNode ? prev.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node)) : [...prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode]));
                     if (!isEmptyVideoNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]);
                     const controller = startGenerationRequest(videoId, nodeId, nodeId, runController);
                     try {
-                        const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal }));
+                        const video = await storeGeneratedVideo(await requestVideoGeneration(videoGenerationConfig, videoPrompt, videoReferenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal }));
                         const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
-                        setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, width: videoSize.width, height: videoSize.height, position: { x: node.position.x + node.width / 2 - videoSize.width / 2, y: node.position.y + node.height / 2 - videoSize.height / 2 }, metadata: { ...node.metadata, ...videoMetadata(video), prompt: effectivePrompt, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, vquality: generationConfig.vquality, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, references: generationReferenceUrls(generationContext) } } : node)));
+                        setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, width: videoSize.width, height: videoSize.height, position: { x: node.position.x + node.width / 2 - videoSize.width / 2, y: node.position.y + node.height / 2 - videoSize.height / 2 }, metadata: { ...node.metadata, ...videoMetadata(video), prompt: videoPrompt, model: videoGenerationConfig.model, size: videoGenerationConfig.size, seconds: videoGenerationConfig.videoSeconds, vquality: videoGenerationConfig.vquality, generateAudio: videoGenerationConfig.videoGenerateAudio, watermark: videoGenerationConfig.videoWatermark, references: generationReferenceUrls({ ...generationContext, referenceImages: videoReferenceImages }) } } : node)));
                     } finally {
                         finishGenerationRequest(videoId, controller);
                     }
@@ -3225,13 +3228,8 @@ function InfiniteCanvasPage() {
 
             const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, sourceNode.metadata?.prompt || node.metadata?.prompt || ""));
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
-            const hasReviewSheetVideoInput = node.type === CanvasNodeType.Video && hasStoryboardReviewSheetInput(sourceNode.id, nodesRef.current, connectionsRef.current);
-            if (hasReviewSheetVideoInput) {
-                message.error(STORYBOARD_REVIEW_SHEET_VIDEO_ERROR);
-                setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: STORYBOARD_REVIEW_SHEET_VIDEO_ERROR } } : item)));
-                return;
-            }
-            const hasVideoReferences = node.type === CanvasNodeType.Video && Boolean(context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
+            const storyboardRetryImages = node.type === CanvasNodeType.Video ? storyboardReviewSheetReferenceImages(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
+            const hasVideoReferences = node.type === CanvasNodeType.Video && Boolean(storyboardRetryImages.length || context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
             if (!prompt && !hasVideoReferences) {
                 message.warning("找不到提示词，无法重试");
                 return;
@@ -3246,7 +3244,8 @@ function InfiniteCanvasPage() {
                 return;
             }
             const retrySourceImages = hasSavedImageMetadata ? [] : sourceNodeReferenceImages(sourceNode);
-            const retryImages = mergeReferenceImages(retrySourceImages, retryReferenceImages || []);
+            const retryImages = mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
+            if (node.type === CanvasNodeType.Video) generationConfig = resolveReferenceImageVideoConfig(generationConfig, retryImages.length);
             const retryPrompt = savedImageMetadata?.productDetailShot
                 ? prompt
                 : buildIdentityPreservingImageEditPrompt(prompt, retrySourceImages.length > 0 || Boolean(hasSavedImageMetadata && retryImages.length), retryImages);
@@ -3287,9 +3286,10 @@ function InfiniteCanvasPage() {
                 }
                 if (node.type === CanvasNodeType.Video) {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
-                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
+                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(prompt, storyboardRetryImages.length);
+                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
-                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, width: videoSize.width, height: videoSize.height, position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 }, metadata: { ...item.metadata, ...videoMetadata(video), prompt, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, vquality: generationConfig.vquality, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark } } : item)));
+                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, width: videoSize.width, height: videoSize.height, position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 }, metadata: { ...item.metadata, ...videoMetadata(video), prompt: videoPrompt, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, vquality: generationConfig.vquality, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, references: generationReferenceUrls({ referenceImages: retryImages, referenceVideos: context?.referenceVideos || [], referenceAudios: context?.referenceAudios || [] }) } } : item)));
                     return;
                 }
                 if (node.type === CanvasNodeType.Audio) {
@@ -4242,13 +4242,28 @@ function findRetrySourceNode(nodeId: string, nodes: CanvasNodeData[], connection
     return null;
 }
 
-function hasStoryboardReviewSheetInput(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+function storyboardReviewSheetReferenceImages(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const node = nodes.find((item) => item.id === nodeId);
-    return Boolean((node && isStoryboardReviewSheetNode(node)) || getGenerationResourceNodes(nodeId, nodes, connections).some(isStoryboardReviewSheetNode));
+    const reviewSheets = [
+        ...(node && isStoryboardReviewSheetNode(node) ? [node] : []),
+        ...getGenerationResourceNodes(nodeId, nodes, connections).filter(isStoryboardReviewSheetNode),
+    ];
+    return mergeReferenceImages(...reviewSheets.map((item) => sourceNodeReferenceImages(item)));
 }
 
 function isStoryboardReviewSheetNode(node: CanvasNodeData) {
     return node.type === CanvasNodeType.Image && node.metadata?.storyboardRole === "review-sheet";
+}
+
+function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferenceCount: number) {
+    const text = prompt.trim();
+    if (!storyboardReferenceCount) return text;
+    return [
+        text || "Create a short commerce video from the supplied storyboard grid.",
+        "The supplied numbered storyboard grid is mandatory shot-order guidance. Interpret the numbered panels as sequential beats and recreate them as clean full-frame video shots.",
+        "Never show the grid layout, panel borders, panel numbers, labels, arrows, captions, collage format, or storyboard sheet itself in the final video.",
+        "Preserve the product identity, colors, label placement, scene logic, and camera orientation implied by the panels while turning them into smooth continuous motion.",
+    ].join("\n");
 }
 
 function mergeReferenceImages(...groups: ReferenceImage[][]) {

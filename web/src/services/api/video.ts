@@ -111,7 +111,7 @@ function buildReferenceVideoPrompt(prompt: string, referenceCount: number) {
         "The supplied reference image(s) are mandatory visual direction, not optional inspiration.",
         "Preserve the same subject identity, facial and body features, clothing or product geometry, object count, colors, materials, logos, environment, and camera orientation unless the user explicitly requests a change.",
         "Perform only the requested subject motion and camera motion. Do not replace the subject, redesign the product, invent an unrelated scene, or introduce extra objects.",
-        "For storyboard workflows, use only clean keyframe references as visual continuity guidance. Do not use review sheets, grids, numbered panels, arrows, captions, or annotated storyboard images as video frames.",
+        "If a reference is a storyboard sheet or numbered grid, use it only as shot-order and composition guidance; recreate clean full-frame video shots and never render grid borders, panel numbers, labels, arrows, captions, or collage layout.",
         `User direction: ${prompt.trim() || "Animate the reference naturally while preserving visual identity and scene continuity."}`,
     ].join("\n");
 }

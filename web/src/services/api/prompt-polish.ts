@@ -196,6 +196,7 @@ const VIDEO_PROMPT_SYSTEM = `角色
 - 客户的产品描述、视频目标或自由文本
 - 可能包含 CommerceVideoPlan JSON，也可能只是普通中文说明
 - 可能包含参考图、关键帧、产品图或场景图
+- 如果参考图是带编号的宫格/分镜候选图，把每个编号面板当作顺序镜头；最终视频必须是干净全屏镜头，不得出现宫格边框、编号、拼图版式或分镜页
 
 输出格式
 必须同时输出两个版本，客户可任选其一使用：
@@ -211,6 +212,7 @@ const VIDEO_PROMPT_SYSTEM = `角色
 - Grok 适合简洁连续单主线；Veo 可以更结构化，支持时间轴和参考图语义。
 - 4s 只保留 hook + cta；8s 加 pain；12s 加 demo；15s 使用完整 Hook → Pain → Demo → CTA 节奏。
 - 如果输入包含参考图，追加保真约束：Maintain visual continuity with the reference image, preserve subject appearance, color palette, product shape, label placement, and composition.
+- 如果输入包含12宫格或分镜候选图，追加：Use the numbered storyboard panels as shot-order guidance only; recreate them as clean full-frame shots and never show the grid, panel borders, labels, or collage layout.
 - 如果输入明显是参考视频或动作序列，追加：Use the reference video as motion and rhythm guidance, preserve the subject and key visual elements from the reference frames.
 - 9:16 竖屏：主体居中偏上，避免裁切头脚或产品边缘。
 - 16:9 横屏：保留环境空间，让场景关系清楚。
