@@ -185,7 +185,7 @@ CommerceVideoPlan JSON 要求
 禁止
 - 禁止空泛词：beautiful / amazing / epic / stunning / gorgeous / incredible。
 - 禁止输出固定产品案例。必须根据客户上传的产品图和文字动态生成。
-- 禁止把分镜规划写成九宫格图片 prompt。这里只输出 CommerceVideoPlan JSON + 中文分镜说明，不自动生成图片。`;
+- 禁止直接输出图片 prompt 或把规划写成宫格图说明。这里只输出 CommerceVideoPlan JSON + 中文分镜说明；画布会基于 JSON 另行生成 12 宫格候选图和干净关键帧。`;
 
 
 
@@ -479,6 +479,63 @@ export function buildSceneExpansionImagePrompt(plan: SceneExpansionPlan, scene: 
     ].join("\n");
 }
 
+const STORYBOARD_REVIEW_MOMENTS = [
+    "opening visual hook",
+    "product identity close read",
+    "problem or desire setup",
+    "context reveal",
+    "action start",
+    "main product demonstration",
+    "detail proof point",
+    "lifestyle usage moment",
+    "benefit visualization",
+    "decision moment",
+    "offer or CTA setup",
+    "final hero frame",
+] as const;
+
+function storyboardReviewFrames(plan: CanvasCommerceVideoPlan, totalPanels = 12) {
+    const beats = [...(plan.beats || [])].sort((a, b) => a.index - b.index);
+    if (!beats.length) {
+        return Array.from({ length: totalPanels }, (_, index) => `Panel ${index + 1}: ${STORYBOARD_REVIEW_MOMENTS[index % STORYBOARD_REVIEW_MOMENTS.length]}.`);
+    }
+
+    return Array.from({ length: totalPanels }, (_, index) => {
+        const beatIndex = Math.min(beats.length - 1, Math.floor((index / totalPanels) * beats.length));
+        const beat = beats[beatIndex];
+        const el = beat.eightElements;
+        const detail = [el?.subject, el?.action, el?.scene, el?.lighting, el?.camera, el?.style, el?.constraint].filter(Boolean).join(", ") || beat.description;
+        return `Panel ${index + 1}: Beat ${beat.index} ${beat.phase} (${beat.timeRange || "planned timing"}), ${STORYBOARD_REVIEW_MOMENTS[index % STORYBOARD_REVIEW_MOMENTS.length]}. ${detail}`;
+    });
+}
+
+export function buildStoryboardReviewSheetPrompt(plan: CanvasCommerceVideoPlan, variantIndex = 1): string {
+    const variantNotes = [
+        "Variant direction: balanced commercial rhythm, clear product readability, practical e-commerce conversion flow.",
+        "Variant direction: stronger visual hook and faster camera rhythm while keeping product identity accurate.",
+        "Variant direction: more lifestyle context and warmer human-use moments while keeping claims realistic.",
+        "Variant direction: cleaner studio/product-proof style with sharper detail frames and a confident CTA.",
+    ];
+    return [
+        "Create ONE strict 12-frame storyboard contact sheet for an e-commerce short video.",
+        "The top priority is geometry: exactly 3 columns x 4 rows, exactly 12 equal rectangular panels, clear dark panel dividers, no missing cells, no merged cells, no hero panel.",
+        "Each panel must be a separate full-bleed video thumbnail. The result must look like a storyboard sheet, not a product poster, not an advertising banner, not a collage with unequal blocks.",
+        "This image is for human review and selection before video generation. It is not a final video frame.",
+        `Product category: ${plan.productCategory || "e-commerce product"}.`,
+        plan.hookDescription ? `Hook strategy: ${plan.hookDescription}.` : "",
+        plan.enhancementWords ? `Shared style and quality: ${plan.enhancementWords}.` : "",
+        variantNotes[(Math.max(1, variantIndex) - 1) % variantNotes.length],
+        "Panel plan:",
+        ...storyboardReviewFrames(plan).map((line) => `- ${line}`),
+        "Rules:",
+        "- Preserve one consistent product identity, packaging, colors, materials, logo placement, scale, and lighting logic across all panels.",
+        "- Show 12 visibly different storyboard moments, not one repeated image and not fewer than 12 panels.",
+        "- Do not add poster headlines, Chinese marketing slogans, CTA banners, big title text, dense captions, callout arrows, UI chrome, or watermark. Small corner numbers 1-12 are allowed only if they do not replace the images.",
+        "- Keep all claims visually conservative and realistic. Do not invent certifications, prices, discounts, medical effects, user reviews, or impossible before/after results.",
+        "- Output a single vertical 12-panel storyboard sheet. If there is any ambiguity, prefer a clean 3x4 grid over decorative advertising design.",
+    ].filter(Boolean).join("\n");
+}
+
 export function buildStoryboardKeyframePrompt(
     plan: { productCategory?: string; enhancementWords?: string },
     beat: {
@@ -492,6 +549,7 @@ export function buildStoryboardKeyframePrompt(
             camera?: string; style?: string; quality?: string; constraint?: string;
         };
     },
+    options: { selectedReviewSheet?: boolean } = {},
 ): string {
     const parts: string[] = [];
     const el = beat.eightElements;
@@ -503,6 +561,7 @@ export function buildStoryboardKeyframePrompt(
         parts.push(beat.description);
     }
     if (plan.enhancementWords) parts.push(plan.enhancementWords);
+    if (options.selectedReviewSheet) parts.push("If a selected 12-panel storyboard review sheet is supplied as a reference, use only the matching panel's composition, continuity and visual direction as guidance.");
     parts.push("4K ultra HD, sharp focus, smooth motion, consistent appearance.");
     parts.push("No storyboard labels, no arrows, no grid panels, no captions, no watermark, no distorted hands.");
     return parts.join(" ");
@@ -631,7 +690,7 @@ function normalizedStringArray(value: unknown, fallback: string) {
 
 export async function polishPrompt(config: AiConfig, userPrompt: string, mode: PolishMode, template: PolishTemplate = "optimize", model = DEFAULT_POLISH_MODEL, referenceImages: PolishReferenceImage[] = []): Promise<string> {
     const requestConfig = resolveModelRequestConfig(config, model || config.textModel || config.model);
-    const promptText = userPrompt.trim() || (mode === "video" || template === "storyboard" ? "请结合参考图片生成九宫格视频分镜提示词。" : "请结合参考图片整理产品视觉要素。");
+    const promptText = userPrompt.trim() || (mode === "video" || template === "storyboard" ? "请结合参考图片生成电商短视频分镜规划，后续用于12宫格候选图。" : "请结合参考图片整理产品视觉要素。");
     const images = imageContent(referenceImages);
     const response = await axios.post<ChatCompletionResponse>(
         aiApiUrl(requestConfig, "/chat/completions"),
