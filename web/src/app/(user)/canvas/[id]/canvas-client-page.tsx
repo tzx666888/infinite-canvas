@@ -3226,7 +3226,8 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, sourceNode.metadata?.prompt || node.metadata?.prompt || ""));
+            const retryBasePrompt = node.type === CanvasNodeType.Video ? node.metadata?.prompt || sourceNode.metadata?.prompt || "" : sourceNode.metadata?.prompt || node.metadata?.prompt || "";
+            const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, retryBasePrompt));
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
             const storyboardRetryImages = node.type === CanvasNodeType.Video ? storyboardReviewSheetReferenceImages(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const hasVideoReferences = node.type === CanvasNodeType.Video && Boolean(storyboardRetryImages.length || context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
@@ -4256,7 +4257,7 @@ function isStoryboardReviewSheetNode(node: CanvasNodeData) {
 }
 
 function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferenceCount: number) {
-    const text = prompt.trim();
+    const text = normalizeVideoGenerationPrompt(prompt);
     if (!storyboardReferenceCount) return text;
     return [
         text || "Create a short commerce video from the supplied storyboard grid.",
@@ -4264,6 +4265,27 @@ function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferen
         "Never show the grid layout, panel borders, panel numbers, labels, arrows, captions, collage format, or storyboard sheet itself in the final video.",
         "Preserve the product identity, colors, label placement, scene logic, and camera orientation implied by the panels while turning them into smooth continuous motion.",
     ].join("\n");
+}
+
+function normalizeVideoGenerationPrompt(prompt: string) {
+    const versionPrompt = extractVideoPromptVersion(prompt);
+    return stripStoryboardSheetPrompt(versionPrompt || prompt).replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function extractVideoPromptVersion(prompt: string) {
+    return extractPromptSection(prompt, "Veo Version") || extractPromptSection(prompt, "Grok Version");
+}
+
+function extractPromptSection(prompt: string, heading: string) {
+    const pattern = new RegExp(`##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\nRules:\\s*|\\nThe supplied numbered storyboard grid|$)`, "i");
+    return prompt.match(pattern)?.[1]?.trim() || "";
+}
+
+function stripStoryboardSheetPrompt(prompt: string) {
+    const markers = ["\nRules:\n- Preserve one consistent product identity", "\nThe supplied numbered storyboard grid is mandatory shot-order guidance"];
+    const firstMarker = markers.map((marker) => prompt.indexOf(marker)).filter((index) => index >= 0).sort((a, b) => a - b)[0];
+    const text = firstMarker === undefined ? prompt : prompt.slice(0, firstMarker);
+    return text.replace(/\n?Output a single vertical 12-panel storyboard sheet\.[\s\S]*$/i, "");
 }
 
 function mergeReferenceImages(...groups: ReferenceImage[][]) {
