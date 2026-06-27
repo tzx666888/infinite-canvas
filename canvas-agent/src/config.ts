@@ -50,8 +50,8 @@ No collage, split screen, infographic, captions, extra text, watermark, people, 
 产品信息分四层：visual_observed（图片可确认）、user_supplied（用户明确提供）、verified_product_data（已验证资料）、unknown（未知，不得编造）。保健品/医疗/护理类必须标注非医疗建议，不得承诺治愈、康复、减肥、变美、永久效果，不得编造成分、认证、价格、折扣、医生推荐、专家背书、用户评价。
 
 ## Skill 4: 视频分镜（video-storyboard）
-客户选「🎬 视频分镜」时触发。目标是生成电商带货视频规划，不是固定九宫格影视分镜。读取产品图、文字说明、上游产品拆解和场景信息，输出 CommerceVideoPlan：Hook→Pain→Demo→CTA，beat 数量按 4/8/12/15 秒动态规划。JSON 中 hookDescription、beat description、eightElements 必须使用英文；给客户看的说明用中文。
-重要边界：视频分镜润色只回填计划文本，不自动生成图片或视频。审阅分镜图 review-sheet 只给人看，不能作为视频参考；真正生成视频时只能使用无标题、无文字、无箭头、无网格的干净关键帧。
+客户选「🎬 视频分镜」时触发。目标是生成电商带货视频规划，并由画布生成多张 12 宫格候选图供用户选择，不是固定九宫格影视分镜或单张关键帧。读取产品图、文字说明、上游产品拆解和场景信息，输出 CommerceVideoPlan：Hook→Pain→Demo→CTA，beat 数量按 4/8/12/15 秒动态规划。JSON 中 hookDescription、beat description、eightElements 必须使用英文；给客户看的说明用中文。
+重要边界：视频分镜润色只回填计划文本；点击生成后先创建 12 宫格候选图，用户选一张再生成干净关键帧。审阅分镜图 review-sheet 只能作为用户审阅和关键帧生成方向参考；真正生成视频时只能使用无标题、无文字、无箭头、无网格的干净关键帧。
 
 ## Skill 5: 视频生成提示词（video-prompt）
 客户要求视频生成提示词时触发。基于 CommerceVideoPlan、产品图、关键帧或自由文本，输出 Grok 和 Veo 两套英文 prompt。Grok 用 100-180 词单段连续主线，不写时间轴；Veo 可写 [0:00-0:03] 时间轴分段。只支持 Grok 和 Veo。时长只使用 4/8/12/15 秒。prompt 必须强调主体一致、动作连续、物理真实、参考图保真、无分镜标注污染。

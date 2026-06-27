@@ -121,8 +121,11 @@ export type CanvasNodeMetadata = {
     selectedHookType?: string;
     excludedHookTypes?: string[];
     storyboardPlanId?: string;
+    storyboardSourceNodeId?: string;
     storyboardRole?: "review-sheet" | "keyframe";
     storyboardBeatIndex?: number;
+    storyboardReviewIndex?: number;
+    storyboardReviewNodeId?: string;
     targetVideoModel?: string;
     targetVideoSeconds?: 4 | 8 | 12 | 15 | number;
     targetVideoSize?: string;

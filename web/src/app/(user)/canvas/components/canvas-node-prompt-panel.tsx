@@ -115,7 +115,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         }
         if (commerceVideoPlan && commerceVideoPlan.beats?.length) {
             void onGenerateVideoStoryboard(node.id, commerceVideoPlan).catch((error) => {
-                message.error(`视频分镜关键帧生成失败：${error instanceof Error ? error.message : "未知错误"}`);
+                message.error(`12宫格分镜候选生成失败：${error instanceof Error ? error.message : "未知错误"}`);
             });
             return;
         }
@@ -167,7 +167,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     } as Partial<CanvasNodeData["metadata"]>);
                 }
                 updatePrompt(result);
-                message.success(plan ? "视频分镜规划已解析，点击生成按钮创建关键帧" : "已回填润色结果（JSON 解析失败，可手动修改后重试）");
+                message.success(plan ? "视频分镜规划已解析，点击生成按钮创建12宫格候选" : "已回填润色结果（JSON 解析失败，可手动修改后重试）");
                 return;
             }
             const polishMode: PolishMode = mode === "video" || template === "videoprompt" ? "video" : "image";

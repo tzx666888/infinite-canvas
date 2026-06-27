@@ -13,6 +13,7 @@ import {
     buildProductDetailImagePrompt,
     buildSceneExpansionImagePrompt,
     buildStoryboardKeyframePrompt,
+    buildStoryboardReviewSheetPrompt,
     formatCommerceVideoPlan,
     formatProductBreakdownPlan,
     formatSceneExpansionPlan,
@@ -34,6 +35,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { applyMaskedEditCropDataUrl, applyMaskedEditDataUrl, cropDataUrl, prepareMaskedEditCropDataUrls, splitDataUrl, upscaleDataUrl } from "../utils/canvas-image-data";
 import { extractVideoKeyFrames } from "../utils/video-frame-extraction";
+import { compileVideoPrompt } from "../utils/video-prompt-compiler";
 import { fitNodeSize, nodeSizeFromRatio } from "../utils/canvas-node-size";
 import { App, Button, Dropdown, Modal } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "../constants";
@@ -109,6 +111,8 @@ type CanvasGenerationRequest = {
 
 const VIDEO_NODE_MAX_WIDTH = 420;
 const VIDEO_NODE_MAX_HEIGHT = 420;
+const STORYBOARD_REVIEW_NODE_MAX_WIDTH = 420;
+const STORYBOARD_REVIEW_NODE_MAX_HEIGHT = 720;
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
 const CONNECTION_NODE_HIT_PADDING = 32;
 const NODE_STATUS_IDLE = "idle" as const;
@@ -2352,7 +2356,10 @@ function InfiniteCanvasPage() {
         async (nodeId: string, plan: CanvasCommerceVideoPlan) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
             if (!sourceNode) throw new Error("找不到源节点");
-            const generationConfig = { ...buildGenerationConfig(effectiveConfig, sourceNode, "image"), count: "1" };
+            const baseGenerationConfig = buildGenerationConfig(effectiveConfig, sourceNode, "image");
+            const reviewSheetCount = Math.max(1, Math.min(4, getGenerationCount(baseGenerationConfig.count)));
+            const generationConfig = { ...baseGenerationConfig, count: "1" };
+            const reviewSheetConfig = { ...generationConfig, size: "1024x1536" };
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 throw new Error("请先配置可用的生图模型");
@@ -2368,14 +2375,14 @@ function InfiniteCanvasPage() {
             setRunningNodeId(nodeId);
             const controller = startGenerationRequest(nodeId, nodeId, nodeId);
             const textSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
-            const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
             const gap = 96;
             const rowGap = 36;
             const planId = nanoid();
             const analysisId = nanoid();
             const rootId = nanoid();
-            const childIds = beats.slice(1).map(() => nanoid());
+            const childIds = Array.from({ length: Math.max(0, reviewSheetCount - 1) }, () => nanoid());
             const targetIds = [rootId, ...childIds];
+            const reviewPrompts = Array.from({ length: reviewSheetCount }, (_, index) => buildStoryboardReviewSheetPrompt(plan, index + 1));
 
             const analysisText = formatCommerceVideoPlan(plan);
             const analysisNode: CanvasNodeData = {
@@ -2391,20 +2398,20 @@ function InfiniteCanvasPage() {
                     status: NODE_STATUS_SUCCESS,
                     fontSize: 14,
                     storyboardPlanId: planId,
+                    storyboardSourceNodeId: nodeId,
                     commerceVideoPlan: plan,
                 },
             };
 
-            const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, referenceImages);
-            const rootBeat = beats[0];
-            const rootPrompt = buildStoryboardKeyframePrompt(plan, rootBeat);
+            const generationMetadata = buildImageGenerationMetadata(referenceImages.length > 0 ? "edit" : "generation", reviewSheetConfig, 1, referenceImages);
+            const rootPrompt = reviewPrompts[0];
             const rootNode: CanvasNodeData = {
                 id: rootId,
                 type: CanvasNodeType.Image,
-                title: `Beat ${rootBeat.index} | ${rootBeat.phase} | ${rootBeat.timeRange}`,
+                title: "12宫格分镜候选 1",
                 position: { x: analysisNode.position.x + analysisNode.width + gap, y: analysisNode.position.y },
-                width: imageSpec.width,
-                height: imageSpec.height,
+                width: 360,
+                height: 630,
                 metadata: {
                     ...generationMetadata,
                     prompt: rootPrompt,
@@ -2413,33 +2420,36 @@ function InfiniteCanvasPage() {
                     batchChildIds: childIds.length > 0 ? childIds : undefined,
                     batchUsesReferenceImages: referenceImages.length > 0,
                     imageBatchExpanded: childIds.length > 0 ? true : undefined,
-                    count: beats.length,
-                    storyboardRole: "keyframe" as const,
-                    storyboardBeatIndex: 0,
+                    count: reviewSheetCount,
+                    storyboardRole: "review-sheet" as const,
                     storyboardPlanId: planId,
+                    storyboardSourceNodeId: nodeId,
+                    storyboardReviewIndex: 1,
+                    commerceVideoPlan: plan,
                 },
             };
             const childNodes = childIds.map((id, index): CanvasNodeData => {
-                const beat = beats[index + 1];
-                const beatPrompt = buildStoryboardKeyframePrompt(plan, beat);
+                const reviewPrompt = reviewPrompts[index + 1];
                 return {
                     id,
                     type: CanvasNodeType.Image,
-                    title: `Beat ${beat.index} | ${beat.phase} | ${beat.timeRange}`,
+                    title: `12宫格分镜候选 ${index + 2}`,
                     position: {
-                        x: rootNode.position.x + rootNode.width + 120 + (index % 2) * (imageSpec.width + 36),
-                        y: rootNode.position.y + Math.floor(index / 2) * (imageSpec.height + rowGap),
+                        x: rootNode.position.x + rootNode.width + 120 + (index % 2) * (rootNode.width + 36),
+                        y: rootNode.position.y + Math.floor(index / 2) * (rootNode.height + rowGap),
                     },
-                    width: imageSpec.width,
-                    height: imageSpec.height,
+                    width: rootNode.width,
+                    height: rootNode.height,
                     metadata: {
                         ...generationMetadata,
-                        prompt: beatPrompt,
+                        prompt: reviewPrompt,
                         status: NODE_STATUS_LOADING,
                         batchRootId: rootId,
-                        storyboardRole: "keyframe" as const,
-                        storyboardBeatIndex: index + 1,
+                        storyboardRole: "review-sheet" as const,
                         storyboardPlanId: planId,
+                        storyboardSourceNodeId: nodeId,
+                        storyboardReviewIndex: index + 2,
+                        commerceVideoPlan: plan,
                     },
                 };
             });
@@ -2460,27 +2470,212 @@ function InfiniteCanvasPage() {
             try {
                 const useEdit = referenceImages.length > 0;
                 await runWithConcurrency(targetIds, 2, async (targetId, index) => {
-                    const beat = beats[index];
-                    const beatPrompt = buildStoryboardKeyframePrompt(plan, beat);
+                    const reviewPrompt = reviewPrompts[index] || reviewPrompts[0];
                     try {
                         const image = useEdit
-                            ? await requestEdit(generationConfig, beatPrompt, referenceImages, undefined, { signal: controller.signal }).then((items) => items[0])
-                            : await requestGeneration(generationConfig, beatPrompt, { signal: controller.signal }).then((items) => items[0]);
+                            ? await requestEdit(reviewSheetConfig, reviewPrompt, referenceImages, undefined, { signal: controller.signal }).then((items) => items[0])
+                            : await requestGeneration(reviewSheetConfig, reviewPrompt, { signal: controller.signal }).then((items) => items[0]);
+                        const uploaded = await uploadImage(image.dataUrl);
+                        const imageSize = fitNodeSize(uploaded.width, uploaded.height, STORYBOARD_REVIEW_NODE_MAX_WIDTH, STORYBOARD_REVIEW_NODE_MAX_HEIGHT);
+                        setNodes((prev) => {
+                            const root = prev.find((node) => node.id === rootId);
+                            return prev.map((node) => {
+                                if (node.id !== targetId && node.id !== rootId) return node;
+                                const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
+                                if (node.id === rootId && (targetId === rootId || !root?.metadata?.primaryImageId))
+                                    return {
+                                        ...node,
+                                        position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
+                                        width: imageSize.width,
+                                        height: imageSize.height,
+                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), prompt: reviewPrompt, primaryImageId: targetId },
+                                    };
+                                if (node.id === targetId)
+                                    return {
+                                        ...node,
+                                        position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
+                                        width: imageSize.width,
+                                        height: imageSize.height,
+                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), prompt: reviewPrompt },
+                                    };
+                                return node;
+                            });
+                        });
+                        successCount += 1;
+                    } catch (error) {
+                        if (isGenerationCanceled(error)) return;
+                        const errorDetails = error instanceof Error ? error.message : "12宫格分镜生成失败";
+                        setNodes((prev) =>
+                            prev.map((node) =>
+                                node.id === targetId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } } : node,
+                            ),
+                        );
+                    } finally {
+                        finishGenerationRequest(targetId, controller);
+                    }
+                });
+                if (controller.signal.aborted) return;
+                if (successCount === reviewSheetCount) message.success(`${successCount} 张12宫格分镜候选已生成，请选择一张生成关键帧`);
+                else if (successCount > 0) message.error(`已生成 ${successCount} 张，${reviewSheetCount - successCount} 张失败，可单独重试`);
+                else message.error("全部12宫格分镜生成失败");
+            } finally {
+                finishGenerationRequest(nodeId, controller);
+                setRunningNodeId(null);
+            }
+        },
+        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+    );
+
+    const handleGenerateStoryboardKeyframes = useCallback(
+        async (reviewNode: CanvasNodeData) => {
+            const plan = reviewNode.metadata?.commerceVideoPlan;
+            if (!plan?.beats?.length) {
+                message.error("找不到分镜规划数据");
+                return;
+            }
+            const planId = reviewNode.metadata?.storyboardPlanId;
+            if (!planId || reviewNode.metadata?.storyboardRole !== "review-sheet") {
+                message.error("请选择12宫格分镜候选图生成关键帧");
+                return;
+            }
+            const reviewImageUrl = reviewNode.metadata?.content;
+            if (!reviewImageUrl) {
+                message.error("这张12宫格还没有生成完成");
+                return;
+            }
+
+            const sourceNode = reviewNode.metadata?.storyboardSourceNodeId
+                ? nodesRef.current.find((node) => node.id === reviewNode.metadata?.storyboardSourceNodeId) || null
+                : null;
+            const generationConfig = { ...buildGenerationConfig(effectiveConfig, sourceNode || reviewNode, "image"), count: "1" };
+            if (!isAiConfigReady(generationConfig, generationConfig.model)) {
+                openConfigDialog(true);
+                return;
+            }
+
+            const sourceContext = sourceNode
+                ? await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, ""))
+                : { referenceImages: [] as ReferenceImage[] };
+            const sourceReferences = sourceNode ? mergeReferenceImages(sourceNodeReferenceImages(sourceNode), sourceContext.referenceImages) : [];
+            const reviewReference: ReferenceImage = {
+                id: reviewNode.id,
+                name: `storyboard-review-${reviewNode.metadata?.storyboardReviewIndex || 1}.png`,
+                type: reviewNode.metadata?.mimeType || "image/png",
+                dataUrl: reviewImageUrl,
+                storageKey: reviewNode.metadata?.storageKey || (reviewImageUrl.startsWith("image:") ? reviewImageUrl : undefined),
+                url: reviewImageUrl.startsWith("http") ? reviewImageUrl : undefined,
+            };
+            const referenceImages = mergeReferenceImages(sourceReferences, [reviewReference]);
+            const beats = plan.beats;
+            const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+            const gap = 96;
+            const rowGap = 36;
+            const rootId = nanoid();
+            const childIds = beats.slice(1).map(() => nanoid());
+            const targetIds = [rootId, ...childIds];
+            const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, referenceImages);
+
+            const buildBeatPrompt = (beat: NonNullable<CanvasCommerceVideoPlan["beats"]>[number]) =>
+                buildStoryboardKeyframePrompt(plan, beat, { selectedReviewSheet: true });
+            const rootBeat = beats[0];
+            const rootPrompt = buildBeatPrompt(rootBeat);
+            const rootNode: CanvasNodeData = {
+                id: rootId,
+                type: CanvasNodeType.Image,
+                title: `关键帧 Beat ${rootBeat.index} | ${rootBeat.phase} | ${rootBeat.timeRange}`,
+                position: { x: reviewNode.position.x + reviewNode.width + gap, y: reviewNode.position.y },
+                width: imageSpec.width,
+                height: imageSpec.height,
+                metadata: {
+                    ...generationMetadata,
+                    prompt: rootPrompt,
+                    status: NODE_STATUS_LOADING,
+                    isBatchRoot: childIds.length > 0,
+                    batchChildIds: childIds.length > 0 ? childIds : undefined,
+                    batchUsesReferenceImages: true,
+                    imageBatchExpanded: childIds.length > 0 ? true : undefined,
+                    count: beats.length,
+                    storyboardRole: "keyframe" as const,
+                    storyboardBeatIndex: 0,
+                    storyboardPlanId: planId,
+                    storyboardSourceNodeId: reviewNode.metadata?.storyboardSourceNodeId,
+                    storyboardReviewNodeId: reviewNode.id,
+                    storyboardReviewIndex: reviewNode.metadata?.storyboardReviewIndex,
+                },
+            };
+            const childNodes = childIds.map((id, index): CanvasNodeData => {
+                const beat = beats[index + 1];
+                const beatPrompt = buildBeatPrompt(beat);
+                return {
+                    id,
+                    type: CanvasNodeType.Image,
+                    title: `关键帧 Beat ${beat.index} | ${beat.phase} | ${beat.timeRange}`,
+                    position: {
+                        x: rootNode.position.x + rootNode.width + 120 + (index % 2) * (imageSpec.width + 36),
+                        y: rootNode.position.y + Math.floor(index / 2) * (imageSpec.height + rowGap),
+                    },
+                    width: imageSpec.width,
+                    height: imageSpec.height,
+                    metadata: {
+                        ...generationMetadata,
+                        prompt: beatPrompt,
+                        status: NODE_STATUS_LOADING,
+                        batchRootId: rootId,
+                        storyboardRole: "keyframe" as const,
+                        storyboardBeatIndex: index + 1,
+                        storyboardPlanId: planId,
+                        storyboardSourceNodeId: reviewNode.metadata?.storyboardSourceNodeId,
+                        storyboardReviewNodeId: reviewNode.id,
+                        storyboardReviewIndex: reviewNode.metadata?.storyboardReviewIndex,
+                    },
+                };
+            });
+            const nextConnections: CanvasConnection[] = [
+                { id: nanoid(), fromNodeId: reviewNode.id, toNodeId: rootId },
+                ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: rootId, toNodeId: childId })),
+            ];
+
+            setRunningNodeId(reviewNode.id);
+            const controller = startGenerationRequest(reviewNode.id, reviewNode.id, reviewNode.id);
+            setNodes((prev) => [...prev, rootNode, ...childNodes]);
+            setConnections((prev) => [...prev, ...nextConnections]);
+            setSelectedNodeIds(new Set([rootId]));
+            setSelectedConnectionId(null);
+            targetIds.forEach((targetId) => startGenerationRequest(targetId, reviewNode.id, reviewNode.id, controller));
+
+            let successCount = 0;
+            try {
+                await runWithConcurrency(targetIds, 2, async (targetId, index) => {
+                    const beat = beats[index];
+                    const beatPrompt = buildBeatPrompt(beat);
+                    try {
+                        const image = await requestEdit(generationConfig, beatPrompt, referenceImages, undefined, { signal: controller.signal }).then((items) => items[0]);
                         const uploaded = await uploadImage(image.dataUrl);
                         const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageSpec.width, imageSpec.height);
-                        setNodes((prev) =>
-                            prev.map((node) => {
-                                if (node.id !== targetId) return node;
+                        setNodes((prev) => {
+                            const root = prev.find((node) => node.id === rootId);
+                            return prev.map((node) => {
+                                if (node.id !== targetId && node.id !== rootId) return node;
                                 const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
-                                return {
-                                    ...node,
-                                    position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
-                                    width: imageSize.width,
-                                    height: imageSize.height,
-                                    metadata: { ...node.metadata, ...imageMetadata(uploaded), prompt: beatPrompt },
-                                };
-                            }),
-                        );
+                                if (node.id === rootId && (targetId === rootId || !root?.metadata?.primaryImageId))
+                                    return {
+                                        ...node,
+                                        position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
+                                        width: imageSize.width,
+                                        height: imageSize.height,
+                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), prompt: beatPrompt, primaryImageId: targetId },
+                                    };
+                                if (node.id === targetId)
+                                    return {
+                                        ...node,
+                                        position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
+                                        width: imageSize.width,
+                                        height: imageSize.height,
+                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), prompt: beatPrompt },
+                                    };
+                                return node;
+                            });
+                        });
                         successCount += 1;
                     } catch (error) {
                         if (isGenerationCanceled(error)) return;
@@ -2495,15 +2690,145 @@ function InfiniteCanvasPage() {
                     }
                 });
                 if (controller.signal.aborted) return;
-                if (successCount === beats.length) message.success(`${successCount} 张视频关键帧已生成`);
+                if (successCount === beats.length) message.success(`${successCount} 张干净关键帧已生成，可从分镜规划节点生成视频`);
                 else if (successCount > 0) message.error(`已生成 ${successCount} 张，${beats.length - successCount} 张失败，可单独重试`);
                 else message.error("全部关键帧生成失败");
             } finally {
-                finishGenerationRequest(nodeId, controller);
+                finishGenerationRequest(reviewNode.id, controller);
                 setRunningNodeId(null);
             }
         },
         [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+    );
+
+
+    const handleGenerateVideoClips = useCallback(
+        async (planNode: CanvasNodeData) => {
+            const plan = planNode.metadata?.commerceVideoPlan;
+            if (!plan?.beats?.length) throw new Error("找不到分镜规划数据");
+            const planId = planNode.metadata?.storyboardPlanId;
+            if (!planId) throw new Error("找不到分镜规划 ID");
+
+            const generationConfig = { ...buildGenerationConfig(effectiveConfig, planNode, "video"), count: "1" };
+            if (!generationConfig.videoModels.length) {
+                message.error("当前令牌未开放视频模型，无法生成视频片段");
+                return;
+            }
+
+            const keyframeNodes = nodesRef.current
+                .filter((node) => node.metadata?.storyboardPlanId === planId && node.metadata?.storyboardRole === "keyframe" && node.metadata?.content)
+                .sort((a, b) => (a.metadata?.storyboardBeatIndex ?? 0) - (b.metadata?.storyboardBeatIndex ?? 0));
+
+            if (!keyframeNodes.length) {
+                message.error("找不到已生成的关键帧图片，请先生成关键帧");
+                return;
+            }
+
+            const videoSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Video];
+            const gap = 96;
+            setRunningNodeId(planNode.id);
+            const controller = startGenerationRequest(planNode.id, planNode.id, planNode.id);
+
+            const compiledPrompt = compileVideoPrompt(plan, {
+                model: (effectiveConfig.videoModel || "").toLowerCase().includes("veo") ? "veo" : "grok",
+                duration: (plan.beats!.length <= 2 ? 4 : plan.beats!.length <= 3 ? 8 : plan.beats!.length <= 5 ? 12 : 15) as 4 | 8 | 12 | 15,
+                aspectRatio: effectiveConfig.size === "16:9" ? "16:9" : effectiveConfig.size === "1:1" ? "1:1" : "9:16",
+                referenceMode: "i2v",
+            });
+
+            const videoEntries = keyframeNodes.map((kfNode, index) => {
+                const beat = plan.beats![index] || plan.beats![plan.beats!.length - 1];
+                const videoId = nanoid();
+                const videoNode: CanvasNodeData = {
+                    id: videoId,
+                    type: CanvasNodeType.Video,
+                    title: `Beat ${beat.index} | ${beat.phase} | ${beat.timeRange}`,
+                    position: { x: kfNode.position.x + kfNode.width + gap, y: kfNode.position.y },
+                    width: videoSpec.width,
+                    height: videoSpec.height,
+                    metadata: {
+                        prompt: compiledPrompt,
+                        status: NODE_STATUS_LOADING,
+                        model: effectiveConfig.videoModel || effectiveConfig.model,
+                        size: effectiveConfig.size,
+                        seconds: effectiveConfig.videoSeconds,
+                        vquality: effectiveConfig.vquality,
+                        generateAudio: effectiveConfig.videoGenerateAudio,
+                        watermark: effectiveConfig.videoWatermark,
+                        storyboardPlanId: planId,
+                        storyboardBeatIndex: beat.index,
+                    },
+                };
+                return { kfNode, beat, videoId, videoNode };
+            });
+
+            const videoIds = videoEntries.map((entry) => entry.videoId);
+            const newConnections: CanvasConnection[] = videoEntries.map((entry) => ({
+                id: nanoid(),
+                fromNodeId: entry.kfNode.id,
+                toNodeId: entry.videoId,
+            }));
+
+            setNodes((prev) => [...prev, ...videoEntries.map((entry) => entry.videoNode)]);
+            setConnections((prev) => [...prev, ...newConnections]);
+            videoIds.forEach((videoId) => startGenerationRequest(videoId, planNode.id, planNode.id, controller));
+
+            let successCount = 0;
+            try {
+                await runWithConcurrency(videoIds, 1, async (videoId, index) => {
+                    const entry = videoEntries[index];
+                    const kfImageUrl = entry.kfNode.metadata?.content || "";
+                    const referenceImages: ReferenceImage[] = kfImageUrl
+                        ? [{ id: entry.kfNode.id, name: `keyframe-beat-${entry.beat.index}`, type: "image", dataUrl: "", storageKey: kfImageUrl.startsWith("http") ? undefined : kfImageUrl, url: kfImageUrl.startsWith("http") ? kfImageUrl : undefined }]
+                        : [];
+                    try {
+                        const video = await storeGeneratedVideo(await requestVideoGeneration(
+                            { ...generationConfig, model: effectiveConfig.videoModel || effectiveConfig.model },
+                            compiledPrompt,
+                            referenceImages,
+                            [],
+                            [],
+                            { signal: controller.signal },
+                        ));
+                        const videoSize = fitNodeSize(video.width || videoSpec.width, video.height || videoSpec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
+                        setNodes((prev) =>
+                            prev.map((node) => {
+                                if (node.id !== videoId) return node;
+                                return {
+                                    ...node,
+                                    width: videoSize.width,
+                                    height: videoSize.height,
+                                    position: {
+                                        x: node.position.x + node.width / 2 - videoSize.width / 2,
+                                        y: node.position.y + node.height / 2 - videoSize.height / 2,
+                                    },
+                                    metadata: { ...node.metadata, ...videoMetadata(video), prompt: compiledPrompt },
+                                };
+                            }),
+                        );
+                        successCount += 1;
+                    } catch (error) {
+                        if (isGenerationCanceled(error)) return;
+                        const errorDetails = error instanceof Error ? error.message : "视频片段生成失败";
+                        setNodes((prev) =>
+                            prev.map((node) =>
+                                node.id === videoId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } } : node,
+                            ),
+                        );
+                    } finally {
+                        finishGenerationRequest(videoId, controller);
+                    }
+                });
+                if (controller.signal.aborted) return;
+                if (successCount === videoEntries.length) message.success(`${successCount} 个视频片段已生成`);
+                else if (successCount > 0) message.error(`已生成 ${successCount} 个，${videoEntries.length - successCount} 个失败，可单独重试`);
+                else message.error("全部视频片段生成失败");
+            } finally {
+                finishGenerationRequest(planNode.id, controller);
+                setRunningNodeId(null);
+            }
+        },
+        [effectiveConfig, finishGenerationRequest, message, startGenerationRequest],
     );
 
     const handleGenerateNode = useCallback(
@@ -3276,6 +3601,8 @@ function InfiniteCanvasPage() {
                     onIncreaseFont={(node) => handleFontSizeChange(node.id, Math.min(32, (node.metadata?.fontSize || 14) + 2))}
                     onToggleDialog={(node) => setDialogNodeId((current) => (current === node.id ? null : node.id))}
                     onGenerateImage={generateImageFromTextNode}
+                    onGenerateStoryboardKeyframes={(node) => void handleGenerateStoryboardKeyframes(node)}
+                    onGenerateVideoClips={(node) => void handleGenerateVideoClips(node)}
                     onUpload={(node) => handleUploadRequest(node.id)}
                     onDownload={downloadNodeImage}
                     onSaveAsset={(node) => void saveNodeAsset(node)}
