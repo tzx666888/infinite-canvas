@@ -9,7 +9,7 @@ import { buildApiUrl, modelOptionName, requiresClientApiKey, resolveModelRequest
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
-type VideoResponse = { id: string; status?: string; error?: { message?: string } };
+type VideoResponse = { id: string; status?: string; error?: { message?: string } | string; video?: { url?: string } | null; content?: { video_url?: string } | null; video_url?: string };
 type ApiVideoResponse = VideoResponse | { code?: number; data?: VideoResponse | null; msg?: string };
 type SeedanceTask = {
     id: string;
@@ -123,12 +123,14 @@ function buildReferenceVideoPrompt(prompt: string, referenceCount: number) {
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
-        if (video.status === "completed") {
+        if (video.status === "completed" || video.status === "succeeded" || video.status === "done") {
+            const url = video.video?.url || video.content?.video_url || video.video_url;
+            if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
             const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
             await assertVideoBlob(content.data);
             return { status: "completed", result: { blob: content.data } };
         }
-        if (video.status === "failed" || video.status === "cancelled") return { status: "failed", error: video.error?.message || "视频生成失败" };
+        if (video.status === "failed" || video.status === "cancelled" || video.status === "expired") return { status: "failed", error: readProviderTaskError(video.error, "视频生成失败") };
         return { status: "pending" };
     } catch (error) {
         throw new Error(readAxiosError(error, "视频任务查询失败"));
