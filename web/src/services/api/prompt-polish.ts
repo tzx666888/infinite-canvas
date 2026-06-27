@@ -482,22 +482,33 @@ export function buildSceneExpansionImagePrompt(plan: SceneExpansionPlan, scene: 
 }
 
 const STORYBOARD_REVIEW_MOMENTS = [
-    "0-1.0s exaggerated thumb-stopping mishap, pain reaction, or visual shock hook",
-    "1.0-2.0s product jumps into the foreground as the obvious solution",
-    "2.0-3.2s urgent first product action begins",
-    "3.2-4.8s visible reaction or use process close-up",
-    "4.8-6.0s contrast moment with problem and improved area in one scene",
-    "6.0-7.5s proof-focused detail shot that makes the benefit believable",
-    "7.5-9.0s wider demonstration showing context and ease of use",
-    "9.0-10.5s product hero beside the result",
-    "10.5-12.0s lifestyle ease moment with human hand or natural use",
-    "12.0-13.2s label-readable reassurance shot without fake claims",
-    "13.2-14.2s purchase-intent setup with product held or placed forward",
-    "14.2-15.0s final hero packshot plus clear result",
+    "0-1.0s human reaction plus visible problem in the same frame, not only a mess close-up",
+    "1.0-2.0s product jumps into the foreground as the obvious rescue solution, label readable",
+    "2.0-3.0s macro close-up of the problem or pain point, maximum visual tension",
+    "3.0-4.2s first product application begins with fast hand movement",
+    "4.2-5.4s visible product reaction, foam, mist, texture change, or active use process",
+    "5.4-6.8s wipe, peel, pour, press, or reveal action that starts the transformation",
+    "6.8-8.2s half-before half-after proof in one believable frame",
+    "8.2-9.6s macro proof of the improved result, shine, texture, or solved detail",
+    "9.6-10.8s product hero beside the improved result",
+    "10.8-12.2s human satisfaction, relief, approval gesture, or lifestyle ease moment",
+    "12.2-13.6s label-readable reassurance shot with product held forward and result behind it",
+    "13.6-15.0s final hero packshot plus clear result, product in front",
 ] as const;
 
 function beatForStoryboardPanel(beats: NonNullable<CanvasCommerceVideoPlan["beats"]>, panelIndex: number) {
-    const phasePreference = panelIndex <= 1 ? ["hook", "pain"] : panelIndex <= 3 ? ["pain", "demo", "hook"] : panelIndex <= 7 ? ["demo", "pain"] : panelIndex <= 9 ? ["demo", "cta"] : ["cta", "demo"];
+    const phasePreference =
+        panelIndex === 0
+            ? ["hook", "pain"]
+            : panelIndex === 1
+              ? ["demo", "cta", "hook"]
+              : panelIndex === 2
+                ? ["pain", "hook"]
+                : panelIndex <= 7
+                  ? ["demo", "pain"]
+                  : panelIndex <= 9
+                    ? ["cta", "demo"]
+                    : ["cta", "demo"];
     const phaseBeat = phasePreference.map((phase) => beats.find((beat) => beat.phase === phase)).find(Boolean);
     if (phaseBeat) return phaseBeat;
     return beats[Math.min(beats.length - 1, Math.floor((panelIndex / STORYBOARD_REVIEW_MOMENTS.length) * beats.length))];
@@ -538,11 +549,14 @@ export function buildStoryboardReviewSheetPrompt(plan: CanvasCommerceVideoPlan, 
         "Rules:",
         "- Preserve one consistent product identity, packaging, colors, materials, logo placement, scale, and lighting logic across all panels.",
         "- Show 12 visibly different storyboard moments, not one repeated image and not fewer than 12 panels. Do not repeat the same wiping, spraying, hand pose, or camera angle in 4 or more panels.",
-        "- Build a high-retention sales rhythm: panel 1 is an exaggerated but believable mishap, pain reaction, or visual shock; panels 2-3 introduce the product as the obvious solution; panels 4-8 show action and proof; panels 9-12 return to product hero, result, and purchase intent.",
+        "- Build a high-retention sales rhythm: panel 1 must include a human reaction or human interruption plus the problem in frame when people are plausible; panels 2-3 introduce the product and problem tension; panels 4-8 show ordered action and proof; panels 9-12 return to product hero, result, and purchase intent.",
         "- Prefer social-ad style hooks when relevant: startled facial reaction, sudden spill or mess, embarrassing everyday problem, dramatic close-up of the pain point, product pushed toward camera, fast hand movement, urgent camera push-in. Keep it visually exaggerated, but not false.",
+        "- Follow cause-and-effect order. Do not show wiping before product application for cleaning products, do not solve the problem before the proof panel, and do not jump from dirty to clean without an action frame.",
+        "- At most 2 panels may be pure problem-only close-ups. Every other panel should include a product, a person, an action, a contrast, or a result.",
+        "- For cleaning, kitchen, beauty, home, tool, and daily-use products, avoid unsafe or illogical contact: do not show bare hands touching grease, chemicals, grime, sharp objects, or hot surfaces. Use a cloth, sponge, glove, applicator, or safe hand pose.",
         "- The product or packaging must be clearly visible by panel 2 or 3, again around the middle proof moment, and in the final 2 panels. Keep label readability when a label is naturally visible.",
-        "- Include at least one believable before/after or problem/result contrast inside the storyboard, but keep the transformation visually realistic for the product category.",
-        "- The final panel must feel like a clean packshot plus result frame: product in front, result or lifestyle context behind it, no text overlay.",
+        "- Include one strong before/after or problem/result contrast inside a single middle panel, plus one clean result proof panel after it. Keep the transformation visually realistic for the product category.",
+        "- Panels 11 and 12 must not be near-duplicates. Panel 11 should be a label-readable hand-held product reassurance shot; panel 12 should be the clean final packshot with product in front and result or lifestyle context behind it.",
         "- Do not add poster headlines, Chinese marketing slogans, CTA banners, big title text, dense captions, callout arrows, UI chrome, or watermark. Small corner numbers 1-12 are allowed only if they do not replace the images.",
         "- Keep all claims visually conservative and realistic. Do not invent certifications, prices, discounts, medical effects, user reviews, or impossible before/after results.",
         "- Output a single vertical 12-panel storyboard sheet. If there is any ambiguity, prefer a clean 3x4 grid over decorative advertising design.",
