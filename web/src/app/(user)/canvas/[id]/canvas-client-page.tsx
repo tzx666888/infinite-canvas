@@ -2918,6 +2918,7 @@ function InfiniteCanvasPage() {
                     onGenerateImage={generateImageFromTextNode}
                     onGenerateStoryboardKeyframes={(node) => void handleGenerateStoryboardKeyframes(node)}
                     onGenerateVideoClips={(node) => void handleGenerateVideoClips(node)}
+                    onGenerateVideoStoryboard={handleGenerateVideoStoryboard}
                     onUpload={(node) => handleUploadRequest(node.id)}
                     onDownload={downloadNodeImage}
                     onSaveAsset={(node) => void saveNodeAsset(node)}

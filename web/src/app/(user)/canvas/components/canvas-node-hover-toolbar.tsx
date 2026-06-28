@@ -8,7 +8,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, getDataUrlByteSize } from "@/lib/image-utils";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "../types";
+import { CanvasNodeType, type CanvasNodeData, type CanvasCommerceVideoPlan, type ViewportTransform } from "../types";
 import { ImageToolSettingsModal, type ImageToolbarSettingsTool } from "./canvas-image-toolbar-settings-modal";
 import { IMAGE_QUICK_TOOLS_STORAGE_KEY, buildImageToolbarTools, defaultImageQuickToolIds, readImageQuickToolsConfig, type ImageQuickToolId } from "./canvas-image-toolbar-tools";
 
@@ -25,6 +25,7 @@ type CanvasNodeHoverToolbarProps = {
     onGenerateImage: (node: CanvasNodeData) => void;
     onGenerateStoryboardKeyframes: (node: CanvasNodeData) => void;
     onGenerateVideoClips: (node: CanvasNodeData) => void;
+    onGenerateVideoStoryboard: (nodeId: string, plan: CanvasCommerceVideoPlan) => Promise<void>;
     onUpload: (node: CanvasNodeData) => void;
     onDownload: (node: CanvasNodeData) => void;
     onSaveAsset: (node: CanvasNodeData) => void;
@@ -65,6 +66,7 @@ export function CanvasNodeHoverToolbar({
     onGenerateImage,
     onGenerateStoryboardKeyframes,
     onGenerateVideoClips,
+    onGenerateVideoStoryboard,
     onUpload,
     onDownload,
     onSaveAsset,
@@ -150,17 +152,27 @@ export function CanvasNodeHoverToolbar({
         ...(hasImage || hasVideo || hasAudio ? [{ id: "download", title: hasAudio ? "下载音频" : hasVideo ? "下载视频" : "下载图片", label: "下载", icon: <Download className="size-4" />, onClick: () => onDownload(node) }] : []),
         ...(canOpenDialog ? [{ id: "edit", title: "编辑", label: "编辑", icon: <MessageSquare className="size-4" />, onClick: () => onToggleDialog(node) }] : []),
         ...(isText ? [{ id: "editText", title: "编辑文本", label: "编辑文字", icon: <Pencil className="size-4" />, onClick: () => onEditText(node) }] : []),
-        ...(isText
+        ...(isText && node.metadata?.commerceVideoPlan
             ? [
                   {
-                      id: "generateImage",
-                      title: node.metadata?.commerceVideoPlan ? "生成12宫格分镜候选" : "用文本生图",
-                      label: node.metadata?.commerceVideoPlan ? "宫格" : "生图",
+                      id: "generateVideoStoryboard",
+                      title: "生成12宫格分镜候选",
+                      label: "宫格",
                       icon: <ImageIcon className="size-4" />,
-                      onClick: () => onGenerateImage(node),
+                      onClick: () => void onGenerateVideoStoryboard(node.id, node.metadata!.commerceVideoPlan!),
                   },
               ]
-            : []),
+            : isText
+              ? [
+                    {
+                        id: "generateImage",
+                        title: "用文本生图",
+                        label: "生图",
+                        icon: <ImageIcon className="size-4" />,
+                        onClick: () => onGenerateImage(node),
+                    },
+                ]
+              : []),
         ...(isText && node.metadata?.commerceVideoPlan ? [{ id: "generateVideoClips", title: "从分镜生成视频片段", label: "生成视频", icon: <Video className="size-4" />, onClick: () => onGenerateVideoClips(node) }] : []),
         ...(isStoryboardReviewSheet && hasImage ? [{ id: "generateStoryboardKeyframes", title: "从这张12宫格生成干净关键帧", label: "关键帧", icon: <ImageIcon className="size-4" />, onClick: () => onGenerateStoryboardKeyframes(node) }] : []),
         ...(isConfig ? [{ id: "config", title: "生成配置", label: "生成配置", icon: <Settings2 className="size-4" />, onClick: () => onToggleDialog(node) }] : []),
