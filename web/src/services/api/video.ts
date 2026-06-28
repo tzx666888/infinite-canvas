@@ -1,7 +1,7 @@
 import axios from "axios";
 
 import { dataUrlToFile } from "@/lib/image-utils";
-import { normalizeModelVideoSeconds } from "@/lib/video-model-settings";
+import { normalizeReferenceVideoSeconds, selectGrokReferenceVideoImages } from "@/lib/video-model-settings";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
@@ -9,7 +9,7 @@ import { buildApiUrl, modelOptionName, requiresClientApiKey, resolveModelRequest
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
-type VideoResponse = { id: string; status?: string; error?: { message?: string } | string; video?: { url?: string } | null; content?: { video_url?: string } | null; video_url?: string };
+type VideoResponse = { id?: string; request_id?: string; status?: string; error?: { message?: string } | string; video?: { url?: string } | null; content?: { video_url?: string } | null; video_url?: string };
 type ApiVideoResponse = VideoResponse | { code?: number; data?: VideoResponse | null; msg?: string };
 type SeedanceTask = {
     id: string;
@@ -79,9 +79,10 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const modelName = modelOptionName(model);
-    const seconds = normalizeModelVideoSeconds(config.videoSeconds, modelName);
-    const promptText = buildReferenceVideoPrompt(prompt, references.length, seconds).trim();
-    if (!promptText && !references.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
+    const requestReferences = selectGrokReferenceVideoImages(references, modelName);
+    const seconds = normalizeReferenceVideoSeconds(config.videoSeconds, modelName, requestReferences.length);
+    const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds).trim());
+    if (!promptText && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
 
     const body = new FormData();
     body.append("model", modelName);
@@ -90,12 +91,13 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
     body.append("resolution_name", normalizeVideoResolution(config.vquality));
     body.append("preset", "normal");
-    const files = await Promise.all(references.slice(0, 12).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
+    const files = await Promise.all(requestReferences.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
     files.forEach((file) => body.append("input_reference", file));
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
-        if (!created.id) throw new Error("视频接口没有返回任务 ID");
-        return { id: created.id, provider: "openai", model };
+        const taskId = created.id || created.request_id;
+        if (!taskId) throw new Error("视频接口没有返回任务 ID");
+        return { id: taskId, provider: "openai", model };
     } catch (error) {
         throw new Error(readAxiosError(error, "视频任务创建失败"));
     }
@@ -110,20 +112,30 @@ function selectGrokVideoModel(config: AiConfig) {
     return candidates.map((model) => model.trim()).find(isGrokVideoModel) || "";
 }
 
-function buildReferenceVideoPrompt(prompt: string, referenceCount: number, seconds: string) {
-    if (!referenceCount) return prompt;
+function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: number, requestReferenceCount: number, seconds: string) {
+    if (!requestReferenceCount) return prompt;
+    if (prompt.includes("STORYBOARD-DIRECTED VIDEO.")) return prompt;
     const duration = normalizeDurationNumber(seconds);
-    const perReferenceSeconds = formatDuration(duration / Math.max(1, Math.min(12, referenceCount)));
+    if (requestReferenceCount === 1) {
+        return [
+            `Create a ${duration}-second video by animating the attached source image as the exact opening frame.`,
+            "Preserve the same subject or product identity, package geometry, colors, label placement, object count, environment, composition, and camera orientation.",
+            "Add only physically plausible local motion. Keep faces, bodies, hands, labels, rigid objects, and background geometry stable; no morphing, redesign, rebranding, or invented label text.",
+            "If audio is generated, use one consistent voice matching the visible presenter and the user's requested language. A visible female presenter requires a female voice; never change speaker or voice gender.",
+            `Direction: ${limitInlinePrompt(prompt.trim() || "Animate the source naturally while preserving visual identity.", 2200)}`,
+        ].join("\n");
+    }
+    const referenceCountLine = originalReferenceCount > requestReferenceCount
+        ? `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references selected from ${originalReferenceCount} source images.`
+        : `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references.`;
     return [
-        "Use the attached reference image(s) as visual guidance.",
-        "Keep the same subject or product identity, packaging geometry, colors, logo placement, object count, environment, and camera orientation.",
-        "Apply the requested motion while preserving visual continuity.",
-        referenceCount >= 8
-            ? `When many reference images are attached, treat them as an ordered direct-response ecommerce storyboard sequence. Follow upload order as the ${duration}-second timeline, about ${perReferenceSeconds} seconds per reference: 0-20% exaggerated but believable hook/problem, 20-35% product-as-rescue reveal, 35-70% demonstration/proof, 70-87% contrast result and reassurance, 87-100% final hero and purchase-intent beat. Anchor every shot to the corresponding uploaded reference; do not generate unrelated autonomous footage. Ignore storyboard artifacts such as corner numbers, panel labels, black badges, grid borders, captions, or sheet layout. Use clean edited shot cuts between different subjects or angles; do not morph, cross-dissolve, or interpolate human faces, hands, products, and stove surfaces into one another. If people appear only in some references, keep them as brief reaction or approval cutaways and do not carry them through product-only shots. Keep the product visible in the opening third, middle proof section, and final shot. Avoid repetitive action-only footage, looping the first frame, and unrelated scenes.`
-            : "If a reference is a storyboard sheet, treat it as shot-order guidance and render clean full-frame video shots without grid borders, panel numbers, labels, arrows, captions, or collage layout. Anchor the video to the supplied reference instead of inventing a separate scene.",
-        "For cleaning or problem-solution products, the final shot must resolve the visible problem with a clean result plus product hero, not another before-state mess.",
-        "Make the hook dramatic but believable. Do not add fake prices, discounts, endorsements, certifications, medical effects, impossible results, warped people, distorted faces, extra fingers, melted hands, or product/person hybrids.",
-        `User direction: ${prompt.trim() || "Animate the reference naturally while preserving visual identity and scene continuity."}`,
+        `Create a ${duration}-second vertical ecommerce video using all attached images in Grok reference-to-video mode.`,
+        referenceCountLine,
+        "Use every reference as a mandatory visual anchor. Preserve exact product identity, package silhouette, label blocks, colors, object count, people, and scene logic. Never rename, translate, recolor, rebrand, or replace the product.",
+        "Use clean edited cuts and stable local motion. Keep normal adult proportions and one consistent presenter. No stretched torso, warped face, melted hand, extra finger, product/person hybrid, or morph between shots.",
+        "If audio is generated, use one consistent presenter-matched voice. A visible female presenter requires a natural female voice; never switch to male narration or change language unexpectedly.",
+        "No storyboard artifacts: remove panel numbers, grid borders, badges, captions, arrows, labels, and sheet layout.",
+        `Direction: ${limitInlinePrompt(prompt.trim() || "Animate the references naturally while preserving visual identity and scene continuity.", 2200)}`,
     ].join("\n");
 }
 
@@ -131,8 +143,14 @@ function normalizeDurationNumber(value: string) {
     return Math.max(1, Math.floor(Number(value) || 6));
 }
 
-function formatDuration(value: number) {
-    return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+function limitVideoPrompt(value: string, maxChars = 3600) {
+    if (value.length <= maxChars) return value;
+    return `${value.slice(0, maxChars - 96).trim()}\nKeep all constraints above; omit minor details rather than exceeding the model prompt limit.`;
+}
+
+function limitInlinePrompt(value: string, maxChars: number) {
+    if (value.length <= maxChars) return value;
+    return `${value.slice(0, maxChars - 32).trim()}...`;
 }
 
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
@@ -320,7 +338,7 @@ function readAxiosError(error: unknown, fallback: string) {
     if (axios.isAxiosError<{ error?: { message?: string } | string; msg?: string; code?: number }>(error)) {
         if (error.response?.status === 502) return statusMessage(502, fallback);
         const responseData = error.response?.data;
-        const providerMessage = responseData?.msg || readProviderTaskError(responseData?.error, "");
+        const providerMessage = typeof responseData === "string" ? responseData : responseData?.msg || readProviderTaskError(responseData?.error, "");
         return providerMessage ? normalizeVideoProviderError(providerMessage, fallback) : statusMessage(error.response?.status, fallback);
     }
     if (error instanceof DOMException && error.name === "AbortError") return "请求已取消";
@@ -348,6 +366,12 @@ function normalizeVideoProviderError(message: string, fallback: string) {
     }
     if (lower.includes("bad request") || lower.includes("invalid") || lower.includes("unsupported")) {
         return "视频参数或参考图不被当前模型支持，请检查模型、时长、尺寸和参考图后重试";
+    }
+    if (lower.includes("reference") && (lower.includes("too many") || lower.includes("limit") || lower.includes("maximum"))) {
+        return "参考图数量超过当前视频模型限制，请减少参考图后重试";
+    }
+    if (lower.includes("duration") && (lower.includes("limit") || lower.includes("unsupported") || lower.includes("maximum"))) {
+        return "Grok 多参考图视频最长支持 10 秒；单图或纯文字视频可按模型选项生成";
     }
     return text || fallback;
 }

@@ -1,5 +1,5 @@
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
-import { normalizeModelVideoSeconds } from "@/lib/video-model-settings";
+import { normalizeReferenceVideoSeconds } from "@/lib/video-model-settings";
 
 export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImageCount: number): AiConfig {
     const model = referenceImageCount ? selectReferenceImageVideoModel(config, referenceImageCount) : config.model || config.videoModel;
@@ -7,7 +7,7 @@ export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImag
     if (!isGrokReferenceVideoModel(model || nextConfig.model)) return nextConfig;
     return {
         ...nextConfig,
-        videoSeconds: normalizeModelVideoSeconds(nextConfig.videoSeconds, model || nextConfig.model),
+        videoSeconds: normalizeReferenceVideoSeconds(nextConfig.videoSeconds, model || nextConfig.model, referenceImageCount),
         vquality: "720",
     };
 }

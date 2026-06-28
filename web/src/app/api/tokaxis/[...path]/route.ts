@@ -14,6 +14,7 @@ const FORWARDED_PATHS = [
     /^v1\/chat\/completions$/,
     /^v1\/images\/(?:generations|edits)$/,
     /^v1\/audio\/speech$/,
+    /^v1\/videos\/generations$/,
     /^v1\/videos(?:\/[^/]+(?:\/content)?)?$/,
     /^v1\/contents\/generations\/tasks(?:\/[^/]+)?$/,
     /^v1\/models$/,
@@ -105,12 +106,12 @@ async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorizatio
         const form = new FormData();
         form.append("model", stringValue(payload.model) || "grok-imagine-video");
         form.append("prompt", stringValue(payload.prompt));
-        form.append("seconds", legacyGrokVideoSeconds(payload.seconds));
+        const references = Array.isArray(payload.reference_images) ? payload.reference_images.slice(0, 7) : [];
+        form.append("seconds", legacyGrokVideoSeconds(payload.duration ?? payload.seconds, references.length));
         form.append("size", legacyVideoSize(payload.aspect_ratio));
         form.append("resolution_name", legacyVideoResolution(payload.resolution));
         form.append("preset", "normal");
 
-        const references = Array.isArray(payload.reference_images) ? payload.reference_images.slice(0, 12) : [];
         for (const [index, reference] of references.entries()) {
             const blob = await legacyReferenceImageBlob(reference?.url);
             if (blob) form.append("input_reference", blob, `reference-${index + 1}.${legacyImageExtension(blob.type)}`);
@@ -147,6 +148,7 @@ type LegacyGrokVideoPayload = {
     model?: unknown;
     prompt?: unknown;
     seconds?: unknown;
+    duration?: unknown;
     reference_images?: Array<{ url?: unknown } | null>;
     aspect_ratio?: unknown;
     resolution?: unknown;
@@ -224,11 +226,12 @@ function legacyVideoResolution(value: unknown) {
     return `${resolution}p`;
 }
 
-function legacyGrokVideoSeconds(value: unknown) {
+function legacyGrokVideoSeconds(value: unknown, referenceCount = 0) {
     const raw = typeof value === "number" ? value : Number(stringValue(value));
     const seconds = Math.floor(Number.isFinite(raw) && raw > 0 ? raw : 15);
     const options = [6, 10, 15];
-    return String(options.reduce((best, candidate) => (Math.abs(candidate - seconds) < Math.abs(best - seconds) ? candidate : best)));
+    const nearest = options.reduce((best, candidate) => (Math.abs(candidate - seconds) < Math.abs(best - seconds) ? candidate : best));
+    return String(referenceCount > 0 ? Math.min(nearest, 10) : nearest);
 }
 
 function legacyImageExtension(mimeType: string) {

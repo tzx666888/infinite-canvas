@@ -526,6 +526,7 @@ function UnknownNodeContent({ theme }: Pick<NodeContentRendererProps, "theme">) 
 function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, onContentChange, onStopEditing, onGenerateImage }: NodeContentRendererProps) {
     const fontSize = node.metadata?.fontSize || 14;
     const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, boxSizing: "border-box" } as React.CSSProperties;
+    const isStoryboardPlan = Boolean(node.metadata?.commerceVideoPlan?.beats?.length);
 
     return (
         <div className="flex h-full w-full flex-col overflow-hidden pt-8">
@@ -539,11 +540,11 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                 }}
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
-                title="用文本生图"
-                aria-label="用文本生图"
+                title={isStoryboardPlan ? "生成12宫格分镜候选" : "用文本生图"}
+                aria-label={isStoryboardPlan ? "生成12宫格分镜候选" : "用文本生图"}
             >
                 <ImageIcon className="size-3.5" />
-                生图
+                {isStoryboardPlan ? "宫格" : "生图"}
             </button>
             {isEditingContent ? (
                 <CanvasResourceMentionTextarea
