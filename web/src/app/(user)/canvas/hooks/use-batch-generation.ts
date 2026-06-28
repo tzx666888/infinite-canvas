@@ -42,7 +42,7 @@ import {
     getGenerationCount,
 } from "../utils/canvas-generation-utils";
 import { NODE_DEFAULT_SIZE } from "../constants";
-import { compileVideoPrompt, extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
+import { compileVideoPrompt, compileBeatPrompt, extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
 import { normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { requestEdit } from "@/services/api/image";
 import { hydrateNodeGenerationContext, buildNodeGenerationContext } from "../components/canvas-node-generation";
@@ -758,12 +758,8 @@ const handleGenerateVideoClips = useCallback(
         const videoModel = generationConfig.model || generationConfig.videoModel || effectiveConfig.videoModel || effectiveConfig.model;
         const videoSeconds = normalizeModelVideoSeconds(generationConfig.videoSeconds, videoModel);
 
-        const compiledPrompt = compileVideoPrompt(plan, {
-            model: "grok",
-            duration: Number(videoSeconds),
-            aspectRatio: generationConfig.size === "16:9" ? "16:9" : generationConfig.size === "1:1" ? "1:1" : "9:16",
-            referenceMode: "i2v",
-        });
+        const beatAspectRatio = generationConfig.size === "16:9" ? "16:9" as const : generationConfig.size === "1:1" ? "1:1" as const : "9:16" as const;
+        const perBeatSeconds = normalizeModelVideoSeconds("6", videoModel);
 
         const videoEntries = keyframeNodes.map((kfNode, index) => {
             const beat = plan.beats![index] || plan.beats![plan.beats!.length - 1];
@@ -776,11 +772,11 @@ const handleGenerateVideoClips = useCallback(
                 width: videoSpec.width,
                 height: videoSpec.height,
                 metadata: {
-                    prompt: compiledPrompt,
+                    prompt: "",
                     status: NODE_STATUS_LOADING,
                     model: videoModel,
                     size: generationConfig.size,
-                    seconds: videoSeconds,
+                    seconds: perBeatSeconds,
                     vquality: generationConfig.vquality,
                     generateAudio: generationConfig.videoGenerateAudio,
                     watermark: generationConfig.videoWatermark,
@@ -808,9 +804,15 @@ const handleGenerateVideoClips = useCallback(
                 const entry = videoEntries[index];
                 const referenceImages = sourceNodeReferenceImages(entry.kfNode);
                 try {
+                    const beatPrompt = compileBeatPrompt(plan, entry.beat, {
+                        model: "grok",
+                        duration: Number(perBeatSeconds),
+                        aspectRatio: beatAspectRatio,
+                        referenceMode: "i2v",
+                    });
                     const video = await storeGeneratedVideo(await requestVideoGeneration(
-                        { ...generationConfig, model: videoModel, videoSeconds },
-                        compiledPrompt,
+                        { ...generationConfig, model: videoModel, videoSeconds: perBeatSeconds },
+                        beatPrompt,
                         referenceImages,
                         [],
                         [],
@@ -828,7 +830,7 @@ const handleGenerateVideoClips = useCallback(
                                     x: node.position.x + node.width / 2 - videoSize.width / 2,
                                     y: node.position.y + node.height / 2 - videoSize.height / 2,
                                 },
-                                metadata: { ...node.metadata, ...videoMetadata(video), prompt: compiledPrompt },
+                                metadata: { ...node.metadata, ...videoMetadata(video), prompt: beatPrompt },
                             };
                         }),
                     );

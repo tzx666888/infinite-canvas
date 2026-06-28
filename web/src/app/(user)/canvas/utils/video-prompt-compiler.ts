@@ -101,6 +101,38 @@ function compileVeoPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBea
     );
 }
 
+
+export function compileBeatPrompt(
+    plan: CanvasCommerceVideoPlan,
+    beat: CommerceVideoBeat,
+    context: VideoPromptContext,
+): string {
+    const category = readableText(plan.productCategory, "the product");
+    const beatDesc = describeBeat(beat, plan);
+    const phase = beat.phase || "demo";
+
+    const phaseInstruction: Record<string, string> = {
+        hook: "This is the opening hook shot. Make it thumb-stopping with fast camera energy, sudden visual contrast, or expressive human reaction. Grab attention in the first second.",
+        pain: "This shot shows the real daily problem. Make the pain point immediately visible and relatable without exaggeration.",
+        demo: "This is a product demonstration shot. Keep the product clearly visible, show it in action, and make the benefit obvious.",
+        cta: "This is the closing shot. Show a clean product hero with the result visible. End with purchase intent — the product should look desirable and the outcome clear.",
+    };
+
+    const prompt = [
+        `Create a ${context.duration}-second ${aspectText(context.aspectRatio)} single-shot video clip for ${category}.`,
+        phaseInstruction[phase] || phaseInstruction.demo,
+        `Shot content: ${beatDesc}.`,
+        referenceConstraint(context.referenceMode),
+        "Keep the subject consistent, camera movement smooth, and transitions clean.",
+        "If people appear, keep faces, hands, and proportions anatomically stable.",
+        plan.enhancementWords || DEFAULT_ENHANCEMENT_WORDS,
+        "Negative prompt: no text overlays, no distorted hands, no warped faces, no extra fingers, no morphing between shots.",
+    ]
+        .filter(Boolean)
+        .join(" ");
+    return normalizeSpaces(limitWords(prompt, 150));
+}
+
 function describeBeat(beat: CommerceVideoBeat, plan: CanvasCommerceVideoPlan) {
     const description = readableText(beat.description, fallbackBeatDescription(beat, plan));
     const camera = readableText(beat.eightElements?.camera, "");
