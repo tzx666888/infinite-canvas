@@ -1,18 +1,8 @@
-import axios from "axios";
-
 import { buildFusionPlannerMessages } from "@/lib/fusion-plan-prompt";
 import { imageToDataUrl } from "@/services/image-storage";
 import { buildApiUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasFusionPlacementPlan } from "@/app/(user)/canvas/types";
 import type { ReferenceImage } from "@/types/image";
-
-type ChatCompletionResponse = {
-    choices?: Array<{ message?: { content?: string } }>;
-    error?: { message?: string };
-    code?: number;
-    msg?: string;
-    message?: string;
-};
 
 const DEFAULT_FUSION_PLANNER_MODEL = "default::gpt-5.5";
 
@@ -37,19 +27,62 @@ export async function requestFusionPlacementPlan(config: AiConfig, sceneImage: R
 }
 
 async function requestFusionPlacementPlanOnce(config: AiConfig, sceneImage: ReferenceImage, productImages: ReferenceImage[], useResponseFormat: boolean, options?: { signal?: AbortSignal }) {
-    const response = await axios.post<ChatCompletionResponse>(
-        aiApiUrl(config, "/chat/completions"),
-        {
+    const response = await fetch(aiApiUrl(config, "/chat/completions"), {
+        method: "POST",
+        headers: aiHeaders(config),
+        body: JSON.stringify({
             model: config.model,
             messages: buildFusionPlannerMessages(sceneImage, productImages),
-            stream: false,
+            stream: true,
             max_tokens: 2400,
             temperature: 0.12,
             ...(useResponseFormat ? { response_format: { type: "json_object" } } : {}),
-        },
-        { headers: aiHeaders(config), signal: options?.signal },
-    );
-    return readPlannerContent(response.data);
+        }),
+        signal: options?.signal,
+    });
+    if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        const parsed = safeParseJson(text);
+        const error = parsed?.error as Record<string, unknown> | undefined;
+        const message = error?.message || parsed?.msg || parsed?.message || `Request failed with status code ${response.status}`;
+        throw new Error(typeof message === "string" ? message : `融图摆放规划失败 (${response.status})`);
+    }
+    return collectStreamedContent(response);
+}
+
+async function collectStreamedContent(response: Response) {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("融图摆放规划失败：无响应流");
+    const decoder = new TextDecoder();
+    let content = "";
+    let buffer = "";
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed === "data: [DONE]") continue;
+                if (!trimmed.startsWith("data: ")) continue;
+                try {
+                    const data = JSON.parse(trimmed.slice(6));
+                    const delta = data.choices?.[0]?.delta?.content;
+                    if (delta) content += delta;
+                    const errorMessage = data.error?.message;
+                    if (errorMessage) throw new Error(errorMessage);
+                } catch (e) {
+                    if (e instanceof Error && e.message !== "融图摆放规划失败") throw e;
+                }
+            }
+        }
+    } finally {
+        reader.releaseLock();
+    }
+    if (!content.trim()) throw new Error("融图摆放规划失败：模型未返回内容");
+    return content.trim();
 }
 
 async function hydrateReferenceImage(image: ReferenceImage): Promise<ReferenceImage> {
@@ -137,12 +170,12 @@ function parseJsonObject(content: string) {
     }
 }
 
-function readPlannerContent(payload: ChatCompletionResponse) {
-    if (typeof payload.code === "number" && payload.code !== 0) throw new Error(payload.msg || payload.message || "融图摆放规划失败");
-    if (payload.error?.message) throw new Error(payload.error.message);
-    const content = payload.choices?.[0]?.message?.content?.trim();
-    if (!content) throw new Error("融图摆放规划失败：模型未返回内容");
-    return content;
+function safeParseJson(text: string): Record<string, unknown> | null {
+    try {
+        return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+        return null;
+    }
 }
 
 function aiApiUrl(config: Pick<AiConfig, "baseUrl">, path: string) {
