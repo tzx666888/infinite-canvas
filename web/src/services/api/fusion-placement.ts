@@ -85,8 +85,37 @@ async function collectStreamedContent(response: Response) {
     return content.trim();
 }
 
+const PLANNER_MAX_DIMENSION = 512;
+
 async function hydrateReferenceImage(image: ReferenceImage): Promise<ReferenceImage> {
-    return { ...image, dataUrl: await imageToDataUrl(image) };
+    const fullDataUrl = await imageToDataUrl(image);
+    const downscaled = await downscaleForPlanner(fullDataUrl);
+    return { ...image, dataUrl: downscaled };
+}
+
+function downscaleForPlanner(dataUrl: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            const { naturalWidth: w, naturalHeight: h } = img;
+            if (w <= PLANNER_MAX_DIMENSION && h <= PLANNER_MAX_DIMENSION) {
+                resolve(dataUrl);
+                return;
+            }
+            const scale = PLANNER_MAX_DIMENSION / Math.max(w, h);
+            const tw = Math.round(w * scale);
+            const th = Math.round(h * scale);
+            const canvas = document.createElement("canvas");
+            canvas.width = tw;
+            canvas.height = th;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) { resolve(dataUrl); return; }
+            ctx.drawImage(img, 0, 0, tw, th);
+            resolve(canvas.toDataURL("image/jpeg", 0.8));
+        };
+        img.onerror = () => reject(new Error("planner 图片加载失败"));
+        img.src = dataUrl;
+    });
 }
 
 function parseFusionPlacementPlan(content: string, expectedProductCount: number): CanvasFusionPlacementPlan {
