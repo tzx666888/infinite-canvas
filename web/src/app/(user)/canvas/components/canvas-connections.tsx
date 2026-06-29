@@ -27,6 +27,8 @@ export function ConnectionPath({
     const dx = Math.abs(endX - startX);
     const curvature = Math.max(dx * 0.5, 50);
     const pathD = `M ${startX} ${startY} C ${startX + curvature} ${startY}, ${endX - curvature} ${endY}, ${endX} ${endY}`;
+    const flowStroke = "#8b5cf6";
+    const flowCore = "#f5f3ff";
 
     return (
         <g>
@@ -47,14 +49,17 @@ export function ConnectionPath({
                     onContextMenu?.(event);
                 }}
             />
-            <path
-                d={pathD}
-                stroke={active ? theme.node.activeStroke : theme.node.muted}
-                strokeWidth={active ? 3 : 2}
-                strokeOpacity={active ? 1 : 0.82}
-                fill="none"
-                style={{ filter: active ? `drop-shadow(0 0 8px ${theme.node.activeStroke}66)` : undefined, pointerEvents: "none" }}
-            />
+            <path d={pathD} stroke={theme.node.muted} strokeWidth="2" strokeOpacity={active ? 0.95 : 0.82} strokeLinecap="round" fill="none" style={{ pointerEvents: "none" }} />
+            {active ? (
+                <>
+                    <path d={pathD} pathLength="100" stroke={flowStroke} strokeWidth="5.5" strokeOpacity="0.9" strokeLinecap="round" strokeDasharray="5 20" fill="none" style={{ filter: `drop-shadow(0 0 7px ${flowStroke})`, pointerEvents: "none" }}>
+                        <animate attributeName="stroke-dashoffset" from="0" to="-25" dur="1.05s" repeatCount="indefinite" />
+                    </path>
+                    <path d={pathD} pathLength="100" stroke={flowCore} strokeWidth="2.2" strokeOpacity="1" strokeLinecap="round" strokeDasharray="5 20" fill="none" style={{ filter: `drop-shadow(0 0 3px ${flowCore})`, pointerEvents: "none" }}>
+                        <animate attributeName="stroke-dashoffset" from="0" to="-25" dur="1.05s" repeatCount="indefinite" />
+                    </path>
+                </>
+            ) : null}
         </g>
     );
 }
@@ -62,6 +67,8 @@ export function ConnectionPath({
 export function ActiveConnectionPath({ node, handle, mouseWorld, target }: { node?: CanvasNodeData; handle: ConnectionHandle; mouseWorld: Position; target?: CanvasNodeData }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     if (!node) return null;
+    const flowStroke = "#8b5cf6";
+    const flowCore = "#f5f3ff";
 
     const startX = handle.handleType === "source" ? node.position.x + node.width : mouseWorld.x;
     const startY = handle.handleType === "source" ? node.position.y + node.height / 2 : mouseWorld.y;
@@ -74,5 +81,15 @@ export function ActiveConnectionPath({ node, handle, mouseWorld, target }: { nod
     const distance = Math.abs(snappedEndX - snappedStartX);
     const pathD = `M ${snappedStartX} ${snappedStartY} C ${snappedStartX + distance * 0.5} ${snappedStartY}, ${snappedEndX - distance * 0.5} ${snappedEndY}, ${snappedEndX} ${snappedEndY}`;
 
-    return <path d={pathD} stroke={theme.node.activeStroke} strokeWidth="2" fill="none" strokeDasharray="5,5" />;
+    return (
+        <g style={{ pointerEvents: "none" }}>
+            <path d={pathD} stroke={theme.node.muted} strokeWidth="2" strokeOpacity="0.9" strokeLinecap="round" fill="none" />
+            <path d={pathD} pathLength="100" stroke={flowStroke} strokeWidth="5.5" strokeOpacity="0.9" strokeLinecap="round" strokeDasharray="5 20" fill="none" style={{ filter: `drop-shadow(0 0 7px ${flowStroke})` }}>
+                <animate attributeName="stroke-dashoffset" from="0" to="-25" dur="0.9s" repeatCount="indefinite" />
+            </path>
+            <path d={pathD} pathLength="100" stroke={flowCore} strokeWidth="2.2" strokeOpacity="1" strokeLinecap="round" strokeDasharray="5 20" fill="none" style={{ filter: `drop-shadow(0 0 3px ${flowCore})` }}>
+                <animate attributeName="stroke-dashoffset" from="0" to="-25" dur="0.9s" repeatCount="indefinite" />
+            </path>
+        </g>
+    );
 }

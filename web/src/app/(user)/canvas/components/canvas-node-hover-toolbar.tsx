@@ -150,7 +150,17 @@ export function CanvasNodeHoverToolbar({
         ...(hasImage || hasVideo || hasAudio ? [{ id: "download", title: hasAudio ? "下载音频" : hasVideo ? "下载视频" : "下载图片", label: "下载", icon: <Download className="size-4" />, onClick: () => onDownload(node) }] : []),
         ...(canOpenDialog ? [{ id: "edit", title: "编辑", label: "编辑", icon: <MessageSquare className="size-4" />, onClick: () => onToggleDialog(node) }] : []),
         ...(isText ? [{ id: "editText", title: "编辑文本", label: "编辑文字", icon: <Pencil className="size-4" />, onClick: () => onEditText(node) }] : []),
-        ...(isText ? [{ id: "generateImage", title: "用文本生图", label: "生图", icon: <ImageIcon className="size-4" />, onClick: () => onGenerateImage(node) }] : []),
+        ...(isText
+            ? [
+                  {
+                      id: "generateImage",
+                      title: node.metadata?.commerceVideoPlan ? "生成12宫格分镜候选" : "用文本生图",
+                      label: node.metadata?.commerceVideoPlan ? "宫格" : "生图",
+                      icon: <ImageIcon className="size-4" />,
+                      onClick: () => onGenerateImage(node),
+                  },
+              ]
+            : []),
         ...(isText && node.metadata?.commerceVideoPlan ? [{ id: "generateVideoClips", title: "从分镜生成视频片段", label: "生成视频", icon: <Video className="size-4" />, onClick: () => onGenerateVideoClips(node) }] : []),
         ...(isStoryboardReviewSheet && hasImage ? [{ id: "generateStoryboardKeyframes", title: "从这张12宫格生成干净关键帧", label: "关键帧", icon: <ImageIcon className="size-4" />, onClick: () => onGenerateStoryboardKeyframes(node) }] : []),
         ...(isConfig ? [{ id: "config", title: "生成配置", label: "生成配置", icon: <Settings2 className="size-4" />, onClick: () => onToggleDialog(node) }] : []),

@@ -76,11 +76,62 @@ export type CanvasCommerceVideoPlan = {
     enhancementWords?: string;
 };
 
+export type CanvasProductIdentity = {
+    fingerprint: string;
+    model: string;
+    identity: string;
+    colors: string[];
+    materials: string[];
+    labelLayout: string;
+    observedText?: string;
+    textStatus: "unverified" | "verified";
+};
+
+export type CanvasFusionPlacementPlan = {
+    scene: {
+        summary: string;
+        camera: string;
+        light: string;
+        usableSurfaces: Array<{
+            name: string;
+            reason: string;
+            roughRegion: {
+                area: string;
+                horizontal: string;
+                depth: string;
+                vertical: string;
+            };
+        }>;
+        avoidAreas: string[];
+    };
+    products: Array<{
+        imageIndex: number;
+        identity: string;
+        colors: string[];
+        materials: string[];
+        labelLayout: string;
+        observedText?: string;
+        textStatus: "unverified" | "verified";
+    }>;
+    placements: Array<{
+        imageIndex: number;
+        position: string;
+        reason: string;
+        scale: string;
+        orientation: string;
+        contact: string;
+        shadow: string;
+        occlusion: string;
+    }>;
+    plannerModel: string;
+};
+
 export type CanvasNodeMetadata = {
     content?: string;
     composerContent?: string;
     prompt?: string;
     status?: CanvasNodeStatus;
+    statusMessage?: string;
     errorDetails?: string;
     fontSize?: number;
     generationMode?: CanvasGenerationMode;
@@ -117,6 +168,8 @@ export type CanvasNodeMetadata = {
     sceneExpansion?: boolean;
     sceneExpansionTitle?: string;
     sceneExpansionPlan?: CanvasSceneExpansionPlan;
+    productIdentityV1?: CanvasProductIdentity;
+    fusionPlacementPlanV1?: CanvasFusionPlacementPlan;
     commerceVideoPlan?: CanvasCommerceVideoPlan;
     selectedHookType?: string;
     excludedHookTypes?: string[];

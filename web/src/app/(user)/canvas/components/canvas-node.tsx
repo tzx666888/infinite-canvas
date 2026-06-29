@@ -464,7 +464,7 @@ function panelResizeCursor(edge: PanelResizeEdge) {
 function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
-    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
+    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} label={props.node.metadata?.statusMessage} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
 
     const Renderer = nodeContentRenderers[props.node.type];
@@ -479,11 +479,11 @@ const nodeContentRenderers = {
     [CanvasNodeType.Audio]: AudioNodeContent,
 } satisfies Record<CanvasNodeType, (props: NodeContentRendererProps) => ReactNode>;
 
-function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
+function LoadingContent({ theme, label }: Pick<NodeContentRendererProps, "theme"> & { label?: string }) {
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
             <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
-            <span className="text-[10px] tracking-[0.2em]">生成中</span>
+            <span className="max-w-[80%] truncate text-[10px] tracking-[0.2em]">{label || "生成中"}</span>
         </div>
     );
 }
@@ -526,6 +526,7 @@ function UnknownNodeContent({ theme }: Pick<NodeContentRendererProps, "theme">) 
 function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, onContentChange, onStopEditing, onGenerateImage }: NodeContentRendererProps) {
     const fontSize = node.metadata?.fontSize || 14;
     const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, boxSizing: "border-box" } as React.CSSProperties;
+    const isStoryboardPlan = Boolean(node.metadata?.commerceVideoPlan?.beats?.length);
 
     return (
         <div className="flex h-full w-full flex-col overflow-hidden pt-8">
@@ -539,11 +540,11 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                 }}
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
-                title="用文本生图"
-                aria-label="用文本生图"
+                title={isStoryboardPlan ? "生成12宫格分镜候选" : "用文本生图"}
+                aria-label={isStoryboardPlan ? "生成12宫格分镜候选" : "用文本生图"}
             >
                 <ImageIcon className="size-3.5" />
-                生图
+                {isStoryboardPlan ? "宫格" : "生图"}
             </button>
             {isEditingContent ? (
                 <CanvasResourceMentionTextarea
@@ -587,7 +588,7 @@ function ImageNodeContent(props: NodeContentRendererProps) {
     if (!props.node.metadata?.content && props.isBatchRoot) {
         const content =
             props.node.metadata?.status === "loading" ? (
-                <LoadingContent theme={props.theme} />
+                <LoadingContent theme={props.theme} label={props.node.metadata?.statusMessage} />
             ) : props.node.metadata?.status === "error" ? (
                 <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />
             ) : (

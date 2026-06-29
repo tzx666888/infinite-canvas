@@ -7,6 +7,7 @@ import { BookOpen, Bot, Home, ImageIcon, Images, List, Menu, Music2, Plus, Redo2
 import { saveAs } from "file-saver";
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
+import { requestFusionPlacementPlan } from "@/services/api/fusion-placement";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { requestVideoGeneration, storeGeneratedVideo } from "@/services/api/video";
 import {
@@ -27,16 +28,17 @@ import { imageToDataUrl, resolveImageUrl, uploadImage, type UploadedImage } from
 import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
+import { buildSceneAwareImageEditPrompt } from "@/lib/fusion-plan-prompt";
 import { buildIdentityPreservingImageEditPrompt } from "@/lib/image-reference-prompt";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
-import { normalizeModelVideoSeconds } from "@/lib/video-model-settings";
+import { normalizeModelVideoSeconds, normalizeReferenceVideoSeconds, selectGrokReferenceVideoImagesWithPriority } from "@/lib/video-model-settings";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { BrandMark } from "@/components/brand/brand-mark";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { applyMaskedEditCropDataUrl, applyMaskedEditDataUrl, cropDataUrl, prepareMaskedEditCropDataUrls, splitDataUrl, upscaleDataUrl } from "../utils/canvas-image-data";
 import { extractVideoKeyFrames } from "../utils/video-frame-extraction";
-import { compileVideoPrompt } from "../utils/video-prompt-compiler";
+import { compileVideoPrompt, extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
 import { fitNodeSize, nodeSizeFromRatio } from "../utils/canvas-node-size";
 import { App, Button, Dropdown, Modal } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "../constants";
@@ -71,6 +73,7 @@ import {
     type CanvasCommerceVideoPlan,
     type CanvasConnection,
     type CanvasImageGenerationType,
+    type CanvasFusionPlacementPlan,
     type CanvasNodeData,
     type CanvasNodeMetadata,
     type ConnectionHandle,
@@ -2919,7 +2922,8 @@ function InfiniteCanvasPage() {
                     const isEmptyImageNode = isImageNode && !sourceNode?.metadata?.content;
                     const sourceReference = sourceNodeReferenceImages(sourceNode || null);
                     const referenceImages = mergeReferenceImages(sourceReference, generationContext.referenceImages);
-                    const requestPrompt = buildIdentityPreservingImageEditPrompt(effectivePrompt, sourceReference.length > 0, referenceImages);
+                    let requestPrompt = buildIdentityPreservingImageEditPrompt(effectivePrompt, sourceReference.length > 0, referenceImages);
+                    let fusionPlacementPlan: CanvasFusionPlacementPlan | undefined;
                     const generationType = referenceImages.length ? ("edit" as const) : ("generation" as const);
                     const generationMetadata = buildImageGenerationMetadata(generationType, generationConfig, count, referenceImages);
                     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
@@ -2930,6 +2934,8 @@ function InfiniteCanvasPage() {
                     const rootId = isEmptyImageNode ? nodeId : nanoid();
                     const childIds = count > 1 ? Array.from({ length: count }, () => nanoid()) : [];
                     const targetIds = count > 1 ? childIds : [rootId];
+                    const canUseFusionPlacementPlanner = sourceReference.length > 0 && referenceImages.length > sourceReference.length;
+                    const initialImageStatusMessage = referenceImages.length ? (canUseFusionPlacementPlanner ? "分析场景..." : "融合产品...") : undefined;
                     pendingChildIds = isEmptyImageNode ? childIds : [rootId, ...childIds];
                     const rootNode: CanvasNodeData = {
                         id: rootId,
@@ -2944,6 +2950,7 @@ function InfiniteCanvasPage() {
                         metadata: {
                             prompt: effectivePrompt,
                             status: NODE_STATUS_LOADING,
+                            statusMessage: initialImageStatusMessage,
                             isBatchRoot: count > 1,
                             batchChildIds: count > 1 ? childIds : undefined,
                             batchUsesReferenceImages: referenceImages.length > 0,
@@ -2961,7 +2968,7 @@ function InfiniteCanvasPage() {
                         },
                         width: imageConfig.width,
                         height: imageConfig.height,
-                        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, batchRootId: count > 1 ? rootId : undefined, ...generationMetadata },
+                        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, statusMessage: initialImageStatusMessage, batchRootId: count > 1 ? rootId : undefined, ...generationMetadata },
                     }));
                     const batchConnections = [...(isEmptyImageNode ? [] : [{ id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]), ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: rootId, toNodeId: childId }))];
 
@@ -3008,6 +3015,54 @@ function InfiniteCanvasPage() {
                     const controller = runController;
                     targetIds.forEach((targetId) => startGenerationRequest(targetId, nodeId, nodeId, controller));
                     if (count > 1) startGenerationRequest(rootId, nodeId, nodeId, controller);
+                    const stageNodeIds = new Set([rootId, ...targetIds]);
+                    const updateImageGenerationStage = (statusMessage: string) => {
+                        setNodes((prev) => prev.map((node) => (stageNodeIds.has(node.id) ? { ...node, metadata: { ...node.metadata, statusMessage } } : node)));
+                    };
+                    if (referenceImages.length) {
+                        if (canUseFusionPlacementPlanner) {
+                            try {
+                                updateImageGenerationStage("分析场景...");
+                                const productReferenceImages = referenceImages.slice(sourceReference.length);
+                                const plan = await requestFusionPlacementPlan(generationConfig, sourceReference[0], productReferenceImages, { signal: controller.signal });
+                                if (controller.signal.aborted) throw new Error("请求已取消");
+                                updateImageGenerationStage("规划摆放...");
+                                fusionPlacementPlan = plan;
+                                setNodes((prev) =>
+                                    prev.map((node) => {
+                                        const productIndex = productReferenceImages.findIndex((image) => image.id === node.id);
+                                        const product = productIndex >= 0 ? plan.products[productIndex] : null;
+                                        if (!product) return node;
+                                        return {
+                                            ...node,
+                                            metadata: {
+                                                ...node.metadata,
+                                                productIdentityV1: {
+                                                    fingerprint: referenceFingerprint(productReferenceImages[productIndex]),
+                                                    model: plan.plannerModel,
+                                                    identity: product.identity,
+                                                    colors: product.colors,
+                                                    materials: product.materials,
+                                                    labelLayout: product.labelLayout,
+                                                    observedText: product.observedText,
+                                                    textStatus: product.textStatus,
+                                                },
+                                            },
+                                        };
+                                    }),
+                                );
+                                requestPrompt = buildSceneAwareImageEditPrompt(plan, effectivePrompt);
+                                updateImageGenerationStage("融合产品...");
+                            } catch (error) {
+                                if (controller.signal.aborted) throw new Error("请求已取消");
+                                if (isGenerationCanceled(error)) throw error;
+                                console.warn("[canvas] fusion placement planner failed, falling back to identity prompt", error);
+                                updateImageGenerationStage("融合产品...");
+                            }
+                        } else {
+                            updateImageGenerationStage("融合产品...");
+                        }
+                    }
                     let hasSuccess = false;
                     let hasFailure = false;
                     let firstFailureDetails = "";
@@ -3030,7 +3085,7 @@ function InfiniteCanvasPage() {
                                                 position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
                                                 width: imageSize.width,
                                                 height: imageSize.height,
-                                                metadata: { ...node.metadata, ...imageMetadata(uploaded), primaryImageId: targetId },
+                                                metadata: { ...node.metadata, ...imageMetadata(uploaded), primaryImageId: targetId, statusMessage: undefined, fusionPlacementPlanV1: fusionPlacementPlan },
                                             };
                                         if (node.id === targetId)
                                             return {
@@ -3038,7 +3093,7 @@ function InfiniteCanvasPage() {
                                                 position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
                                                 width: imageSize.width,
                                                 height: imageSize.height,
-                                                metadata: { ...node.metadata, ...imageMetadata(uploaded) },
+                                                metadata: { ...node.metadata, ...imageMetadata(uploaded), statusMessage: undefined, fusionPlacementPlanV1: fusionPlacementPlan },
                                             };
                                         return node;
                                     });
@@ -3082,9 +3137,14 @@ function InfiniteCanvasPage() {
                 if (mode === "video") {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
                     const storyboardReferenceFrames = await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current);
-                    const videoReferenceImages = mergeReferenceImages(storyboardReferenceFrames, generationContext.referenceImages);
-                    const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, videoReferenceImages.length);
-                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(effectivePrompt, storyboardReferenceFrames.length, videoGenerationConfig.videoSeconds);
+                    const storyboardIdentityImages = await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current);
+                    const videoIdentityImages = mergeReferenceImages(generationContext.referenceImages, storyboardIdentityImages);
+                    const allVideoReferenceImages = mergeReferenceImages(videoIdentityImages, storyboardReferenceFrames);
+                    const baseVideoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, allVideoReferenceImages.length);
+                    const videoReferenceImages = selectGrokReferenceVideoImagesWithPriority(videoIdentityImages, storyboardReferenceFrames, baseVideoGenerationConfig.model);
+                    const videoGenerationConfig = resolveReferenceImageVideoConfig(baseVideoGenerationConfig, videoReferenceImages.length);
+                    const videoIdentityReferenceCount = Math.min(videoIdentityImages.length, videoReferenceImages.length);
+                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(effectivePrompt, storyboardReferenceFrames.length, videoGenerationConfig.videoSeconds, videoReferenceImages.length, videoIdentityReferenceCount);
                     if (!videoPrompt && !videoReferenceImages.length && !generationContext.referenceVideos.length && !generationContext.referenceAudios.length) {
                         throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
                     }
@@ -3237,6 +3297,7 @@ function InfiniteCanvasPage() {
             const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, retryBasePrompt));
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
             const storyboardRetryImages = node.type === CanvasNodeType.Video ? await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
+            const storyboardRetryIdentityImages = node.type === CanvasNodeType.Video ? await storyboardReviewSheetIdentityReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const hasVideoReferences = node.type === CanvasNodeType.Video && Boolean(storyboardRetryImages.length || context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
             if (!prompt && !hasVideoReferences) {
                 message.warning("找不到提示词，无法重试");
@@ -3252,8 +3313,14 @@ function InfiniteCanvasPage() {
                 return;
             }
             const retrySourceImages = hasSavedImageMetadata ? [] : sourceNodeReferenceImages(sourceNode);
-            const retryImages = node.type === CanvasNodeType.Video ? mergeReferenceImages(storyboardRetryImages, retrySourceImages, retryReferenceImages || []) : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
-            if (node.type === CanvasNodeType.Video) generationConfig = resolveReferenceImageVideoConfig(generationConfig, retryImages.length);
+            const retryIdentityImages = mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryIdentityImages);
+            const retryImages = node.type === CanvasNodeType.Video ? mergeReferenceImages(retryIdentityImages, storyboardRetryImages) : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
+            let retryVideoImages = retryImages;
+            if (node.type === CanvasNodeType.Video) {
+                generationConfig = resolveReferenceImageVideoConfig(generationConfig, retryImages.length);
+                retryVideoImages = selectGrokReferenceVideoImagesWithPriority(retryIdentityImages, storyboardRetryImages, generationConfig.model);
+                generationConfig = resolveReferenceImageVideoConfig(generationConfig, retryVideoImages.length);
+            }
             const retryPrompt = savedImageMetadata?.productDetailShot
                 ? prompt
                 : buildIdentityPreservingImageEditPrompt(prompt, retrySourceImages.length > 0 || Boolean(hasSavedImageMetadata && retryImages.length), retryImages);
@@ -3294,10 +3361,11 @@ function InfiniteCanvasPage() {
                 }
                 if (node.type === CanvasNodeType.Video) {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
-                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(prompt, storyboardRetryImages.length, generationConfig.videoSeconds);
-                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
+                    const retryIdentityReferenceCount = Math.min(retryIdentityImages.length, retryVideoImages.length);
+                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(prompt, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, retryIdentityReferenceCount);
+                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryVideoImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
-                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, width: videoSize.width, height: videoSize.height, position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 }, metadata: { ...item.metadata, ...videoMetadata(video), prompt: videoPrompt, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, vquality: generationConfig.vquality, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, references: generationReferenceUrls({ referenceImages: retryImages, referenceVideos: context?.referenceVideos || [], referenceAudios: context?.referenceAudios || [] }) } } : item)));
+                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, width: videoSize.width, height: videoSize.height, position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 }, metadata: { ...item.metadata, ...videoMetadata(video), prompt: videoPrompt, model: generationConfig.model, size: generationConfig.size, seconds: generationConfig.videoSeconds, vquality: generationConfig.vquality, generateAudio: generationConfig.videoGenerateAudio, watermark: generationConfig.videoWatermark, references: generationReferenceUrls({ referenceImages: retryVideoImages, referenceVideos: context?.referenceVideos || [], referenceAudios: context?.referenceAudios || [] }) } } : item)));
                     return;
                 }
                 if (node.type === CanvasNodeType.Audio) {
@@ -3357,6 +3425,13 @@ function InfiniteCanvasPage() {
     const generateImageFromTextNode = useCallback(
         (node: CanvasNodeData) => {
             const prompt = (node.metadata?.content || node.metadata?.prompt || "").trim();
+            const storyboardPlan = node.metadata?.commerceVideoPlan?.beats?.length ? node.metadata.commerceVideoPlan : extractCommerceVideoPlan(prompt);
+            if (storyboardPlan?.beats?.length) {
+                void handleGenerateVideoStoryboard(node.id, storyboardPlan).catch((error) => {
+                    message.error(`12宫格分镜候选生成失败：${error instanceof Error ? error.message : "未知错误"}`);
+                });
+                return;
+            }
             if (!prompt) {
                 message.warning("文本节点为空，无法生图");
                 return;
@@ -3388,7 +3463,7 @@ function InfiniteCanvasPage() {
             setSelectedConnectionId(null);
             setDialogNodeId(configNode.id);
         },
-        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, message],
+        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, handleGenerateVideoStoryboard, message],
     );
 
     const insertAssistantImage = useCallback(
@@ -4051,6 +4126,10 @@ function referenceUrl(image: ReferenceImage) {
     return image.storageKey || image.url || (!image.dataUrl.startsWith("data:") ? image.dataUrl : undefined);
 }
 
+function referenceFingerprint(image: ReferenceImage) {
+    return image.storageKey || image.url || image.id || referenceUrl(image) || image.dataUrl.slice(0, 96);
+}
+
 function generationReferenceUrls(context: { referenceImages: ReferenceImage[]; referenceVideos: Array<{ storageKey?: string; url?: string }>; referenceAudios?: Array<{ storageKey?: string; url?: string }> }) {
     return [
         ...context.referenceImages.map(referenceUrl).filter((url): url is string => Boolean(url)),
@@ -4262,6 +4341,24 @@ async function storyboardReviewSheetReferenceFrames(nodeId: string, nodes: Canva
     return mergeReferenceImages(...frameGroups);
 }
 
+async function storyboardReviewSheetIdentityReferences(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const node = nodes.find((item) => item.id === nodeId);
+    const reviewSheets = [
+        ...(node && isStoryboardReviewSheetNode(node) ? [node] : []),
+        ...getGenerationResourceNodes(nodeId, nodes, connections).filter(isStoryboardReviewSheetNode),
+    ];
+    const sourceIds = [...new Set(reviewSheets.map((item) => item.metadata?.storyboardSourceNodeId).filter((id): id is string => Boolean(id)))];
+    const sourceGroups = await Promise.all(
+        sourceIds.map(async (sourceId) => {
+            const sourceNode = nodes.find((item) => item.id === sourceId);
+            if (!sourceNode || sourceNode.id === nodeId) return [];
+            const sourceContext = await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodes, connections, ""));
+            return mergeReferenceImages(sourceNodeReferenceImages(sourceNode), sourceContext.referenceImages);
+        }),
+    );
+    return mergeReferenceImages(...sourceGroups);
+}
+
 function isStoryboardReviewSheetNode(node: CanvasNodeData) {
     return node.type === CanvasNodeType.Image && node.metadata?.storyboardRole === "review-sheet";
 }
@@ -4294,52 +4391,53 @@ async function cropStoryboardVideoFrame(dataUrl: string) {
     }
 }
 
-function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferenceCount: number, videoSeconds = "15") {
+function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferenceCount: number, videoSeconds = "15", attachedReferenceCount = storyboardReferenceCount, identityReferenceCount = 0) {
     const text = normalizeVideoGenerationPrompt(prompt);
     if (!storyboardReferenceCount) return text;
-    const duration = normalizeStoryboardVideoSeconds(videoSeconds);
-    const perReferenceSeconds = formatStoryboardSeconds(duration / Math.max(1, Math.min(STORYBOARD_REVIEW_PANEL_COUNT, storyboardReferenceCount)));
-    const maxLingerSeconds = formatStoryboardSeconds(Math.max(duration / Math.max(1, storyboardReferenceCount), duration / 10));
-    if (storyboardReferenceCount >= STORYBOARD_REVIEW_PANEL_COUNT) {
-        return [
-            compactStoryboardVideoPrompt(text, duration),
-            `Create a ${duration}-second vertical direct-response ecommerce video with a viral commerce structure. Map the storyboard by percentage, not fixed seconds: 0-20% exaggerated but believable hook/problem, 20-35% product-as-rescue reveal, 35-70% hands-on demonstration and proof, 70-87% contrast result and reassurance, 87-100% final product hero and purchase-intent beat.`,
-            `The ${STORYBOARD_REVIEW_PANEL_COUNT} supplied reference images are the exact storyboard timeline in order: reference image 1 is the opening shot, reference image ${STORYBOARD_REVIEW_PANEL_COUNT} is the final shot.`,
-            `Follow reference images sequentially from 1 to 12, using each reference as one short beat of about ${perReferenceSeconds} seconds. Anchor every shot to the corresponding reference beat; do not generate an unrelated autonomous video. Do not linger on any single reference for more than about ${maxLingerSeconds} seconds, do not loop the opening shot, and do not skip directly from hook to final product shot.`,
-            "Use clean edited shot cuts between different subjects, angles, or camera distances. Do not morph, cross-dissolve, or interpolate human faces, hands, bodies, product bottles, and stove surfaces into one another.",
-            "When a person appears in only some references, use that person as a short reaction or approval cutaway only. Do not carry the person through product-only, surface-only, or packshot beats, and never transform a person into a product or background.",
-            "Inside each shot, keep motion local and physically stable: facial features stay anatomically correct, hands keep the right number of fingers, the product label stays attached to the bottle, and the stove geometry remains rigid.",
-            "Ignore and remove all storyboard artifacts from the references: no corner numbers, panel labels, borders, black badges, grid lines, captions, or sheet layout may appear in the video.",
-            "Keep the first second thumb-stopping when the references support it: startled reaction, sudden mess, visible pain point, product pushed toward camera, or urgent camera push-in. Make it dramatic but believable.",
-            "Keep the product visible in the opening third, middle proof section, and final hero shot, but avoid endless bottle close-ups. Do not spend the whole video on repetitive wiping, spraying, or generic motion.",
-            "For cleaning or problem-solution products, the final 13% of the video must resolve the visual problem: show the cleaned or improved result behind a clear product packshot. If an earlier reference still shows dirt or mess, treat it as before-state context, not the final outcome.",
-            "Do not add fake prices, fake discounts, endorsements, certifications, exaggerated claims, warped people, distorted faces, extra fingers, melted hands, or product/person hybrids.",
-            "Render only clean full-frame video shots with no panel numbers, grid borders, labels, arrows, captions, watermarks, or storyboard sheet layout.",
-        ].join("\n");
-    }
+    const duration = normalizeStoryboardVideoSeconds(videoSeconds, Math.max(1, attachedReferenceCount));
+    const storyboardAnchorCount = Math.max(0, attachedReferenceCount - identityReferenceCount);
+    const timelineStart = identityReferenceCount + 1;
+    const timelineEnd = Math.max(timelineStart, identityReferenceCount + storyboardAnchorCount);
+    const referenceRoles = identityReferenceCount
+        ? `<IMAGE_1> is the exact product/source identity lock and is not a timeline shot. <IMAGE_${timelineStart}> through <IMAGE_${timelineEnd}> are ordered timeline anchors sampled from the original ${STORYBOARD_REVIEW_PANEL_COUNT}-panel storyboard.`
+        : `<IMAGE_1> through <IMAGE_${Math.max(1, storyboardAnchorCount)}> are ordered timeline anchors sampled from the original ${STORYBOARD_REVIEW_PANEL_COUNT}-panel storyboard.`;
     return [
-        compactStoryboardVideoPrompt(text, duration),
-        `Create a ${duration}-second vertical direct-response ecommerce video: exaggerated first-second hook, fast product rescue reveal, believable action/proof, contrast result, then final product hero and purchase-intent beat.`,
-        "The supplied storyboard frame references are mandatory shot-order guidance. Interpret the references as sequential beats and recreate them as clean full-frame video shots.",
-        "Use clean cuts between different shots. Do not morph human faces, hands, bodies, products, or backgrounds between references; if people appear only in some shots, keep them as brief reaction cutaways.",
-        "Render only clean full-frame shots; omit visible grid layout, panel borders, panel numbers, labels, arrows, captions, collage format, and storyboard sheet presentation.",
-        "Preserve the product identity, colors, label placement, scene logic, and camera orientation implied by the panels while turning them into smooth continuous motion.",
-    ].join("\n");
+        "STORYBOARD-DIRECTED VIDEO. Treat every attached image as a mandatory reference, not loose inspiration.",
+        `Create exactly ${duration} seconds of polished 9:16 direct-response ecommerce footage with clean edited cuts.`,
+        `Reference roles: ${referenceRoles}`,
+        "Timeline: 0-18% exaggerated but believable problem/reaction hook; 18-32% product rescue reveal; 32-68% application plus visible proof; 68-86% clean result contrast; 86-100% label-readable product hero with the improved result behind it.",
+        "Product lock: preserve the exact package silhouette, nozzle/closure geometry, dominant colors, logo position, label blocks, printed layout, scale, and object count from <IMAGE_1> when it is an identity lock. Never rename, translate, recolor, rebrand, simplify, or replace the package. Preserve uncertain label marks instead of inventing English words.",
+        "Shot lock: follow timeline references in order and infer only the omitted in-between beats. Use one stable subject and local physical motion per shot. No morphs, cross-dissolves, repeated opening, unrelated footage, or more than two near-identical action shots.",
+        "Human lock: use one consistent presenter face, hair, clothing, age, and body. Keep reaction shots chest-up and brief. Preserve natural head, neck, shoulders, torso, arms, hands, and finger count; never vertically stretch a person to fill 9:16 or fuse a person with the product.",
+        "Commerce rhythm: the product appears in the opening third, demonstration, and final hero. The proof must be believable, and the ending must visibly resolve the original problem.",
+        storyboardAudioDirection(text),
+        "Output only clean full-frame footage: no grid, panels, numbers, badges, captions, subtitles, arrows, watermark, fake price, fake discount, certification, medical claim, or impossible result.",
+        `User direction: ${compactStoryboardVideoPrompt(text, duration)}`,
+    ].filter(Boolean).join("\n");
+}
+
+function storyboardAudioDirection(prompt: string) {
+    const femaleLead = /\b(woman|women|female|girl|mother|mom|lady|wife|actress|presenter)\b|女性|女人|女孩|女主|妈妈|妻子|女演员|女主播/i.test(prompt);
+    const maleLead = /\b(man|men|male|boy|father|dad|husband|actor)\b|男性|男人|男孩|男主|爸爸|丈夫|男演员/i.test(prompt);
+    const voice = femaleLead
+        ? "Use one natural, energetic adult female voice throughout. Absolutely no male narration."
+        : maleLead
+          ? "Use one natural adult male voice matching the visible male presenter throughout."
+          : "Use one consistent adult voice matching the visible lead presenter; if the visible lead is a woman, the voice must be female. Never switch speaker or voice gender.";
+    const language = /[\u3400-\u9fff]/.test(prompt)
+        ? "Speak natural Mandarin Chinese."
+        : "Match the user's requested language; if the visible package or target market is Chinese, speak natural Mandarin Chinese rather than English.";
+    return `Audio lock: ${voice} ${language} Use crisp commercial voiceover, restrained sound effects, and low background music. No off-screen second narrator, dialogue swap, singing, or forced lip-sync.`;
 }
 
 function compactStoryboardVideoPrompt(prompt: string, duration = 15) {
-    if (prompt.length > 900) {
-        return `Create a ${duration}-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order. Use an exaggerated but believable first-second hook, fast product rescue reveal, demo/proof, contrast result, and final packshot-plus-result hero. Anchor every shot to the matching reference beat; do not generate unrelated footage. Use clean shot cuts instead of morphing between human, product, and surface references. Preserve the product shape, colors, label placement, scene style, and camera framing shown in each frame.`;
-    }
-    return prompt || `Create a ${duration}-second vertical direct-response ecommerce video following the supplied 12 storyboard reference frames in exact order, using a strong hook, product rescue, proof, contrast result, and final product hero plus result shot.`;
+    const normalized = prompt.replace(/\s+/g, " ").trim();
+    if (!normalized) return `Follow the supplied ${STORYBOARD_REVIEW_PANEL_COUNT}-panel storyboard logic for a ${duration}-second vertical product video.`;
+    return limitInlinePrompt(normalized, 900);
 }
 
-function normalizeStoryboardVideoSeconds(value: string) {
-    return Math.max(1, Math.floor(Number(normalizeModelVideoSeconds(value || "15", "grok-imagine-video")) || 15));
-}
-
-function formatStoryboardSeconds(value: number) {
-    return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+function normalizeStoryboardVideoSeconds(value: string, referenceCount: number) {
+    return Math.max(1, Math.floor(Number(normalizeReferenceVideoSeconds(value || "15", "grok-imagine-video", Math.max(1, referenceCount))) || 15));
 }
 
 function normalizeVideoGenerationPrompt(prompt: string) {
@@ -4380,16 +4478,9 @@ function sanitizeVideoProviderPrompt(prompt: string) {
         .replace(/^Preserve the same subject identity[^\n]*\n?/gim, "")
         .replace(/^Perform only the requested[^\n]*\n?/gim, "")
         .replace(/^If a reference is a storyboard sheet[^\n]*\n?/gim, "")
-        .replace(/^.*\b(?:do not|don't|never|unsafe|disease|medical|steriliz|guaranteed|false claims?|open flame|active burner)\b.*$/gim, "")
-        .replace(/\bgas\s+(?:stovetop|stove|burner)\b/gi, "stainless-steel cooktop")
-        .replace(/\bburnt\s+(?:specks?|splatter|stains?)\b/gi, "cooked-on residue")
-        .replace(/\bdark oil stains?\b/gi, "dark cooking residue")
-        .replace(/\bheavy grease cleaner\b/gi, "kitchen cleaner")
-        .replace(/\btrigger-spray\b/gi, "spray")
-        .replace(/\bgreen trigger\b/gi, "green spray handle")
-        .replace(/\btrigger\b/gi, "spray handle")
-        .replace(/\bstainless-steel stainless-steel cooktop\b/gi, "stainless-steel cooktop")
-        .replace(/\bgreen kitchen kitchen cleaner\b/gi, "green kitchen cleaner")
+        .replace(/\bgas\s+(?:stovetop|stove|burner)\b/gi, "kitchen cooktop")
+        .replace(/\bopen flame\b/gi, "hot cooking surface")
+        .replace(/\bactive burner\b/gi, "cooktop surface")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 }
@@ -4400,6 +4491,11 @@ function limitVideoPromptLength(prompt: string) {
     const clipped = prompt.slice(0, maxLength);
     const sentenceEnd = Math.max(clipped.lastIndexOf(". "), clipped.lastIndexOf("。"), clipped.lastIndexOf("\n"));
     return clipped.slice(0, sentenceEnd > 800 ? sentenceEnd : maxLength).trim();
+}
+
+function limitInlinePrompt(value: string, maxChars: number) {
+    if (value.length <= maxChars) return value;
+    return `${value.slice(0, maxChars - 32).trim()}...`;
 }
 
 function mergeReferenceImages(...groups: ReferenceImage[][]) {

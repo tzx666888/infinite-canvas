@@ -75,16 +75,18 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const [productBreakdownPlan, setProductBreakdownPlan] = useState<ProductBreakdownPlan | null>(null);
     const [sceneExpansionPlan, setSceneExpansionPlan] = useState<SceneExpansionPlan | null>(null);
     const [commerceVideoPlan, setCommerceVideoPlan] = useState<CanvasCommerceVideoPlan | null>(null);
+    const savedCommerceVideoPlan = node.metadata?.commerceVideoPlan?.beats?.length ? node.metadata.commerceVideoPlan : null;
+    const activeCommerceVideoPlan = commerceVideoPlan?.beats?.length ? commerceVideoPlan : savedCommerceVideoPlan;
     const credits = requestCreditCost({ channelMode: config.channelMode, model: config.model, count: mode === "image" ? config.count : 1 });
     const canPolish = mode === "image" || mode === "video";
     const canPolishInput = Boolean(prompt.trim() || getPolishTextContext(mentionReferences) || getPolishImageReferences(node, mentionReferences).length);
 
     useEffect(() => {
-        setPrompt(isEditingExistingContent ? "" : node.metadata?.prompt || "");
+        setPrompt(savedCommerceVideoPlan ? formatCommerceVideoPlan(savedCommerceVideoPlan) : isEditingExistingContent ? "" : node.metadata?.prompt || "");
         setProductBreakdownPlan(null);
         setSceneExpansionPlan(null);
-        setCommerceVideoPlan(null);
-    }, [isEditingExistingContent, node.id]);
+        setCommerceVideoPlan(savedCommerceVideoPlan);
+    }, [isEditingExistingContent, node.id, savedCommerceVideoPlan]);
 
     const updatePrompt = (value: string) => {
         setPrompt(value);
@@ -114,8 +116,14 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             });
             return;
         }
-        if (commerceVideoPlan && commerceVideoPlan.beats?.length) {
-            void onGenerateVideoStoryboard(node.id, commerceVideoPlan).catch((error) => {
+        const storyboardPlan = activeCommerceVideoPlan || extractCommerceVideoPlan(text);
+        if (storyboardPlan?.beats?.length) {
+            setCommerceVideoPlan(storyboardPlan);
+            onConfigChange(node.id, {
+                commerceVideoPlan: storyboardPlan,
+                selectedHookType: storyboardPlan.selectedHookType,
+            } as Partial<CanvasNodeData["metadata"]>);
+            void onGenerateVideoStoryboard(node.id, storyboardPlan).catch((error) => {
                 message.error(`12宫格分镜候选生成失败：${error instanceof Error ? error.message : "未知错误"}`);
             });
             return;
@@ -259,7 +267,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     type="primary"
                     className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
                     danger={isRunning}
-                    disabled={!isRunning && !prompt.trim()}
+                    disabled={!isRunning && !prompt.trim() && !activeCommerceVideoPlan}
                     onClick={() => (isRunning ? onStop(node.id) : submit())}
                     aria-label={isRunning ? "停止生成" : "生成"}
                 >
