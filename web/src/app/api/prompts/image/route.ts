@@ -9,6 +9,8 @@ export const runtime = "nodejs";
 
 const cacheRoot = process.env.PROMPT_CACHE_DIR || join(tmpdir(), "infinite-canvas-prompt-cache");
 const cacheDir = process.env.PROMPT_COVER_CACHE_DIR || join(cacheRoot, "covers");
+const promptLibraryCacheDir = process.env.PROMPT_LIBRARY_CACHE_DIR || cacheRoot;
+const promptLibraryCacheFile = join(promptLibraryCacheDir, "prompt-library.json");
 const freshTtlMs = 1000 * 60 * 60 * 24 * 7;
 const staleTtlMs = 1000 * 60 * 60 * 24 * 30;
 const maxBytes = 1024 * 1024 * 12;
@@ -21,6 +23,8 @@ const allowedHosts = new Set([
     "media.githubusercontent.com",
     "objects.githubusercontent.com",
     "pbs.twimg.com",
+    "cms-assets.youmind.com",
+    "cdn.imgedify.com",
 ]);
 
 type CachedCover = {
@@ -33,6 +37,7 @@ export async function GET(request: NextRequest) {
     const rawUrl = request.nextUrl.searchParams.get("url") || "";
     const sourceUrl = parseSourceUrl(rawUrl);
     if (!sourceUrl) return Response.json({ error: "Invalid prompt cover url" }, { status: 400 });
+    if (!(await canProxySourceUrl(sourceUrl))) return Response.json({ error: "Prompt cover host is not allowed" }, { status: 400 });
 
     const cacheKey = createHash("sha256").update(sourceUrl.href).digest("hex");
     const cached = await readCachedCover(cacheKey);
@@ -76,10 +81,24 @@ function parseSourceUrl(value: string) {
     try {
         const url = new URL(value);
         if (!["http:", "https:"].includes(url.protocol)) return null;
-        if (!allowedHosts.has(url.hostname) && !url.hostname.endsWith(".githubusercontent.com")) return null;
         return url;
     } catch {
         return null;
+    }
+}
+
+async function canProxySourceUrl(url: URL) {
+    if (allowedHosts.has(url.hostname) || url.hostname.endsWith(".githubusercontent.com")) return true;
+    return isCachedPromptCoverUrl(url.href);
+}
+
+async function isCachedPromptCoverUrl(url: string) {
+    try {
+        const raw = await readFile(promptLibraryCacheFile, "utf8");
+        const parsed = JSON.parse(raw) as { items?: Array<{ coverUrl?: string; preview?: string }> };
+        return (parsed.items || []).some((item) => item.coverUrl === url || Boolean(item.preview?.includes(url)));
+    } catch {
+        return false;
     }
 }
 
