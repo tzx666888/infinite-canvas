@@ -1,4 +1,7 @@
 import type { NextRequest } from "next/server";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +33,9 @@ const youMindNanoBananaProRawBase = "https://raw.githubusercontent.com/YouMind-O
 const davidWuGptImage2RawBase = "https://raw.githubusercontent.com/davidwuw0811-boop/awesome-gpt-image2-prompts/main";
 const gptImage2CaseFiles = ["README.md", "cases/ad-creative.md", "cases/character.md", "cases/comparison.md", "cases/ecommerce.md", "cases/portrait.md", "cases/poster.md", "cases/ui.md"];
 const cacheTtlMs = 1000 * 60 * 60;
+const promptCacheRoot = process.env.PROMPT_CACHE_DIR || join(tmpdir(), "infinite-canvas-prompt-cache");
+const promptLibraryCacheDir = process.env.PROMPT_LIBRARY_CACHE_DIR || promptCacheRoot;
+const promptLibraryCacheFile = join(promptLibraryCacheDir, "prompt-library.json");
 
 const categories: PromptCategory[] = [
     { category: "gpt-image-2-prompts", githubUrl: "https://github.com/EvoLinkAI/awesome-gpt-image-2-API-and-Prompts", build: buildGptImage2Prompts },
@@ -72,19 +78,51 @@ async function getPrompts() {
 }
 
 async function loadPrompts() {
+    const diskCache = await readPromptLibraryCache();
     const settled = await Promise.all(
         categories.map(async (category) => {
             try {
                 const items = await category.build();
-                return items.map((item) => ({ ...item, category: category.category, githubUrl: category.githubUrl }));
+                return { failed: false, items: items.map((item) => ({ ...item, category: category.category, githubUrl: category.githubUrl })) };
             } catch {
-                return [];
+                return { failed: true, items: [] as Prompt[] };
             }
         }),
     );
-    const items = settled.flat();
+    const items = settled.flatMap((result) => result.items);
+    const failedCount = settled.filter((result) => result.failed).length;
+    if (diskCache?.items.length && shouldUsePromptDiskCache(items, diskCache.items, failedCount)) {
+        memoryCache = { items: diskCache.items, fetchedAt: Date.now() };
+        return diskCache.items;
+    }
+    if (items.length) await writePromptLibraryCache(items);
     memoryCache = { items, fetchedAt: Date.now() };
     return items;
+}
+
+async function readPromptLibraryCache() {
+    try {
+        const raw = await readFile(promptLibraryCacheFile, "utf8");
+        const parsed = JSON.parse(raw) as { items?: Prompt[]; fetchedAt?: number };
+        return Array.isArray(parsed.items) ? { items: parsed.items, fetchedAt: Number(parsed.fetchedAt) || 0 } : null;
+    } catch {
+        return null;
+    }
+}
+
+async function writePromptLibraryCache(items: Prompt[]) {
+    try {
+        await mkdir(promptLibraryCacheDir, { recursive: true });
+        await writeFile(promptLibraryCacheFile, JSON.stringify({ items, fetchedAt: Date.now() }));
+    } catch {
+        // The memory cache is still useful if the disk cache cannot be written.
+    }
+}
+
+function shouldUsePromptDiskCache(items: Prompt[], cachedItems: Prompt[], failedCount: number) {
+    if (!items.length) return true;
+    if (failedCount > 0 && items.length < cachedItems.length) return true;
+    return cachedItems.length >= 100 && items.length < cachedItems.length * 0.85;
 }
 
 function filterPrompts(items: Prompt[], options: { keyword: string; category: string; tags: string[] }) {
@@ -106,7 +144,16 @@ async function buildGptImage2Prompts() {
         const prompt = cases.get(item.tweet_url || "");
         if (!item.title || !prompt || !item.image_dir) return;
         const image = `${gptImage2RawBase}/${item.image_dir}/output.jpg`;
-        items.push({ id: `gpt-image-2-prompts-${leftPad(items.length + 1)}`, title: item.title, coverUrl: image, prompt, tags: tagsFromCategory(item.category || ""), preview: markdownPreview([image]), createdAt: item.added_at || "", updatedAt: item.added_at || "" });
+        items.push({
+            id: `gpt-image-2-prompts-${leftPad(items.length + 1)}`,
+            title: item.title,
+            coverUrl: image,
+            prompt,
+            tags: tagsFromCategory(item.category || ""),
+            preview: markdownPreview([image]),
+            createdAt: item.added_at || "",
+            updatedAt: item.added_at || "",
+        });
     });
     return items;
 }
@@ -123,7 +170,9 @@ async function buildAwesomeGptImagePrompts() {
     for (const section of splitBeforeHeading(markdown, "## ")) {
         const tags = tagsFromHeading(firstMatch(section, /^##\s+(.+)$/m));
         for (const block of splitBeforeHeading(section, "### ")) {
-            const title = firstMatch(block, /^###\s+(.+)$/m).replace(/\[([^\]]+)]\([^)]+\)/g, "$1").trim();
+            const title = firstMatch(block, /^###\s+(.+)$/m)
+                .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+                .trim();
             const prompt = firstMatch(block, /\*\*提示词:\*\*\s*\r?\n\s*```[\w-]*\r?\n([\s\S]*?)\r?\n```/).trim();
             if (!title || !prompt) continue;
             const images = extractMarkdownImages(awesomeGptImageRawBase, block);
@@ -160,7 +209,10 @@ async function buildYouMindPrompts(baseUrl: string, idPrefix: string, modelTag: 
 }
 
 async function buildDavidWuGptImage2Prompts() {
-    const data = await fetchJson<Array<{ id?: number; title_en?: string; title_cn?: string; category?: string; category_cn?: string; prompt?: string; note?: string; author?: string; source?: string; needs_ref?: boolean; image?: string }>>(davidWuGptImage2RawBase, "prompts.json");
+    const data = await fetchJson<Array<{ id?: number; title_en?: string; title_cn?: string; category?: string; category_cn?: string; prompt?: string; note?: string; author?: string; source?: string; needs_ref?: boolean; image?: string }>>(
+        davidWuGptImage2RawBase,
+        "prompts.json",
+    );
     return data
         .map((item, index) => {
             const title = (item.title_cn || item.title_en || "").trim();
@@ -244,7 +296,10 @@ function splitTags(value: string, pattern: RegExp) {
 }
 
 function markdownPreview(images: string[]) {
-    return images.filter(Boolean).map((image) => `![](${image})`).join("\n\n");
+    return images
+        .filter(Boolean)
+        .map((image) => `![](${image})`)
+        .join("\n\n");
 }
 
 function collectTags(items: Prompt[]) {
