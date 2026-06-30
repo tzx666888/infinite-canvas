@@ -24,15 +24,19 @@ export function PromptCard({
     actionType?: "text" | "primary";
     extraAction?: ReactNode;
 }) {
+    const hasCover = Boolean(item.coverUrl.trim());
+
     return (
         <Card
             hoverable
             className="overflow-hidden"
             styles={{ body: { padding: 0 } }}
             cover={
-                <button type="button" className="block w-full text-left" onClick={onOpen}>
-                    <PromptCover coverUrl={item.coverUrl} title={item.title} />
-                </button>
+                hasCover ? (
+                    <button type="button" className="block w-full text-left" onClick={onOpen}>
+                        <PromptCover coverUrl={item.coverUrl} title={item.title} />
+                    </button>
+                ) : undefined
             }
         >
             <button type="button" className="block w-full text-left" onClick={onOpen}>

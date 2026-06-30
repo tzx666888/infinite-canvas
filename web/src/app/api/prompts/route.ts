@@ -211,8 +211,10 @@ function extractMarkdownImages(baseUrl: string, markdown: string) {
 
 function absoluteImage(baseUrl: string, image: string) {
     if (!image) return "";
-    if (/^https?:\/\//i.test(image)) return image;
-    return `${baseUrl}/${image.replace(/^\.?\//, "")}`;
+    const value = image.trim();
+    if (/^https?:\/\/img\.shields\.io\//i.test(value)) return "";
+    if (/^https?:\/\//i.test(value)) return value;
+    return `${baseUrl}/${value.replace(/^\.?\//, "")}`;
 }
 
 function tagsFromCategory(category: string) {

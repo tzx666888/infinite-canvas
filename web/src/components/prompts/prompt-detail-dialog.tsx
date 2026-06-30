@@ -3,6 +3,7 @@
 import { Copy, FolderPlus } from "lucide-react";
 import { Button, Modal, Space, Tag } from "antd";
 
+import { cn } from "@/lib/utils";
 import { formatPromptDate, type Prompt } from "@/services/api/prompts";
 import { PromptCover } from "./prompt-cover";
 
@@ -10,17 +11,20 @@ export function PromptDetailDialog({ prompt, onClose, onCopy, onSaveAsset }: { p
     const createdAt = prompt ? formatPromptDate(prompt.createdAt) : "";
     const updatedAt = prompt ? formatPromptDate(prompt.updatedAt) : "";
     const dateText = [createdAt ? `创建：${createdAt}` : "", updatedAt ? `更新：${updatedAt}` : ""].filter(Boolean).join(" · ");
+    const hasVisual = Boolean(prompt?.coverUrl.trim() || prompt?.preview.trim());
 
     return (
         <>
             <Modal title={prompt?.title} open={Boolean(prompt)} onCancel={onClose} footer={null} width={860}>
                 {prompt ? (
                     <>
-                        <div className="grid gap-5 md:grid-cols-[300px_minmax(0,1fr)]">
-                            <div className="space-y-3">
-                                <PromptCover coverUrl={prompt.coverUrl} title={prompt.title} className="rounded-lg" />
-                                {prompt.preview ? <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-lg bg-stone-100 p-3 text-xs leading-5 text-stone-600 dark:bg-stone-900 dark:text-stone-300">{prompt.preview}</pre> : null}
-                            </div>
+                        <div className={cn("grid gap-5", hasVisual ? "md:grid-cols-[300px_minmax(0,1fr)]" : "")}>
+                            {hasVisual ? (
+                                <div className="space-y-3">
+                                    {prompt.coverUrl.trim() ? <PromptCover coverUrl={prompt.coverUrl} title={prompt.title} className="rounded-lg" /> : null}
+                                    {prompt.preview ? <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-lg bg-stone-100 p-3 text-xs leading-5 text-stone-600 dark:bg-stone-900 dark:text-stone-300">{prompt.preview}</pre> : null}
+                                </div>
+                            ) : null}
                             <div className="min-w-0">
                                 <div className="flex flex-wrap gap-1.5">
                                     {prompt.tags.map((tag) => (
