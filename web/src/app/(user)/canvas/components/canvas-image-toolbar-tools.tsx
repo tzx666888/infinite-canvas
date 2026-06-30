@@ -38,14 +38,15 @@ export type ImageQuickToolsConfig = {
     showLabels: boolean;
 };
 
-export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v6";
+export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v7";
 
-const defaultBaseToolIds: ImageQuickToolId[] = ["info", "delete", "saveAsset", "download", "edit"];
+const availableBaseToolIds: ImageQuickToolId[] = ["info", "delete", "saveAsset", "download", "edit"];
+const defaultBaseToolIds: ImageQuickToolId[] = ["saveAsset", "download"];
 
 export const imageToolDefinitions: ImageToolDefinition[] = [
     {
         id: "copyPrompt",
-        defaultVisible: true,
+        defaultVisible: false,
         panelLabel: "复制提示词",
         label: "复制提示词",
         title: "复制生成该图片的提示词",
@@ -54,7 +55,7 @@ export const imageToolDefinitions: ImageToolDefinition[] = [
     },
     {
         id: "reversePrompt",
-        defaultVisible: true,
+        defaultVisible: false,
         panelLabel: "反推提示词",
         label: "反推提示词",
         title: "创建反推提示词的文本和配置节点",
@@ -91,7 +92,7 @@ export const imageToolDefinitions: ImageToolDefinition[] = [
     },
     {
         id: "crop",
-        defaultVisible: true,
+        defaultVisible: false,
         panelLabel: "裁剪",
         label: "裁剪",
         title: "裁剪并生成新节点",
@@ -100,7 +101,7 @@ export const imageToolDefinitions: ImageToolDefinition[] = [
     },
     {
         id: "split",
-        defaultVisible: true,
+        defaultVisible: false,
         panelLabel: "切图",
         label: "切图",
         title: "按行列切分图片",
@@ -159,7 +160,7 @@ export function buildImageToolbarTools(node: CanvasNodeData, handlers: ImageTool
 }
 
 export function normalizeImageQuickToolIds(value: unknown[]) {
-    const allIds: ImageQuickToolId[] = [...defaultBaseToolIds, ...imageToolDefinitions.map((tool) => tool.id)];
+    const allIds: ImageQuickToolId[] = [...availableBaseToolIds, ...imageToolDefinitions.map((tool) => tool.id)];
     const ids = new Set(allIds);
     return allIds.filter((id) => value.includes(id) && ids.has(id));
 }
@@ -167,14 +168,14 @@ export function normalizeImageQuickToolIds(value: unknown[]) {
 export function readImageQuickToolsConfig(value: unknown): ImageQuickToolsConfig {
     if (Array.isArray(value)) {
         const ids = normalizeImageQuickToolIds(value);
-        return { ids: ids.length ? ids : defaultImageQuickToolIds, showLabels: true };
+        return { ids: ids.length ? ids : defaultImageQuickToolIds, showLabels: false };
     }
-    if (!value || typeof value !== "object") return { ids: defaultImageQuickToolIds, showLabels: true };
+    if (!value || typeof value !== "object") return { ids: defaultImageQuickToolIds, showLabels: false };
     const data = value as Partial<ImageQuickToolsConfig>;
     const ids = Array.isArray(data.ids) ? normalizeImageQuickToolIds(data.ids) : defaultImageQuickToolIds;
     return {
         ids: ids.length ? ids : defaultImageQuickToolIds,
-        showLabels: data.showLabels !== false,
+        showLabels: data.showLabels === true,
     };
 }
 

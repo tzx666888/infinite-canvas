@@ -42,7 +42,7 @@ const POLISH_MENU_ITEMS = [
     { key: "product", label: "📦 产品拆解" },
     { key: "scene", label: "🖼️ 场景扩展" },
     { key: "storyboard", label: "🎬 视频分镜" },
-    { key: "videoprompt", label: "🎥 视频生成" },
+    { key: "videoprompt", label: "🎥 视频提示词" },
 ] satisfies Array<{ key: PolishTemplate; label: string }>;
 
 type CanvasNodePromptPanelProps = {

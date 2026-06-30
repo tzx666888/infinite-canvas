@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { App, Modal, Segmented, Tooltip } from "antd";
+import { App, Dropdown, Modal, Popconfirm, Segmented, Tooltip } from "antd";
 import { Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Pencil, Plus, RefreshCw, Settings2, Trash2, Upload, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -50,9 +50,12 @@ type ToolbarTool = {
     onClick: () => void;
     active?: boolean;
     danger?: boolean;
+    confirmTitle?: string;
+    confirmDescription?: string;
+    confirmOkText?: string;
 };
 
-const coreImageToolIds = new Set<ImageQuickToolId>(["info", "delete", "saveAsset", "download", "edit"]);
+const coreImageToolIds = new Set<ImageQuickToolId>(["saveAsset", "download"]);
 
 export function CanvasNodeHoverToolbar({
     node,
@@ -84,10 +87,12 @@ export function CanvasNodeHoverToolbar({
     onDelete,
 }: CanvasNodeHoverToolbarProps) {
     const [quickImageToolIds, setQuickImageToolIds] = useState<ImageQuickToolId[]>(defaultImageQuickToolIds);
-    const [showImageToolLabels, setShowImageToolLabels] = useState(true);
+    const [showImageToolLabels, setShowImageToolLabels] = useState(false);
     const [draftImageToolIds, setDraftImageToolIds] = useState<ImageQuickToolId[]>(defaultImageQuickToolIds);
-    const [draftShowImageToolLabels, setDraftShowImageToolLabels] = useState(true);
+    const [draftShowImageToolLabels, setDraftShowImageToolLabels] = useState(false);
     const [imageToolSettingsOpen, setImageToolSettingsOpen] = useState(false);
+    const [imageMoreOpen, setImageMoreOpen] = useState(false);
+    const [toolbarConfirmOpen, setToolbarConfirmOpen] = useState(false);
     const { message } = App.useApp();
     const copyText = useCopyText();
 
@@ -106,6 +111,8 @@ export function CanvasNodeHoverToolbar({
 
     useEffect(() => {
         setImageToolSettingsOpen(false);
+        setImageMoreOpen(false);
+        setToolbarConfirmOpen(false);
     }, [node?.id]);
 
     if (!node) return null;
@@ -144,7 +151,17 @@ export function CanvasNodeHoverToolbar({
 
     const baseToolbarTools: ToolbarTool[] = [
         { id: "info", title: "查看节点信息", label: "信息", icon: <Info className="size-4" />, onClick: () => onInfo(node) },
-        { id: "delete", title: "移除节点", label: "删除", icon: <Trash2 className="size-4" />, onClick: () => onDelete(node), danger: true },
+        {
+            id: "delete",
+            title: "移除节点",
+            label: "删除",
+            icon: <Trash2 className="size-4" />,
+            onClick: () => onDelete(node),
+            danger: true,
+            confirmTitle: "删除这个节点？",
+            confirmDescription: "会同时移除与它相连的引线。",
+            confirmOkText: "删除",
+        },
     ];
     const nodeToolbarTools: ToolbarTool[] = [
         ...(canRetry ? [{ id: "retry", title: "重新生成", label: "重试", icon: <RefreshCw className="size-4" />, onClick: () => onRetry(node) }] : []),
@@ -174,12 +191,28 @@ export function CanvasNodeHoverToolbar({
         ...(isAudio ? [{ id: "uploadAudio", title: hasAudio ? "替换音频" : "上传音频", label: hasAudio ? "替换音频" : "上传音频", icon: <Music2 className="size-4" />, onClick: () => onUpload(node) }] : []),
         ...(hasImage ? imageTools.map((tool) => ({ id: tool.id, title: tool.title, label: tool.label, icon: tool.icon, active: tool.active, onClick: tool.onClick })) : []),
     ];
-    const forcedImageToolIds = new Set(["generateStoryboardKeyframes"]);
-    const toolbarTools = hasImage
-        ? [...baseToolbarTools, ...nodeToolbarTools].filter((tool) => coreImageToolIds.has(tool.id as ImageQuickToolId) || forcedImageToolIds.has(tool.id) || quickImageToolIdSet.has(tool.id as ImageQuickToolId))
-        : [...baseToolbarTools, ...nodeToolbarTools];
-    const selectableImageToolbarTools = [...baseToolbarTools, ...nodeToolbarTools]
-        .filter((tool) => tool.id !== "retry" && !forcedImageToolIds.has(tool.id))
+    const allToolbarTools = [...baseToolbarTools, ...nodeToolbarTools];
+    const forcedImageToolIds = new Set(["generateStoryboardKeyframes", "retry"]);
+    const toolbarTools = hasImage ? allToolbarTools.filter((tool) => tool.id !== "delete" && (coreImageToolIds.has(tool.id as ImageQuickToolId) || forcedImageToolIds.has(tool.id) || quickImageToolIdSet.has(tool.id as ImageQuickToolId))) : allToolbarTools;
+    const deleteTool = hasImage ? allToolbarTools.find((tool) => tool.id === "delete") : null;
+    const overflowTools = hasImage ? allToolbarTools.filter((tool) => tool.id !== "delete" && !toolbarTools.some((visibleTool) => visibleTool.id === tool.id)) : [];
+    const overflowMenu = {
+        items: overflowTools.map((tool) => ({
+            key: tool.id,
+            icon: tool.icon,
+            label: tool.label,
+            danger: tool.danger,
+        })),
+        onClick: ({ key }: { key: string }) => {
+            const tool = overflowTools.find((item) => item.id === key);
+            if (!tool) return;
+            onKeep(nodeId);
+            setImageMoreOpen(false);
+            tool.onClick();
+        },
+    };
+    const selectableImageToolbarTools = allToolbarTools
+        .filter((tool) => tool.id !== "retry" && tool.id !== "delete" && !forcedImageToolIds.has(tool.id))
         .map((tool) => ({ ...tool, locked: coreImageToolIds.has(tool.id as ImageQuickToolId) })) as ImageToolbarSettingsTool[];
 
     const closeImageToolSettings = () => {
@@ -199,7 +232,7 @@ export function CanvasNodeHoverToolbar({
 
     const resetImageToolSettings = () => {
         setDraftImageToolIds(defaultImageQuickToolIds);
-        setDraftShowImageToolLabels(true);
+        setDraftShowImageToolLabels(false);
     };
 
     const saveImageToolSettings = () => {
@@ -217,15 +250,38 @@ export function CanvasNodeHoverToolbar({
                 style={{ left, top }}
                 onMouseEnter={() => onKeep(node.id)}
                 onMouseLeave={() => {
-                    if (!imageToolSettingsOpen) onLeave();
+                    if (!imageToolSettingsOpen && !imageMoreOpen && !toolbarConfirmOpen) onLeave();
                 }}
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
             >
                 {toolbarTools.map((tool) => (
-                    <ToolbarAction key={tool.id} {...tool} showLabel={showImageToolLabels} />
+                    <ToolbarAction key={tool.id} {...tool} showLabel={hasImage ? showImageToolLabels : true} onConfirmOpenChange={setToolbarConfirmOpen} />
                 ))}
-                {hasImage ? <ToolbarAction id="more" title="配置快捷工具" label="更多" icon={<Ellipsis className="size-4" />} active={imageToolSettingsOpen} onClick={openImageToolSettings} showLabel={showImageToolLabels} /> : null}
+                {hasImage && overflowTools.length ? (
+                    <Dropdown
+                        menu={overflowMenu}
+                        trigger={["click"]}
+                        placement="bottom"
+                        overlayClassName="canvas-image-toolbar-more-menu"
+                        open={imageMoreOpen}
+                        onOpenChange={(open) => {
+                            setImageMoreOpen(open);
+                            if (open) onKeep(nodeId);
+                        }}
+                    >
+                        <span>
+                            <ToolbarAction id="more" title="更多图片工具" label="更多" icon={<Ellipsis className="size-4" />} onClick={() => onKeep(nodeId)} showLabel={showImageToolLabels} />
+                        </span>
+                    </Dropdown>
+                ) : null}
+                {hasImage ? <ToolbarAction id="settings" title="自定义快捷工具" label="工具" icon={<Settings2 className="size-4" />} active={imageToolSettingsOpen} onClick={openImageToolSettings} showLabel={showImageToolLabels} /> : null}
+                {hasImage && deleteTool ? (
+                    <>
+                        <span className="mx-1 h-6 w-px bg-black/10" />
+                        <ToolbarAction {...deleteTool} showLabel={false} onConfirmOpenChange={setToolbarConfirmOpen} />
+                    </>
+                ) : null}
             </div>
             {hasImage ? (
                 <ImageToolSettingsModal
@@ -320,16 +376,27 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
     );
 }
 
-function ToolbarAction({ title, label, icon, onClick, showLabel, active = false, danger = false }: ToolbarTool & { showLabel: boolean }) {
+function ToolbarAction({ title, label, icon, onClick, showLabel, active = false, danger = false, confirmTitle, confirmDescription, confirmOkText, onConfirmOpenChange }: ToolbarTool & { showLabel: boolean; onConfirmOpenChange?: (open: boolean) => void }) {
     const hasText = showLabel && Boolean(label);
+    const button = (
+        <button type="button" className={`group relative flex h-12 items-center whitespace-nowrap px-1.5 ${danger ? "text-[#ef4444]" : ""}`} onClick={confirmTitle ? undefined : onClick} aria-label={title}>
+            <span className={`flex h-9 items-center ${hasText ? "gap-2 px-2.5" : "justify-center px-2"} rounded-lg transition group-hover:bg-[#f0f0f1] ${active ? "bg-[#eeeeef]" : ""}`}>
+                {icon}
+                {hasText ? <span>{label}</span> : null}
+            </span>
+        </button>
+    );
+    const action = confirmTitle ? (
+        <Popconfirm title={confirmTitle} description={confirmDescription} okText={confirmOkText || "确认"} cancelText="取消" okButtonProps={{ danger }} onOpenChange={onConfirmOpenChange} onConfirm={onClick}>
+            {button}
+        </Popconfirm>
+    ) : (
+        button
+    );
+
     return (
         <Tooltip title={title} placement="top" mouseEnterDelay={0.2} color="#ffffff" styles={{ root: { color: "#242529", boxShadow: "0 8px 24px rgba(15,23,42,.16)", fontSize: 13, fontWeight: 500 } }}>
-            <button type="button" className={`group relative flex h-12 items-center whitespace-nowrap px-1.5 ${danger ? "text-[#ef4444]" : ""}`} onClick={onClick} aria-label={title}>
-                <span className={`flex h-9 items-center ${hasText ? "gap-2 px-2.5" : "justify-center px-2"} rounded-lg transition group-hover:bg-[#f0f0f1] ${active ? "bg-[#eeeeef]" : ""}`}>
-                    {icon}
-                    {hasText ? <span>{label}</span> : null}
-                </span>
-            </button>
+            {action}
         </Tooltip>
     );
 }

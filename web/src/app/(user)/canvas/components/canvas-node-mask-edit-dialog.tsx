@@ -15,7 +15,7 @@ export type CanvasImageMaskEditPayload = {
 type DrawMode = "paint" | "erase";
 type MaskEditIntent = "remove" | "recolor" | "material" | "replace" | "cleanup" | "custom";
 
-const defaultBrushSize = 100;
+const fallbackBrushSize = 56;
 const maskFillColor = "rgba(37, 99, 235, .38)";
 const maskBorderColor = "rgba(255, 255, 255, .72)";
 const maskEditIntents = [
@@ -72,19 +72,24 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
     const drawingRef = useRef<{ active: boolean; last: { x: number; y: number } | null }>({ active: false, last: null });
     const [image, setImage] = useState<{ width: number; height: number } | null>(null);
     const [prompt, setPrompt] = useState("");
-    const [brushSize, setBrushSize] = useState(defaultBrushSize);
+    const [brushSize, setBrushSize] = useState(fallbackBrushSize);
     const [mode, setMode] = useState<DrawMode>("paint");
     const [intent, setIntent] = useState<MaskEditIntent>("remove");
     const [error, setError] = useState("");
+    const [hasPainted, setHasPainted] = useState(false);
 
     useEffect(() => {
         if (!open) return;
         setPrompt("");
-        setBrushSize(defaultBrushSize);
         setMode("paint");
         setIntent("remove");
         setError("");
-        void readImageMeta(dataUrl).then(setImage);
+        setHasPainted(false);
+        setImage(null);
+        void readImageMeta(dataUrl).then((meta) => {
+            setImage(meta);
+            setBrushSize(getDefaultBrushSize(meta));
+        });
     }, [dataUrl, open]);
 
     useEffect(() => {
@@ -111,6 +116,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         if (maskCanvas && previewCanvasRef.current) renderMaskPreview(maskCanvas, previewCanvasRef.current);
         drawingRef.current.last = point;
         if (mode === "paint") {
+            setHasPainted(true);
             setError("");
         }
     };
@@ -133,19 +139,24 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
     const stopDraw = () => {
         drawingRef.current = { active: false, last: null };
         const maskCanvas = maskCanvasRef.current;
-        if (maskCanvas) renderMaskPreview(maskCanvas, previewCanvasRef.current, canvasHasPaint(maskCanvas));
+        if (maskCanvas) {
+            const painted = canvasHasPaint(maskCanvas);
+            setHasPainted(painted);
+            renderMaskPreview(maskCanvas, previewCanvasRef.current, painted);
+        }
     };
 
     const resetMask = () => {
         clearCanvas(maskCanvasRef.current);
         clearCanvas(previewCanvasRef.current);
+        setHasPainted(false);
         setError("");
     };
 
     const submitEdit = () => {
         const canvas = maskCanvasRef.current;
         if (!canvas) return;
-        if (!canvasHasPaint(canvas)) return setError("请先涂抹局部区域");
+        if (!hasPainted || !canvasHasPaint(canvas)) return setError("请先涂抹局部区域");
         const detail = prompt.trim();
         const config = intentInputConfig[intent];
         if (config.required && !detail) return setError(`请输入${config.label}`);
@@ -157,6 +168,10 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
     };
 
     const inputConfig = intentInputConfig[intent];
+    const needsRequiredDetail = inputConfig.required && !prompt.trim();
+    const canSubmit = hasPainted && !needsRequiredDetail;
+    const activeStep = !hasPainted ? 0 : needsRequiredDetail ? 2 : 3;
+    const stepItems = ["涂抹区域", "选择操作", "补充要求", "Agent 执行"];
 
     return (
         <Modal title={null} open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} width={980} centered destroyOnHidden>
@@ -184,8 +199,22 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
 
                 <div className="flex min-h-[360px] flex-col gap-5">
                     <div>
-                        <h2 className="text-xl font-semibold">局部遮罩编辑</h2>
+                        <div className="flex items-start justify-between gap-3">
+                            <h2 className="text-xl font-semibold">局部遮罩编辑</h2>
+                            <span className="rounded-full border border-black/10 px-2 py-1 text-xs opacity-70 dark:border-white/15">先涂抹再执行</span>
+                        </div>
                         <div className="mt-2 text-sm opacity-60">{image ? `${image.width} x ${image.height}px` : "读取中"}</div>
+                        <div className="mt-4 grid grid-cols-4 gap-1.5">
+                            {stepItems.map((step, index) => (
+                                <div
+                                    key={step}
+                                    className={`rounded-lg border px-2 py-1.5 text-center text-[11px] leading-tight ${index <= activeStep ? "border-[#3b82f6]/45 bg-[#3b82f6]/10 text-[#1d4ed8] dark:text-[#93c5fd]" : "border-black/10 text-black/45 dark:border-white/10 dark:text-white/45"}`}
+                                >
+                                    {index + 1}. {step}
+                                </div>
+                            ))}
+                        </div>
+                        <div className="mt-2 text-xs leading-5 opacity-55">在左侧图片上涂抹需要修改的区域；擦除可微调边缘，未涂抹前不会误触发生成。</div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
@@ -257,7 +286,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
                                 取消
                             </Button>
                         </div>
-                        <Button type="primary" icon={<WandSparkles className="size-4" />} onClick={submitEdit} title="Agent 驱动执行">
+                        <Button type="primary" icon={<WandSparkles className="size-4" />} disabled={!canSubmit} onClick={submitEdit} title={hasPainted ? "Agent 驱动执行" : "请先在图片上涂抹区域"}>
                             Agent {inputConfig.actionLabel}
                         </Button>
                     </div>
@@ -322,6 +351,11 @@ function buildDisplayPrompt(intent: MaskEditIntent, detail: string) {
     const label = maskEditIntents.find((item) => item.value === intent)?.label || "局部修改";
     if (!detail) return `${label}选区`;
     return `${label}：${detail}`.slice(0, 80);
+}
+
+function getDefaultBrushSize(image: { width: number; height: number }) {
+    const shortSide = Math.min(image.width, image.height);
+    return Math.max(24, Math.min(72, Math.round(shortSide * 0.055)));
 }
 
 function readCanvasPoint(canvas: HTMLCanvasElement, clientX: number, clientY: number) {

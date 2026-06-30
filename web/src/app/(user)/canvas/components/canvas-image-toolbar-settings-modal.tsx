@@ -19,7 +19,7 @@ export type ImageToolbarSettingsTool = {
 type PreviewTool =
     | ImageToolbarSettingsTool
     | {
-          id: "more";
+          id: "more" | "settings";
           title: string;
           label: string;
           icon: ReactNode;
@@ -61,7 +61,11 @@ export function ImageToolSettingsModal({
     const [previewScroll, setPreviewScroll] = useState<PreviewScroll>({ left: 0, max: 0, viewport: 1, content: 1 });
     const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
     const selectedTools = tools.filter((tool) => tool.locked || selected.has(tool.id));
-    const previewTools: PreviewTool[] = [...selectedTools, { id: "more", title: "配置快捷工具", label: "更多", icon: <Ellipsis className="size-4" />, active: true }];
+    const previewTools: PreviewTool[] = [
+        ...selectedTools,
+        { id: "more", title: "更多图片工具", label: "更多", icon: <Ellipsis className="size-4" /> },
+        { id: "settings", title: "自定义快捷工具", label: "工具", icon: <Settings2 className="size-4" />, active: true },
+    ];
 
     const syncPreviewScroll = useCallback(() => {
         const toolbar = previewToolbarRef.current;
@@ -146,7 +150,7 @@ export function ImageToolSettingsModal({
             }
         >
             <Typography.Paragraph type="secondary" className="!mb-4">
-                选择你想在图片节点编辑栏中使用的快捷工具。
+                选择图片节点编辑栏中常用的快捷工具。低频工具会收进“更多”，删除固定在右侧并需要二次确认。
             </Typography.Paragraph>
 
             <Card
