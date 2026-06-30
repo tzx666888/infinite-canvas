@@ -1,6 +1,6 @@
 "use client";
 
-import { Drawer } from "antd";
+import { App, Drawer } from "antd";
 import Link from "next/link";
 
 import { navigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
@@ -14,6 +14,7 @@ type MobileNavDrawerProps = {
 };
 
 export function MobileNavDrawer({ open, activeToolSlug, onClose }: MobileNavDrawerProps) {
+    const { message } = App.useApp();
     const apiKey = useConfigStore((state) => state.config.channels[0]?.apiKey || "");
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
 
@@ -35,7 +36,7 @@ export function MobileNavDrawer({ open, activeToolSlug, onClose }: MobileNavDraw
             onClose();
             window.open(data.url, "_blank", "noopener,noreferrer");
         } catch (error) {
-            alert(`打开 TokAxis TTS 失败：${(error as Error).message}`);
+            message.error(`打开 TokAxis TTS 失败：${(error as Error).message}`);
         }
     }
 
@@ -58,12 +59,7 @@ export function MobileNavDrawer({ open, activeToolSlug, onClose }: MobileNavDraw
                         );
                     }
                     return (
-                        <Link
-                            key={tool.slug}
-                            href={`/${tool.slug}`}
-                            onClick={onClose}
-                            className={className}
-                        >
+                        <Link key={tool.slug} href={`/${tool.slug}`} onClick={onClose} className={className}>
                             <Icon className="size-5" />
                             <span>{tool.label}</span>
                         </Link>

@@ -55,6 +55,7 @@ type SyncDomainResult<T> = {
 export type AppSyncResult = {
     syncedAt: string;
     mergedRemote: boolean;
+    mergedDomains: Array<{ domain: AppSyncDomainKey; label: string }>;
     projects: number;
     assets: number;
     imageLogs: number;
@@ -115,6 +116,11 @@ export async function syncAppDataToWebdav(config: WebdavSyncConfig, onProgress?:
     const result = {
         syncedAt: new Date().toISOString(),
         mergedRemote: [canvas, assets, imageLogs].some((item) => item.mergedRemote),
+        mergedDomains: [
+            ...(canvas.mergedRemote ? [{ domain: "canvas" as const, label: "画布" }] : []),
+            ...(assets.mergedRemote ? [{ domain: "assets" as const, label: "我的素材" }] : []),
+            ...(imageLogs.mergedRemote ? [{ domain: "image-workbench" as const, label: "生图工作台" }] : []),
+        ],
         projects: canvas.data.projects.length,
         assets: assets.data.assets.length,
         imageLogs: imageLogs.data.logs.length,

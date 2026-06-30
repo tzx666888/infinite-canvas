@@ -5,6 +5,11 @@ import { nanoid } from "nanoid";
 
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
 
+export type StoredMediaStats = {
+    count: number;
+    bytes: number;
+};
+
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
 const objectUrls = new Map<string, string>();
 
@@ -51,13 +56,22 @@ export async function deleteStoredMedia(keys: Iterable<string>) {
     );
 }
 
+export async function getMediaStorageStats(): Promise<StoredMediaStats> {
+    const stats: StoredMediaStats = { count: 0, bytes: 0 };
+    await store.iterate((value) => {
+        stats.count += 1;
+        if (value instanceof Blob) stats.bytes += value.size;
+    });
+    return stats;
+}
+
 export async function cleanupUnusedMedia(usedData: unknown) {
     const usedKeys = collectMediaStorageKeys(usedData);
     const unused: string[] = [];
     await store.iterate((_value, key) => {
         if (!usedKeys.has(key)) unused.push(key);
     });
-    await Promise.all(unused.map((key) => store.removeItem(key)));
+    await deleteStoredMedia(unused);
 }
 
 export function collectMediaStorageKeys(value: unknown, keys = new Set<string>()) {

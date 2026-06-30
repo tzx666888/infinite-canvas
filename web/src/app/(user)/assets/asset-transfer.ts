@@ -20,6 +20,11 @@ type AssetExportItem = {
     bytes: number;
 };
 
+export type AssetImportResult = {
+    assets: Asset[];
+    missingFiles: number;
+};
+
 export async function exportAssets(assets: Asset[]) {
     const files: AssetExportItem[] = [];
     const zipFiles: { name: string; data: BlobPart }[] = [];
@@ -42,20 +47,27 @@ export async function exportAssets(assets: Asset[]) {
     saveAs(zip, "我的素材.zip");
 }
 
-export async function readAssetPackage(file: File) {
+export async function readAssetPackage(file: File): Promise<AssetImportResult> {
     const zip = await readZip(file);
     const assetFile = zip.get("assets.json");
     if (!assetFile) throw new Error("missing assets.json");
     const data = JSON.parse(await assetFile.text()) as AssetExportFile;
+    if (data.app !== "infinite-canvas") throw new Error("invalid app");
+    if (!Array.isArray(data.assets)) throw new Error("invalid assets");
+    const files = Array.isArray(data.files) ? data.files : [];
+    let missingFiles = 0;
     await Promise.all(
-        data.files.map(async (item) => {
+        files.map(async (item) => {
             const blob = zip.get(item.path);
-            if (!blob) return;
+            if (!blob) {
+                missingFiles += 1;
+                return;
+            }
             const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
             await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
         }),
     );
-    return data.assets;
+    return { assets: data.assets, missingFiles };
 }
 
 function safeFileName(value: string) {

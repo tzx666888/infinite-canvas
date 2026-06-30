@@ -52,6 +52,8 @@ type ToolbarTool = {
     danger?: boolean;
 };
 
+const coreImageToolIds = new Set<ImageQuickToolId>(["info", "delete", "saveAsset", "download", "edit"]);
+
 export function CanvasNodeHoverToolbar({
     node,
     viewport,
@@ -95,7 +97,7 @@ export function CanvasNodeHoverToolbar({
             if (!stored) return;
             const parsed = JSON.parse(stored) as unknown;
             const config = readImageQuickToolsConfig(parsed);
-            setQuickImageToolIds(config.ids);
+            setQuickImageToolIds(ensureCoreImageToolIds(config.ids));
             setShowImageToolLabels(config.showLabels);
         } catch {
             window.localStorage.removeItem(IMAGE_QUICK_TOOLS_STORAGE_KEY);
@@ -135,7 +137,7 @@ export function CanvasNodeHoverToolbar({
 
     function openImageToolSettings() {
         onKeep(nodeId);
-        setDraftImageToolIds(quickImageToolIds);
+        setDraftImageToolIds(ensureCoreImageToolIds(quickImageToolIds));
         setDraftShowImageToolLabels(showImageToolLabels);
         setImageToolSettingsOpen(true);
     }
@@ -173,8 +175,12 @@ export function CanvasNodeHoverToolbar({
         ...(hasImage ? imageTools.map((tool) => ({ id: tool.id, title: tool.title, label: tool.label, icon: tool.icon, active: tool.active, onClick: tool.onClick })) : []),
     ];
     const forcedImageToolIds = new Set(["generateStoryboardKeyframes"]);
-    const toolbarTools = hasImage ? [...baseToolbarTools, ...nodeToolbarTools].filter((tool) => forcedImageToolIds.has(tool.id) || quickImageToolIdSet.has(tool.id as ImageQuickToolId)) : [...baseToolbarTools, ...nodeToolbarTools];
-    const selectableImageToolbarTools = [...baseToolbarTools, ...nodeToolbarTools].filter((tool) => tool.id !== "retry" && !forcedImageToolIds.has(tool.id)) as ImageToolbarSettingsTool[];
+    const toolbarTools = hasImage
+        ? [...baseToolbarTools, ...nodeToolbarTools].filter((tool) => coreImageToolIds.has(tool.id as ImageQuickToolId) || forcedImageToolIds.has(tool.id) || quickImageToolIdSet.has(tool.id as ImageQuickToolId))
+        : [...baseToolbarTools, ...nodeToolbarTools];
+    const selectableImageToolbarTools = [...baseToolbarTools, ...nodeToolbarTools]
+        .filter((tool) => tool.id !== "retry" && !forcedImageToolIds.has(tool.id))
+        .map((tool) => ({ ...tool, locked: coreImageToolIds.has(tool.id as ImageQuickToolId) })) as ImageToolbarSettingsTool[];
 
     const closeImageToolSettings = () => {
         setImageToolSettingsOpen(false);
@@ -182,6 +188,7 @@ export function CanvasNodeHoverToolbar({
     };
 
     const setDraftImageToolVisible = (id: ImageQuickToolId, visible: boolean) => {
+        if (coreImageToolIds.has(id) && !visible) return;
         setDraftImageToolIds((current) => {
             const selected = new Set(current);
             if (visible) selected.add(id);
@@ -190,8 +197,13 @@ export function CanvasNodeHoverToolbar({
         });
     };
 
+    const resetImageToolSettings = () => {
+        setDraftImageToolIds(defaultImageQuickToolIds);
+        setDraftShowImageToolLabels(true);
+    };
+
     const saveImageToolSettings = () => {
-        const config = { ids: draftImageToolIds, showLabels: draftShowImageToolLabels };
+        const config = { ids: ensureCoreImageToolIds(draftImageToolIds), showLabels: draftShowImageToolLabels };
         setQuickImageToolIds(config.ids);
         setShowImageToolLabels(config.showLabels);
         window.localStorage.setItem(IMAGE_QUICK_TOOLS_STORAGE_KEY, JSON.stringify(config));
@@ -223,12 +235,19 @@ export function CanvasNodeHoverToolbar({
                     showLabels={draftShowImageToolLabels}
                     onToggle={setDraftImageToolVisible}
                     onShowLabelsChange={setDraftShowImageToolLabels}
+                    onReset={resetImageToolSettings}
                     onCancel={closeImageToolSettings}
                     onSave={saveImageToolSettings}
                 />
             ) : null}
         </>
     );
+}
+
+function ensureCoreImageToolIds(ids: ImageQuickToolId[]) {
+    const selected = new Set<ImageQuickToolId>(ids.length ? ids : defaultImageQuickToolIds);
+    coreImageToolIds.forEach((id) => selected.add(id));
+    return defaultImageQuickToolIds.filter((id) => selected.has(id)).concat(ids.filter((id) => !defaultImageQuickToolIds.includes(id) && selected.has(id)));
 }
 
 export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeData | null; open: boolean; onClose: () => void }) {

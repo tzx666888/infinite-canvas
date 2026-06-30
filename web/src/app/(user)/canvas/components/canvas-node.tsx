@@ -410,10 +410,7 @@ export const CanvasNode = React.memo(function CanvasNode({
             <ConnectionHandleDot side="right" visible={data.type !== CanvasNodeType.Config && (hovered || isSelected || isConnecting)} onPointerDown={(event) => onConnectStart(event, data.id, "source")} />
 
             {showPanel && renderPanel ? (
-                <div
-                    className="absolute top-full z-[70] -translate-x-1/2 pt-4"
-                    style={{ left: `calc(50% + ${panelOffsetX}px)`, width: panelWidth, "--canvas-prompt-textarea-height": `${panelTextareaHeight}px` } as React.CSSProperties}
-                >
+                <div className="absolute top-full z-[70] -translate-x-1/2 pt-4" style={{ left: `calc(50% + ${panelOffsetX}px)`, width: panelWidth, "--canvas-prompt-textarea-height": `${panelTextareaHeight}px` } as React.CSSProperties}>
                     <PanelResizeHandle edge="left" active={isPanelResizing} onPointerDown={handlePanelResizePointerDown} />
                     <PanelResizeHandle edge="right" active={isPanelResizing} onPointerDown={handlePanelResizePointerDown} />
                     <PanelResizeHandle edge="bottom" active={isPanelResizing} onPointerDown={handlePanelResizePointerDown} />
@@ -444,12 +441,7 @@ function PanelResizeHandle({ edge, active, onPointerDown }: { edge: PanelResizeE
 
     const sideClass = edge === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2";
     return (
-        <button
-            type="button"
-            className={`group absolute bottom-4 top-4 z-20 w-4 cursor-col-resize touch-none ${sideClass}`}
-            onPointerDown={(event) => onPointerDown(event, edge)}
-            aria-label={edge === "left" ? "向左调整面板宽度" : "向右调整面板宽度"}
-        >
+        <button type="button" className={`group absolute bottom-4 top-4 z-20 w-4 cursor-col-resize touch-none ${sideClass}`} onPointerDown={(event) => onPointerDown(event, edge)} aria-label={edge === "left" ? "向左调整面板宽度" : "向右调整面板宽度"}>
             <span className={`absolute left-1/2 top-1/2 h-12 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/35 transition group-hover:bg-sky-300 ${active ? "opacity-100" : "opacity-70"}`} />
         </button>
     );
@@ -461,8 +453,10 @@ function panelResizeCursor(edge: PanelResizeEdge) {
     return "col-resize";
 }
 
-function NodeContent(props: NodeContentRendererProps) {
-    if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
+function NodeContent(props: NodeContentRendererProps): React.ReactElement | null {
+    if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) {
+        return <>{props.renderNodeContent(props.node) ?? null}</>;
+    }
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
     if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} label={props.node.metadata?.statusMessage} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
@@ -564,11 +558,7 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                     onWheel={(event) => event.stopPropagation()}
                 />
             ) : (
-                <div
-                    className="thin-scrollbar block h-full w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent pl-4 pr-14 pt-0 pb-4 font-mono"
-                    style={textStyle}
-                    onWheel={(event) => event.stopPropagation()}
-                >
+                <div className="thin-scrollbar block h-full w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent pl-4 pr-14 pt-0 pb-4 font-mono" style={textStyle} onWheel={(event) => event.stopPropagation()}>
                     {node.metadata?.content || <span style={{ color: theme.node.placeholder }}>双击编辑文字</span>}
                 </div>
             )}
@@ -577,11 +567,7 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
 }
 
 function ResourceLabelBadge({ reference }: { reference: CanvasResourceReference }) {
-    return (
-        <span className={`pointer-events-none absolute right-2 top-2 z-30 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${reference.active ? "bg-[#2f80ff] text-white shadow-sm" : "bg-black/35 text-white/75"}`}>
-            {reference.label}
-        </span>
-    );
+    return <span className={`pointer-events-none absolute right-2 top-2 z-30 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${reference.active ? "bg-[#2f80ff] text-white shadow-sm" : "bg-black/35 text-white/75"}`}>{reference.label}</span>;
 }
 
 function ImageNodeContent(props: NodeContentRendererProps) {

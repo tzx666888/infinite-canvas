@@ -33,9 +33,19 @@ export function PromptCard({
             styles={{ body: { padding: 0 } }}
             cover={
                 hasCover ? (
-                    <button type="button" className="block w-full text-left" onClick={onOpen}>
+                    <div
+                        role="button"
+                        tabIndex={0}
+                        className="block w-full cursor-pointer text-left"
+                        onClick={onOpen}
+                        onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            onOpen();
+                        }}
+                    >
                         <PromptCover coverUrl={item.coverUrl} title={item.title} />
-                    </button>
+                    </div>
                 ) : undefined
             }
         >

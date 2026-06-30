@@ -164,17 +164,18 @@ export default function AssetsPage() {
     const importAssetZip = async (file?: File) => {
         if (!file) return;
         try {
-            const importedAssets = await readAssetPackage(file);
-            importedAssets.forEach((asset) => {
+            const result = await readAssetPackage(file);
+            result.assets.forEach((asset) => {
                 const payload = { ...asset } as Record<string, unknown>;
                 delete payload.id;
                 delete payload.createdAt;
                 delete payload.updatedAt;
                 addAsset(payload as Parameters<typeof addAsset>[0]);
             });
-            message.success(`已导入 ${importedAssets.length} 个素材`);
-        } catch {
-            message.error("导入失败，请选择有效的素材压缩包");
+            message.success(`已导入 ${result.assets.length} 个素材`);
+            if (result.missingFiles) message.warning(`压缩包缺少 ${result.missingFiles} 个媒体文件，对应素材可能无法预览，请重新导出完整素材包`);
+        } catch (error) {
+            message.error(assetImportErrorMessage(error));
         } finally {
             if (assetInputRef.current) assetInputRef.current.value = "";
         }
@@ -250,11 +251,7 @@ export default function AssetsPage() {
                                 >
                                     导入素材
                                 </button>
-                                <button
-                                    type="button"
-                                    className="cursor-pointer text-sm font-medium text-stone-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:underline dark:text-stone-300"
-                                    onClick={openCreate}
-                                >
+                                <button type="button" className="cursor-pointer text-sm font-medium text-stone-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:underline dark:text-stone-300" onClick={openCreate}>
                                     新增素材
                                 </button>
                             </div>
@@ -540,4 +537,13 @@ function assetSummary(asset: Asset) {
 
 function assetSearchText(asset: Asset) {
     return [asset.title, asset.source || "", asset.note || "", (asset.tags || []).join(" "), asset.kind === "text" ? asset.data.content : asset.data.mimeType].join(" ").toLowerCase();
+}
+
+function assetImportErrorMessage(error: unknown) {
+    if (!(error instanceof Error)) return "导入失败，请选择有效的素材压缩包";
+    if (error.message.includes("missing assets.json")) return "压缩包缺少 assets.json，请确认这是从「我的素材」导出的文件";
+    if (error.message.includes("invalid app")) return "这个压缩包不是当前应用导出的素材包";
+    if (error.message.includes("invalid assets")) return "assets.json 格式不正确，无法读取素材列表";
+    if (error instanceof SyntaxError) return "assets.json 不是有效 JSON，请重新导出素材包";
+    return error.message || "导入失败，请选择有效的素材压缩包";
 }

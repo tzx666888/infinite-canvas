@@ -1,14 +1,30 @@
 "use client";
 
 import { App, Button, Form, Input, Modal, Progress, Segmented, Select, Tabs } from "antd";
-import { Cloud, RefreshCw, Wifi } from "lucide-react";
-import { useRef, useState } from "react";
+import { Cloud, Database, HardDrive, RefreshCw, Trash2, Wifi } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
 
 import { ModelPicker } from "@/components/model-picker";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
+import { cleanupUnusedMedia, getMediaStorageStats } from "@/services/file-storage";
+import { cleanupUnusedImages, getImageStorageStats } from "@/services/image-storage";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
-import { createModelChannel, defaultConfig, filterModelsByCapability, modelOptionLabel, modelOptionsFromChannels, normalizeModelOptionValue, requiresClientApiKey, useConfigStore, type AiConfig, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { useAssetStore } from "@/stores/use-asset-store";
+import {
+    createModelChannel,
+    defaultConfig,
+    filterModelsByCapability,
+    modelOptionLabel,
+    modelOptionsFromChannels,
+    normalizeModelOptionValue,
+    requiresClientApiKey,
+    useConfigStore,
+    type AiConfig,
+    type ModelCapability,
+    type ModelChannel,
+} from "@/stores/use-config-store";
+import { useCanvasStore } from "@/app/(user)/canvas/stores/use-canvas-store";
 
 const TOKAXIS_PROXY_BASE_URL = "/api/tokaxis";
 
@@ -26,6 +42,16 @@ type WebdavDomainProgress = {
     current?: number;
     total?: number;
     status?: "active" | "success" | "exception";
+};
+
+type LocalStorageStats = {
+    imageCount: number;
+    imageBytes: number;
+    mediaCount: number;
+    mediaBytes: number;
+    usage?: number;
+    quota?: number;
+    checkedAt: string;
 };
 
 const modelGroups: ModelGroup[] = [
@@ -62,6 +88,9 @@ export function AppConfigModal() {
     const [modelSyncStatus, setModelSyncStatus] = useState("");
     const [webdavSyncStatus, setWebdavSyncStatus] = useState("");
     const [webdavDomainProgress, setWebdavDomainProgress] = useState(createWebdavDomainProgress);
+    const [checkingStorage, setCheckingStorage] = useState(false);
+    const [cleaningStorage, setCleaningStorage] = useState(false);
+    const [storageStats, setStorageStats] = useState<LocalStorageStats | null>(null);
     const lastSyncedKeyRef = useRef("");
     const config = useConfigStore((state) => state.config);
     const webdav = useConfigStore((state) => state.webdav);
@@ -172,7 +201,8 @@ export function AppConfigModal() {
         try {
             const result = await syncAppDataToWebdav(webdav, updateWebdavProgress);
             updateWebdavConfig("lastSyncedAt", result.syncedAt);
-            message.success(`同步完成：${result.projects} 个画布，${result.assets} 个素材，${result.imageLogs + result.videoLogs} 条记录，本次上传 ${result.uploadedFiles} 个文件 ${formatBytes(result.uploadedBytes)}`);
+            const mergedText = result.mergedDomains.length ? `，已合并远端：${result.mergedDomains.map((item) => item.label).join("、")}` : "";
+            message.success(`同步完成：${result.projects} 个画布，${result.assets} 个素材，${result.imageLogs + result.videoLogs} 条记录，本次上传 ${result.uploadedFiles} 个文件 ${formatBytes(result.uploadedBytes)}${mergedText}`);
         } catch (error) {
             setWebdavSyncStatus(error instanceof Error ? error.message : "WebDAV 同步失败");
             message.error(error instanceof Error ? error.message : "WebDAV 同步失败");
@@ -181,11 +211,51 @@ export function AppConfigModal() {
         }
     };
 
+    const refreshLocalStorageStats = async (quiet = false) => {
+        setCheckingStorage(true);
+        try {
+            const [imageStats, mediaStats, estimate] = await Promise.all([getImageStorageStats(), getMediaStorageStats(), navigator.storage?.estimate?.() ?? Promise.resolve({})]);
+            setStorageStats({
+                imageCount: imageStats.count,
+                imageBytes: imageStats.bytes,
+                mediaCount: mediaStats.count,
+                mediaBytes: mediaStats.bytes,
+                usage: typeof estimate.usage === "number" ? estimate.usage : undefined,
+                quota: typeof estimate.quota === "number" ? estimate.quota : undefined,
+                checkedAt: new Date().toISOString(),
+            });
+            if (!quiet) message.success("本地存储检查完成");
+        } catch (error) {
+            console.warn("[Storage] stats failed", error);
+            message.error("本地存储检查失败，请刷新后重试");
+        } finally {
+            setCheckingStorage(false);
+        }
+    };
+
+    const cleanupLocalStorage = async () => {
+        setCleaningStorage(true);
+        try {
+            const usedData = {
+                projects: useCanvasStore.getState().projects,
+                assets: useAssetStore.getState().assets,
+            };
+            await Promise.all([cleanupUnusedImages(usedData), cleanupUnusedMedia(usedData)]);
+            await refreshLocalStorageStats(true);
+            message.success("已清理未使用的本地图片和媒体文件");
+        } catch (error) {
+            console.warn("[Storage] cleanup failed", error);
+            message.error("本地存储清理失败，请刷新后重试");
+        } finally {
+            setCleaningStorage(false);
+        }
+    };
+
     return (
         <Modal
             title={
-                    <div>
-                        <div className="text-lg font-semibold">配置与用户偏好</div>
+                <div>
+                    <div className="text-lg font-semibold">配置与用户偏好</div>
                     <div className="mt-1 text-xs font-normal text-stone-500">TokAxis 代理、模型选择和同步偏好</div>
                 </div>
             }
@@ -210,7 +280,9 @@ export function AppConfigModal() {
                         children: (
                             <Form layout="vertical" requiredMark={false}>
                                 <div className="mb-4 flex justify-start">
-                                    <Button type="primary" href="https://ai.tokaxis.com/console/token" target="_blank" rel="noreferrer">获取 Key</Button>
+                                    <Button type="primary" href="https://ai.tokaxis.com/console/token" target="_blank" rel="noreferrer">
+                                        获取 Key
+                                    </Button>
                                 </div>
                                 <div className="space-y-3">
                                     {config.channels.slice(0, 1).map((channel) => (
@@ -218,9 +290,7 @@ export function AppConfigModal() {
                                             <div className="mb-3 flex items-center justify-between gap-3">
                                                 <div className="min-w-0">
                                                     <div className="truncate text-sm font-semibold">TokAxis</div>
-                                                    <div className="mt-1 text-xs text-stone-500">
-                                                        OpenAI 兼容格式 · 已内置 {channel.models.length} 个模型
-                                                    </div>
+                                                    <div className="mt-1 text-xs text-stone-500">OpenAI 兼容格式 · 已内置 {channel.models.length} 个模型</div>
                                                 </div>
                                             </div>
                                             <div className="grid gap-4 md:grid-cols-2">
@@ -386,9 +456,69 @@ export function AppConfigModal() {
                             </Form>
                         ),
                     },
+                    {
+                        key: "storage",
+                        label: "本地存储",
+                        children: (
+                            <section className="rounded-lg border border-stone-200 p-3 dark:border-stone-800">
+                                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                        <div className="flex items-center gap-2 text-sm font-semibold">
+                                            <Database className="size-4" />
+                                            本地存储健康
+                                        </div>
+                                        <div className="mt-1 text-xs leading-5 text-stone-500">检查浏览器里保存的画布图片、视频和音频缓存；清理只会删除不再被画布或素材引用的文件。</div>
+                                    </div>
+                                    {storageStats ? <div className="text-xs text-stone-500">上次检查 {formatWebdavTime(storageStats.checkedAt)}</div> : null}
+                                </div>
+                                <div className="grid gap-3 md:grid-cols-3">
+                                    <StorageMetric
+                                        icon={<HardDrive className="size-4" />}
+                                        label="浏览器占用"
+                                        value={storageStats ? formatMaybeBytes(storageStats.usage) : "未检查"}
+                                        detail={storageStats ? formatQuotaDetail(storageStats) : "点击检查读取当前浏览器配额"}
+                                    />
+                                    <StorageMetric
+                                        icon={<Database className="size-4" />}
+                                        label="图片缓存"
+                                        value={storageStats ? formatBytes(storageStats.imageBytes) : "未检查"}
+                                        detail={storageStats ? `${storageStats.imageCount} 个本地图片文件` : "画布生成图、上传图和素材图"}
+                                    />
+                                    <StorageMetric
+                                        icon={<Database className="size-4" />}
+                                        label="媒体缓存"
+                                        value={storageStats ? formatBytes(storageStats.mediaBytes) : "未检查"}
+                                        detail={storageStats ? `${storageStats.mediaCount} 个视频/音频文件` : "视频、音频和其他媒体文件"}
+                                    />
+                                </div>
+                                <div className="mt-4 flex flex-wrap items-center gap-2">
+                                    <Button icon={<RefreshCw className="size-4" />} loading={checkingStorage} disabled={cleaningStorage} onClick={() => void refreshLocalStorageStats()}>
+                                        检查存储
+                                    </Button>
+                                    <Button icon={<Trash2 className="size-4" />} loading={cleaningStorage} disabled={checkingStorage} onClick={() => void cleanupLocalStorage()}>
+                                        清理未使用文件
+                                    </Button>
+                                    <span className="text-xs text-stone-500">遇到页面卡顿、封面异常或空间占用过高时，先检查再清理。</span>
+                                </div>
+                            </section>
+                        ),
+                    },
                 ]}
             />
         </Modal>
+    );
+}
+
+function StorageMetric({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) {
+    return (
+        <div className="rounded-lg border border-stone-200 p-3 dark:border-stone-800">
+            <div className="flex items-center gap-2 text-xs text-stone-500">
+                {icon}
+                <span>{label}</span>
+            </div>
+            <div className="mt-3 text-xl font-semibold">{value}</div>
+            <div className="mt-1 text-xs leading-5 text-stone-500">{detail}</div>
+        </div>
     );
 }
 
@@ -447,6 +577,15 @@ function uniqueModels(models: string[]) {
 
 function formatWebdavTime(value: string) {
     return new Date(value).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatMaybeBytes(bytes?: number) {
+    return typeof bytes === "number" ? formatBytes(bytes) : "无法读取";
+}
+
+function formatQuotaDetail(stats: LocalStorageStats) {
+    if (typeof stats.usage !== "number" || typeof stats.quota !== "number" || stats.quota <= 0) return "当前浏览器未返回可用配额";
+    return `可用配额 ${formatBytes(stats.quota)}，已用 ${Math.round((stats.usage / stats.quota) * 100)}%`;
 }
 
 function WebdavProgressGrid({ progress }: { progress: Record<AppSyncDomainKey, WebdavDomainProgress> }) {

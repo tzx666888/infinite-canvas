@@ -12,7 +12,8 @@ const cacheDir = process.env.PROMPT_COVER_CACHE_DIR || join(cacheRoot, "covers")
 const promptLibraryCacheDir = process.env.PROMPT_LIBRARY_CACHE_DIR || cacheRoot;
 const promptLibraryCacheFile = join(promptLibraryCacheDir, "prompt-library.json");
 const freshTtlMs = 1000 * 60 * 60 * 24 * 7;
-const staleTtlMs = 1000 * 60 * 60 * 24 * 30;
+const staleTtlMs = 1000 * 60 * 60 * 24 * 180;
+const upstreamTimeoutMs = 9000;
 const maxBytes = 1024 * 1024 * 12;
 const allowedHosts = new Set([
     "github.com",
@@ -31,6 +32,7 @@ type CachedCover = {
     body: Buffer;
     contentType: string;
     stale: boolean;
+    expired: boolean;
 };
 
 export async function GET(request: NextRequest) {
@@ -43,37 +45,42 @@ export async function GET(request: NextRequest) {
     const cached = await readCachedCover(cacheKey);
     if (cached && !cached.stale) return coverResponse(cached.body, cached.contentType, "HIT");
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
     try {
         const response = await fetch(sourceUrl, {
             cache: "no-store",
             redirect: "follow",
+            signal: controller.signal,
             headers: {
                 accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
                 "user-agent": "Mozilla/5.0 (compatible; TokAxisPromptCoverProxy/1.0)",
             },
         });
         if (!response.ok) {
-            if (cached) return coverResponse(cached.body, cached.contentType, "STALE");
+            if (cached) return coverResponse(cached.body, cached.contentType, cached.expired ? "EXPIRED_STALE" : "STALE");
             return Response.json({ error: `Prompt cover fetch failed: ${response.status}` }, { status: 502 });
         }
 
         const contentType = response.headers.get("content-type")?.split(";")[0]?.trim() || "image/jpeg";
         if (!isImageContentType(contentType)) {
-            if (cached) return coverResponse(cached.body, cached.contentType, "STALE");
+            if (cached) return coverResponse(cached.body, cached.contentType, cached.expired ? "EXPIRED_STALE" : "STALE");
             return Response.json({ error: "Prompt cover is not an image" }, { status: 502 });
         }
 
         const body = Buffer.from(await response.arrayBuffer());
         if (!body.length || body.byteLength > maxBytes) {
-            if (cached) return coverResponse(cached.body, cached.contentType, "STALE");
+            if (cached) return coverResponse(cached.body, cached.contentType, cached.expired ? "EXPIRED_STALE" : "STALE");
             return Response.json({ error: "Prompt cover size is not supported" }, { status: 502 });
         }
 
         await writeCachedCover(cacheKey, body, contentType);
         return coverResponse(body, contentType, "MISS");
     } catch {
-        if (cached) return coverResponse(cached.body, cached.contentType, "STALE");
+        if (cached) return coverResponse(cached.body, cached.contentType, cached.expired ? "EXPIRED_STALE" : "STALE");
         return Response.json({ error: "Prompt cover fetch failed" }, { status: 502 });
+    } finally {
+        clearTimeout(timer);
     }
 }
 
@@ -107,8 +114,7 @@ async function readCachedCover(cacheKey: string): Promise<CachedCover | null> {
         const [body, metaRaw, fileStat] = await Promise.all([readFile(bodyPath(cacheKey)), readFile(metaPath(cacheKey), "utf8"), stat(bodyPath(cacheKey))]);
         const meta = JSON.parse(metaRaw) as { contentType?: string };
         const age = Date.now() - fileStat.mtimeMs;
-        if (age > staleTtlMs) return null;
-        return { body, contentType: meta.contentType || "image/jpeg", stale: age > freshTtlMs };
+        return { body, contentType: meta.contentType || "image/jpeg", stale: age > freshTtlMs, expired: age > staleTtlMs };
     } catch {
         return null;
     }
@@ -122,7 +128,7 @@ async function writeCachedCover(cacheKey: string, body: Buffer, contentType: str
 function coverResponse(body: Buffer, contentType: string, cacheStatus: string) {
     return new Response(body, {
         headers: {
-            "cache-control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000",
+            "cache-control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=15552000",
             "content-type": contentType,
             "x-prompt-cover-cache": cacheStatus,
         },

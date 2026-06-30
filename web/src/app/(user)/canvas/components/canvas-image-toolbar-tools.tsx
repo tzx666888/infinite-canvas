@@ -165,11 +165,15 @@ export function normalizeImageQuickToolIds(value: unknown[]) {
 }
 
 export function readImageQuickToolsConfig(value: unknown): ImageQuickToolsConfig {
-    if (Array.isArray(value)) return { ids: normalizeImageQuickToolIds(value), showLabels: true };
+    if (Array.isArray(value)) {
+        const ids = normalizeImageQuickToolIds(value);
+        return { ids: ids.length ? ids : defaultImageQuickToolIds, showLabels: true };
+    }
     if (!value || typeof value !== "object") return { ids: defaultImageQuickToolIds, showLabels: true };
     const data = value as Partial<ImageQuickToolsConfig>;
+    const ids = Array.isArray(data.ids) ? normalizeImageQuickToolIds(data.ids) : defaultImageQuickToolIds;
     return {
-        ids: Array.isArray(data.ids) ? normalizeImageQuickToolIds(data.ids) : defaultImageQuickToolIds,
+        ids: ids.length ? ids : defaultImageQuickToolIds,
         showLabels: data.showLabels !== false,
     };
 }

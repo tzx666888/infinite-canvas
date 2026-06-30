@@ -13,16 +13,19 @@ export type ImageToolbarSettingsTool = {
     icon: ReactNode;
     active?: boolean;
     danger?: boolean;
+    locked?: boolean;
 };
 
-type PreviewTool = ImageToolbarSettingsTool | {
-    id: "more";
-    title: string;
-    label: string;
-    icon: ReactNode;
-    active?: boolean;
-    danger?: boolean;
-};
+type PreviewTool =
+    | ImageToolbarSettingsTool
+    | {
+          id: "more";
+          title: string;
+          label: string;
+          icon: ReactNode;
+          active?: boolean;
+          danger?: boolean;
+      };
 
 type PreviewScroll = {
     left: number;
@@ -38,6 +41,7 @@ export function ImageToolSettingsModal({
     showLabels,
     onToggle,
     onShowLabelsChange,
+    onReset,
     onCancel,
     onSave,
 }: {
@@ -47,6 +51,7 @@ export function ImageToolSettingsModal({
     showLabels: boolean;
     onToggle: (id: ImageQuickToolId, visible: boolean) => void;
     onShowLabelsChange: (value: boolean) => void;
+    onReset: () => void;
     onCancel: () => void;
     onSave: () => void;
 }) {
@@ -55,11 +60,8 @@ export function ImageToolSettingsModal({
     const scrollbarTrackRef = useRef<HTMLInputElement>(null);
     const [previewScroll, setPreviewScroll] = useState<PreviewScroll>({ left: 0, max: 0, viewport: 1, content: 1 });
     const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
-    const selectedTools = tools.filter((tool) => selected.has(tool.id));
-    const previewTools: PreviewTool[] = [
-        ...selectedTools,
-        { id: "more", title: "配置快捷工具", label: "更多", icon: <Ellipsis className="size-4" />, active: true },
-    ];
+    const selectedTools = tools.filter((tool) => tool.locked || selected.has(tool.id));
+    const previewTools: PreviewTool[] = [...selectedTools, { id: "more", title: "配置快捷工具", label: "更多", icon: <Ellipsis className="size-4" />, active: true }];
 
     const syncPreviewScroll = useCallback(() => {
         const toolbar = previewToolbarRef.current;
@@ -134,6 +136,7 @@ export function ImageToolSettingsModal({
                         <Switch checked={showLabels} onChange={onShowLabelsChange} />
                     </div>
                     <Space>
+                        <Button onClick={onReset}>恢复默认</Button>
                         <Button onClick={onCancel}>取消</Button>
                         <Button type="primary" onClick={onSave}>
                             保存
@@ -167,10 +170,7 @@ export function ImageToolSettingsModal({
                             <PreviewToolbarItem key={tool.id} tool={tool} showLabels={showLabels} />
                         ))}
                     </div>
-                    <div
-                        className="flex h-48 w-full max-w-[360px] flex-col items-center justify-center rounded-xl border"
-                        style={{ background: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorTextSecondary }}
-                    >
+                    <div className="flex h-48 w-full max-w-[360px] flex-col items-center justify-center rounded-xl border" style={{ background: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorTextSecondary }}>
                         <ImageIcon className="mb-2 size-8" />
                         <Typography.Text type="secondary">图片节点</Typography.Text>
                     </div>
@@ -203,10 +203,11 @@ export function ImageToolSettingsModal({
                 >
                     <Checkbox.Group value={selectedIds} className="grid w-full gap-3 md:grid-cols-3" onChange={(values) => updateSelectedTools(values as ImageQuickToolId[])}>
                         {tools.map((tool) => (
-                            <Checkbox key={tool.id} value={tool.id} className="m-0">
+                            <Checkbox key={tool.id} value={tool.id} disabled={tool.locked} className="m-0">
                                 <span className="inline-flex items-center gap-2">
                                     {tool.icon}
                                     {tool.label}
+                                    {tool.locked ? <Tag className="m-0">基础</Tag> : null}
                                 </span>
                             </Checkbox>
                         ))}

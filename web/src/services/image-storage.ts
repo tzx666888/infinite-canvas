@@ -14,6 +14,11 @@ export type UploadedImage = {
     mimeType: string;
 };
 
+export type StoredImageStats = {
+    count: number;
+    bytes: number;
+};
+
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
 const objectUrls = new Map<string, string>();
 
@@ -64,6 +69,15 @@ export async function deleteStoredImages(keys: Iterable<string>) {
             await store.removeItem(key);
         }),
     );
+}
+
+export async function getImageStorageStats(): Promise<StoredImageStats> {
+    const stats: StoredImageStats = { count: 0, bytes: 0 };
+    await store.iterate((value) => {
+        stats.count += 1;
+        if (value instanceof Blob) stats.bytes += value.size;
+    });
+    return stats;
 }
 
 export async function cleanupUnusedImages(usedData: unknown) {

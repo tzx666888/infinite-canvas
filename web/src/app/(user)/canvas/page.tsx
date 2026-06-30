@@ -37,11 +37,18 @@ export default function CanvasPage() {
             const projectFile = zip.get("projects.json");
             if (!projectFile) throw new Error("missing projects.json");
             const data = JSON.parse(await projectFile.text()) as CanvasExportFile;
+            if (data.app !== "infinite-canvas") throw new Error("invalid app");
+            if (!Array.isArray(data.projects)) throw new Error("invalid projects");
+            if (!data.projects.length) throw new Error("empty projects");
+            let missingFiles = 0;
             await Promise.all(
                 data.projects.flatMap((project) =>
-                    project.files.map(async (item) => {
+                    (Array.isArray(project.files) ? project.files : []).map(async (item) => {
                         const blob = zip.get(item.path);
-                        if (!blob) return;
+                        if (!blob) {
+                            missingFiles += 1;
+                            return;
+                        }
                         const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
                         await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
                     }),
@@ -49,8 +56,9 @@ export default function CanvasPage() {
             );
             data.projects.forEach((item) => importProject(item.project));
             message.success(`已导入 ${data.projects.length} 个画布`);
-        } catch {
-            message.error("导入失败，请选择有效的画布压缩包");
+            if (missingFiles) message.warning(`压缩包缺少 ${missingFiles} 个媒体文件，部分节点可能无法预览，请重新导出完整画布包`);
+        } catch (error) {
+            message.error(canvasImportErrorMessage(error));
         } finally {
             if (inputRef.current) inputRef.current.value = "";
         }
@@ -67,7 +75,16 @@ export default function CanvasPage() {
                     <div className="flex items-center gap-2">
                         {selectedIds.length ? (
                             <>
-                                <Button disabled={!hydrated} icon={<Download className="size-4" />} onClick={() => void exportCanvasProjects(projects.filter((project) => selectedIds.includes(project.id)), `视觉画布-${selectedIds.length}个画布`)}>
+                                <Button
+                                    disabled={!hydrated}
+                                    icon={<Download className="size-4" />}
+                                    onClick={() =>
+                                        void exportCanvasProjects(
+                                            projects.filter((project) => selectedIds.includes(project.id)),
+                                            `视觉画布-${selectedIds.length}个画布`,
+                                        )
+                                    }
+                                >
                                     导出选中
                                 </Button>
                                 <Button disabled={!hydrated} onClick={() => setDeleteIds(selectedIds)}>
@@ -112,4 +129,14 @@ export default function CanvasPage() {
             <CanvasDeleteProjectsDialog />
         </main>
     );
+}
+
+function canvasImportErrorMessage(error: unknown) {
+    if (!(error instanceof Error)) return "导入失败，请选择有效的画布压缩包";
+    if (error.message.includes("missing projects.json")) return "压缩包缺少 projects.json，请确认这是从「视觉画布」导出的文件";
+    if (error.message.includes("invalid app")) return "这个压缩包不是当前应用导出的画布包";
+    if (error.message.includes("invalid projects")) return "projects.json 格式不正确，无法读取画布列表";
+    if (error.message.includes("empty projects")) return "压缩包里没有可导入的画布";
+    if (error instanceof SyntaxError) return "projects.json 不是有效 JSON，请重新导出画布包";
+    return error.message || "导入失败，请选择有效的画布压缩包";
 }
