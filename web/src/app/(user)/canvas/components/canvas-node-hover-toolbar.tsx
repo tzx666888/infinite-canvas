@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { App, Dropdown, Modal, Popconfirm, Segmented, Tooltip } from "antd";
 import { Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Pencil, Plus, RefreshCw, Settings2, Trash2, Upload, Video } from "lucide-react";
 
@@ -93,6 +93,12 @@ export function CanvasNodeHoverToolbar({
     const [imageToolSettingsOpen, setImageToolSettingsOpen] = useState(false);
     const [imageMoreOpen, setImageMoreOpen] = useState(false);
     const [toolbarConfirmOpen, setToolbarConfirmOpen] = useState(false);
+    const toolbarRef = useRef<HTMLDivElement>(null);
+    const [toolbarSize, setToolbarSize] = useState({ width: 520, height: 48 });
+    const [windowSize, setWindowSize] = useState(() => ({
+        width: typeof window === "undefined" ? 1440 : window.innerWidth,
+        height: typeof window === "undefined" ? 900 : window.innerHeight,
+    }));
     const { message } = App.useApp();
     const copyText = useCopyText();
 
@@ -115,11 +121,28 @@ export function CanvasNodeHoverToolbar({
         setToolbarConfirmOpen(false);
     }, [node?.id]);
 
+    useEffect(() => {
+        const updateWindowSize = () => setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+        updateWindowSize();
+        window.addEventListener("resize", updateWindowSize);
+        return () => window.removeEventListener("resize", updateWindowSize);
+    }, []);
+
+    useLayoutEffect(() => {
+        const rect = toolbarRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        setToolbarSize((current) => {
+            const width = Math.round(rect.width);
+            const height = Math.round(rect.height);
+            return current.width === width && current.height === height ? current : { width, height };
+        });
+    });
+
     if (!node) return null;
 
     const nodeId = node.id;
-    const left = viewport.x + (node.position.x + node.width / 2) * viewport.k;
-    const top = viewport.y + node.position.y * viewport.k - 14;
+    const rawLeft = viewport.x + (node.position.x + node.width / 2) * viewport.k;
+    const rawTop = viewport.y + node.position.y * viewport.k - 14;
     const isImage = node.type === CanvasNodeType.Image;
     const isVideo = node.type === CanvasNodeType.Video;
     const isAudio = node.type === CanvasNodeType.Audio;
@@ -214,6 +237,13 @@ export function CanvasNodeHoverToolbar({
     const selectableImageToolbarTools = allToolbarTools
         .filter((tool) => tool.id !== "retry" && tool.id !== "delete" && !forcedImageToolIds.has(tool.id))
         .map((tool) => ({ ...tool, locked: coreImageToolIds.has(tool.id as ImageQuickToolId) })) as ImageToolbarSettingsTool[];
+    const edgePadding = 12;
+    const minLeft = toolbarSize.width / 2 + edgePadding;
+    const maxLeft = windowSize.width - toolbarSize.width / 2 - edgePadding;
+    const left = minLeft > maxLeft ? windowSize.width / 2 : Math.min(Math.max(rawLeft, minLeft), maxLeft);
+    const nodeBottom = viewport.y + (node.position.y + node.height) * viewport.k;
+    const unclampedTop = rawTop - toolbarSize.height < 68 ? nodeBottom + toolbarSize.height + 12 : rawTop;
+    const top = Math.min(unclampedTop, windowSize.height - edgePadding);
 
     const closeImageToolSettings = () => {
         setImageToolSettingsOpen(false);
@@ -246,7 +276,8 @@ export function CanvasNodeHoverToolbar({
     return (
         <>
             <div
-                className="absolute z-[70] flex h-12 -translate-x-1/2 -translate-y-full items-center overflow-visible rounded-[18px] border border-black/10 bg-white text-[15px] text-[#242529] shadow-[0_8px_28px_rgba(15,23,42,.12)]"
+                ref={toolbarRef}
+                className="thin-scrollbar absolute z-[70] flex h-12 max-w-[calc(100vw-24px)] -translate-x-1/2 -translate-y-full items-center overflow-x-auto rounded-[18px] border border-black/10 bg-white text-[15px] text-[#242529] shadow-[0_8px_28px_rgba(15,23,42,.12)]"
                 style={{ left, top }}
                 onMouseEnter={() => onKeep(node.id)}
                 onMouseLeave={() => {

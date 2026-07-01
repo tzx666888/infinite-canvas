@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { BookOpen, Bot, Home, ImageIcon, Images, List, Menu, Music2, Plus, Redo2, Settings2, Trash2, Undo2, Upload, Video } from "lucide-react";
+import { AlertCircle, BookOpen, Bot, CheckCircle2, Home, ImageIcon, Images, List, Loader2, Menu, Music2, Plus, Redo2, RotateCcw, Settings2, Trash2, Undo2, Upload, Video, XCircle } from "lucide-react";
 import { saveAs } from "file-saver";
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
@@ -314,7 +314,7 @@ function ConnectionCreateOption({ theme, icon, title, description, onClick }: { 
 }
 
 function InfiniteCanvasPage() {
-    const { message, modal } = App.useApp();
+    const { message, modal, notification } = App.useApp();
     const params = useParams<{ id: string }>();
     const router = useRouter();
     const projectId = params.id;
@@ -359,6 +359,9 @@ function InfiniteCanvasPage() {
     const updateProject = useCanvasStore((state) => state.updateProject);
     const renameProject = useCanvasStore((state) => state.renameProject);
     const deleteProjects = useCanvasStore((state) => state.deleteProjects);
+    const saveStatus = useCanvasStore((state) => state.saveStatus);
+    const lastSavedAt = useCanvasStore((state) => state.lastSavedAt);
+    const saveError = useCanvasStore((state) => state.saveError);
     const currentProject = useCanvasStore((state) => state.projects.find((project) => project.id === projectId));
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [nodes, setNodes] = useState<CanvasNodeData[]>([]);
@@ -419,6 +422,7 @@ function InfiniteCanvasPage() {
     const agentCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
+    const undoNotificationKeysRef = useRef<Set<string>>(new Set());
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -430,13 +434,6 @@ function InfiniteCanvasPage() {
             showImageInfo,
         }),
         [activeChatId, backgroundMode, chatSessions, showImageInfo],
-    );
-
-    const cleanupCanvasFiles = useCallback(
-        (extra?: unknown) => {
-            cleanupAssetImages({ extra, history: historyRef.current, lastHistory: lastHistoryRef.current });
-        },
-        [cleanupAssetImages],
     );
 
     const startGenerationRequest = useCallback((targetNodeId: string, originNodeId: string, runningId = originNodeId, controller = new AbortController()) => {
@@ -957,13 +954,74 @@ function InfiniteCanvasPage() {
         [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
     );
 
+    const restoreCanvasSnapshot = useCallback((entry: CanvasHistoryEntry) => {
+        if (historyCommitTimerRef.current) {
+            clearTimeout(historyCommitTimerRef.current);
+            historyCommitTimerRef.current = null;
+        }
+        applyingHistoryRef.current = true;
+        setNodes(entry.nodes);
+        setConnections(entry.connections);
+        setChatSessions(entry.chatSessions);
+        setActiveChatId(entry.activeChatId);
+        setBackgroundMode(entry.backgroundMode);
+        setShowImageInfo(entry.showImageInfo);
+        setSelectedNodeIds(new Set());
+        setSelectedConnectionId(null);
+        setContextMenu(null);
+        setTimeout(() => {
+            lastHistoryRef.current = entry;
+            applyingHistoryRef.current = false;
+            setHistoryState({ canUndo: historyRef.current.past.length > 0, canRedo: historyRef.current.future.length > 0 });
+        });
+    }, []);
+
+    const dismissUndoNotifications = useCallback(() => {
+        undoNotificationKeysRef.current.forEach((key) => notification.destroy(key));
+        undoNotificationKeysRef.current.clear();
+    }, [notification]);
+
+    const showUndoNotification = useCallback(
+        (title: string, snapshot: CanvasHistoryEntry, description: string) => {
+            const key = `canvas-undo-${nanoid()}`;
+            undoNotificationKeysRef.current.add(key);
+            notification.open({
+                key,
+                title,
+                description,
+                placement: "bottomRight",
+                duration: 7,
+                onClose: () => {
+                    undoNotificationKeysRef.current.delete(key);
+                },
+                actions: (
+                    <Button
+                        size="small"
+                        icon={<Undo2 className="size-3.5" />}
+                        onClick={() => {
+                            restoreCanvasSnapshot(snapshot);
+                            notification.destroy(key);
+                            undoNotificationKeysRef.current.delete(key);
+                            message.success("已撤销");
+                        }}
+                    >
+                        撤销
+                    </Button>
+                ),
+            });
+        },
+        [message, notification, restoreCanvasSnapshot],
+    );
+
     const deleteNodes = useCallback(
         (ids: Set<string>) => {
             if (!ids.size) return;
+            const snapshot = createHistoryEntry();
             const allIds = new Set(ids);
             nodesRef.current.forEach((node) => {
                 if (ids.has(node.id)) node.metadata?.batchChildIds?.forEach((childId) => allIds.add(childId));
             });
+            const deletedCount = allIds.size;
             setNodes((prev) => {
                 const next = prev.filter((node) => !allIds.has(node.id));
                 return next.map((node) => {
@@ -998,16 +1056,21 @@ function InfiniteCanvasPage() {
             setPreviewNodeId((current) => (current && allIds.has(current) ? null : current));
             setRunningNodeId((current) => (current && allIds.has(current) ? null : current));
             setContextMenu((current) => (current?.type === "node" && allIds.has(current.nodeId) ? null : current));
-            cleanupCanvasFiles({ projectId, nodes: nodesRef.current.filter((node) => !allIds.has(node.id)), chatSessions });
+            showUndoNotification("已删除节点", snapshot, deletedCount > 1 ? `删除了 ${deletedCount} 个节点，可在数秒内撤销。` : "删除了 1 个节点，可在数秒内撤销。");
         },
-        [chatSessions, cleanupCanvasFiles, projectId],
+        [createHistoryEntry, showUndoNotification],
     );
 
-    const deleteConnection = useCallback((connectionId: string) => {
-        setConnections((prev) => prev.filter((conn) => conn.id !== connectionId));
-        setSelectedConnectionId((current) => (current === connectionId ? null : current));
-        setContextMenu((current) => (current?.type === "connection" && current.connectionId === connectionId ? null : current));
-    }, []);
+    const deleteConnection = useCallback(
+        (connectionId: string) => {
+            const snapshot = createHistoryEntry();
+            setConnections((prev) => prev.filter((conn) => conn.id !== connectionId));
+            setSelectedConnectionId((current) => (current === connectionId ? null : current));
+            setContextMenu((current) => (current?.type === "connection" && current.connectionId === connectionId ? null : current));
+            showUndoNotification("已删除引线", snapshot, "节点还在，连接关系可在数秒内撤销恢复。");
+        },
+        [createHistoryEntry, showUndoNotification],
+    );
 
     const deselectCanvas = useCallback(() => {
         cancelPendingConnectionCreate();
@@ -1022,6 +1085,13 @@ function InfiniteCanvasPage() {
     }, [cancelPendingConnectionCreate]);
 
     const clearCanvas = useCallback(() => {
+        if (!nodesRef.current.length && !connectionsRef.current.length) {
+            setClearConfirmOpen(false);
+            return;
+        }
+        const snapshot = createHistoryEntry();
+        const nodeCount = nodesRef.current.length;
+        const connectionCount = connectionsRef.current.length;
         setNodes([]);
         setConnections([]);
         setInfoNodeId(null);
@@ -1032,8 +1102,8 @@ function InfiniteCanvasPage() {
         setRunningNodeId(null);
         deselectCanvas();
         setClearConfirmOpen(false);
-        cleanupCanvasFiles({ projectId, nodes: [], chatSessions: [] });
-    }, [cleanupCanvasFiles, deselectCanvas, projectId]);
+        showUndoNotification("已清空画布", snapshot, `已移除 ${nodeCount} 个节点、${connectionCount} 条引线，可在数秒内撤销。`);
+    }, [createHistoryEntry, deselectCanvas, showUndoNotification]);
 
     const duplicateNode = useCallback((nodeId: string) => {
         const source = nodesRef.current.find((node) => node.id === nodeId);
@@ -1146,43 +1216,25 @@ function InfiniteCanvasPage() {
         [size.height, size.width],
     );
 
-    const applyHistory = useCallback((entry: CanvasHistoryEntry) => {
-        if (historyCommitTimerRef.current) {
-            clearTimeout(historyCommitTimerRef.current);
-            historyCommitTimerRef.current = null;
-        }
-        applyingHistoryRef.current = true;
-        setNodes(entry.nodes);
-        setConnections(entry.connections);
-        setChatSessions(entry.chatSessions);
-        setActiveChatId(entry.activeChatId);
-        setBackgroundMode(entry.backgroundMode);
-        setShowImageInfo(entry.showImageInfo);
-        setSelectedNodeIds(new Set());
-        setSelectedConnectionId(null);
-        setContextMenu(null);
-        setTimeout(() => {
-            lastHistoryRef.current = entry;
-            applyingHistoryRef.current = false;
-            setHistoryState({ canUndo: historyRef.current.past.length > 0, canRedo: historyRef.current.future.length > 0 });
-        });
-    }, []);
+    const applyHistory = useCallback((entry: CanvasHistoryEntry) => restoreCanvasSnapshot(entry), [restoreCanvasSnapshot]);
 
     const undoCanvas = useCallback(() => {
         const previous = historyRef.current.past.pop();
         const current = lastHistoryRef.current;
         if (!previous || !current) return;
         historyRef.current.future.push(current);
+        dismissUndoNotifications();
         applyHistory(previous);
-    }, [applyHistory]);
+    }, [applyHistory, dismissUndoNotifications]);
 
     const redoCanvas = useCallback(() => {
         const next = historyRef.current.future.pop();
         const current = lastHistoryRef.current;
         if (!next || !current) return;
         historyRef.current.past.push(current);
+        dismissUndoNotifications();
         applyHistory(next);
-    }, [applyHistory]);
+    }, [applyHistory, dismissUndoNotifications]);
 
     const createAndOpenProject = useCallback(() => {
         const id = createProject(`视觉画布 ${useCanvasStore.getState().projects.length + 1}`);
@@ -3622,6 +3674,36 @@ function InfiniteCanvasPage() {
         [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
 
+    const taskSummary = useMemo(() => {
+        const loadingNodes = nodes.filter((node) => node.metadata?.status === NODE_STATUS_LOADING);
+        const failedNodes = nodes.filter((node) => node.metadata?.status === NODE_STATUS_ERROR);
+        const firstLoading = loadingNodes[0];
+        const firstFailed = failedNodes[0];
+        return {
+            loadingCount: loadingNodes.length,
+            loadingLabel: firstLoading?.metadata?.statusMessage || (firstLoading ? `${canvasNodeTypeLabel(firstLoading.type)}生成中` : ""),
+            failedCount: failedNodes.length,
+            failedLabel: firstFailed?.title || (firstFailed ? `${canvasNodeTypeLabel(firstFailed.type)}任务失败` : ""),
+        };
+    }, [nodes]);
+
+    const focusFirstFailedNode = useCallback(() => {
+        const failedNode = nodesRef.current.find((node) => node.metadata?.status === NODE_STATUS_ERROR);
+        if (!failedNode) return;
+        focusNodesInViewport([failedNode]);
+        setSelectedNodeIds(new Set([failedNode.id]));
+        setSelectedConnectionId(null);
+        setDialogNodeId(failedNode.id);
+    }, [focusNodesInViewport]);
+
+    const retryFailedNodes = useCallback(() => {
+        const failedNodes = nodesRef.current.filter((node) => node.metadata?.status === NODE_STATUS_ERROR);
+        if (!failedNodes.length) return;
+        const retryNodes = failedNodes.slice(0, 6);
+        retryNodes.forEach((node) => void handleRetryNode(node));
+        if (failedNodes.length > retryNodes.length) message.info(`已重试前 ${retryNodes.length} 个失败节点，剩余节点请稍后再重试。`);
+    }, [handleRetryNode, message]);
+
     const generateImageFromTextNode = useCallback(
         (node: CanvasNodeData) => {
             const prompt = (node.metadata?.content || node.metadata?.prompt || "").trim();
@@ -3936,6 +4018,19 @@ function InfiniteCanvasPage() {
                     {pendingConnectionCreate ? <ConnectionCreateMenu pending={pendingConnectionCreate} hasVideo={hasVideoModels} onCreate={(type) => createConnectedNode(type, pendingConnectionCreate)} onClose={cancelPendingConnectionCreate} /> : null}
                 </InfiniteCanvas>
 
+                <CanvasActivityStatus
+                    theme={theme}
+                    saveStatus={saveStatus}
+                    lastSavedAt={lastSavedAt}
+                    saveError={saveError}
+                    loadingCount={taskSummary.loadingCount}
+                    loadingLabel={taskSummary.loadingLabel}
+                    failedCount={taskSummary.failedCount}
+                    failedLabel={taskSummary.failedLabel}
+                    onFocusFailed={focusFirstFailedNode}
+                    onRetryFailed={retryFailedNodes}
+                />
+
                 <CanvasNodeHoverToolbar
                     node={isNodeDragging || nodeImageSettingsOpen ? null : toolbarNode}
                     viewport={viewport}
@@ -4234,6 +4329,74 @@ function CanvasTopBar({
     );
 }
 
+function CanvasActivityStatus({
+    theme,
+    saveStatus,
+    lastSavedAt,
+    saveError,
+    loadingCount,
+    loadingLabel,
+    failedCount,
+    failedLabel,
+    onFocusFailed,
+    onRetryFailed,
+}: {
+    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    saveStatus: "idle" | "saving" | "saved" | "error";
+    lastSavedAt: number | null;
+    saveError?: string;
+    loadingCount: number;
+    loadingLabel: string;
+    failedCount: number;
+    failedLabel: string;
+    onFocusFailed: () => void;
+    onRetryFailed: () => void;
+}) {
+    const showSave = saveStatus !== "idle" || Boolean(lastSavedAt);
+    if (!showSave && !loadingCount && !failedCount) return null;
+
+    const saveMeta =
+        saveStatus === "saving"
+            ? { icon: <Loader2 className="size-3.5 animate-spin" />, text: "保存中", tone: "text-sky-500" }
+            : saveStatus === "error"
+              ? { icon: <AlertCircle className="size-3.5" />, text: "保存失败", tone: "text-red-500" }
+              : { icon: <CheckCircle2 className="size-3.5" />, text: lastSavedAt ? `已保存 ${formatCanvasSaveTime(lastSavedAt)}` : "已保存", tone: "text-emerald-500" };
+
+    return (
+        <div className="pointer-events-auto absolute left-4 top-20 z-40 flex max-w-[min(560px,calc(100vw-32px))] flex-wrap items-center gap-2">
+            {showSave ? (
+                <div
+                    className={`inline-flex h-9 items-center gap-2 rounded-full border px-3 text-xs font-medium shadow-lg backdrop-blur-md ${saveMeta.tone}`}
+                    style={{ background: `${theme.toolbar.panel}e8`, borderColor: theme.toolbar.border }}
+                    title={saveError || undefined}
+                >
+                    {saveMeta.icon}
+                    <span>{saveMeta.text}</span>
+                </div>
+            ) : null}
+            {loadingCount ? (
+                <div className="inline-flex h-9 items-center gap-2 rounded-full border px-3 text-xs font-medium text-sky-500 shadow-lg backdrop-blur-md" style={{ background: `${theme.toolbar.panel}e8`, borderColor: theme.toolbar.border }}>
+                    <Loader2 className="size-3.5 animate-spin" />
+                    <span>{loadingCount > 1 ? `${loadingCount} 个任务生成中` : loadingLabel || "生成中"}</span>
+                </div>
+            ) : null}
+            {failedCount ? (
+                <div className="inline-flex min-h-9 items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium text-red-500 shadow-lg backdrop-blur-md" style={{ background: `${theme.toolbar.panel}ee`, borderColor: "rgba(248,113,113,.45)" }}>
+                    <XCircle className="size-3.5 shrink-0" />
+                    <span className="max-w-[220px] truncate">{failedCount > 1 ? `${failedCount} 个任务失败` : failedLabel || "任务失败"}</span>
+                    <button type="button" className="rounded-full px-2 py-1 transition hover:bg-current/10" onClick={onFocusFailed}>
+                        查看
+                    </button>
+                    <button type="button" className="inline-flex items-center gap-1 rounded-full px-2 py-1 transition hover:bg-current/10" onClick={onRetryFailed}>
+                        <RotateCcw className="size-3" />
+                        重试
+                    </button>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 function MenuLabel({ text, shortcut }: { text: string; shortcut: string }) {
     return (
         <span className="flex min-w-36 items-center justify-between gap-8">
@@ -4377,6 +4540,18 @@ async function resolveMetadataEditMask(url: string): Promise<ReferenceImage | un
         dataUrl,
         storageKey: url.startsWith("image:") ? url : undefined,
     };
+}
+
+function formatCanvasSaveTime(value: number) {
+    return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date(value));
+}
+
+function canvasNodeTypeLabel(type: CanvasNodeType) {
+    if (type === CanvasNodeType.Image) return "图片";
+    if (type === CanvasNodeType.Video) return "视频";
+    if (type === CanvasNodeType.Audio) return "音频";
+    if (type === CanvasNodeType.Text) return "文本";
+    return "配置";
 }
 
 async function hydrateCanvasImages(nodes: CanvasNodeData[]) {

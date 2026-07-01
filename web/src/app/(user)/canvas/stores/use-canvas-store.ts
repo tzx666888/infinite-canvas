@@ -22,6 +22,9 @@ export type CanvasProject = {
 
 type CanvasStore = {
     hydrated: boolean;
+    saveStatus: "idle" | "saving" | "saved" | "error";
+    lastSavedAt: number | null;
+    saveError?: string;
     projects: CanvasProject[];
     createProject: (title?: string) => string;
     importProject: (project: Partial<CanvasProject>) => string;
@@ -54,10 +57,17 @@ const canvasStorage: PersistStorage<CanvasStore> = {
         const nextState = value.state as PersistedCanvasState;
         if (queuedPersistState && queuedPersistState.projects === nextState.projects) return;
         queuedPersistState = nextState;
+        useCanvasStore.setState({ saveStatus: "saving", saveError: undefined });
         if (saveTimer) clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => {
+        saveTimer = setTimeout(async () => {
             saveTimer = null;
-            void localForageStorage.setItem(name, JSON.stringify(value));
+            try {
+                await localForageStorage.setItem(name, JSON.stringify(value));
+                useCanvasStore.setState({ saveStatus: "saved", lastSavedAt: Date.now(), saveError: undefined });
+            } catch (error) {
+                const saveError = error instanceof Error ? error.message : "保存失败";
+                useCanvasStore.setState({ saveStatus: "error", saveError });
+            }
         }, 400);
     },
     removeItem: (name) => localForageStorage.removeItem(name),
@@ -67,6 +77,8 @@ export const useCanvasStore = create<CanvasStore>()(
     persist(
         (set, get) => ({
             hydrated: false,
+            saveStatus: "idle",
+            lastSavedAt: null,
             projects: [],
             createProject: (title = "未命名画布") => {
                 const now = new Date().toISOString();
