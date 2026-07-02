@@ -53,7 +53,7 @@ export const useCanvasAgentStore = create<CanvasAgentStore>((set) => ({
     activeThreadId: "",
     workspacePath: "",
     loadingThreads: false,
-    activeTab: "setup",
+    activeTab: "chat",
     confirmTools: true,
     activity: "就绪",
     connectError: "",

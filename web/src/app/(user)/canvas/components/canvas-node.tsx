@@ -505,12 +505,38 @@ const nodeContentRenderers = {
 } satisfies Record<CanvasNodeType, (props: NodeContentRendererProps) => ReactNode>;
 
 function LoadingContent({ theme, label }: Pick<NodeContentRendererProps, "theme"> & { label?: string }) {
+    const elapsedSeconds = useLoadingElapsedSeconds();
+
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
             <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
-            <span className="max-w-[80%] truncate text-[10px] tracking-[0.2em]">{label || "生成中"}</span>
+            <div className="max-w-[86%] space-y-1 text-center">
+                <div className="truncate text-[10px] tracking-[0.2em]">{label || "生成中"}</div>
+                <div className="text-[11px] leading-4 opacity-70">已用 {formatElapsedSeconds(elapsedSeconds)}</div>
+            </div>
         </div>
     );
+}
+
+function useLoadingElapsedSeconds() {
+    const startedAtRef = useRef(Date.now());
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+    useEffect(() => {
+        const update = () => setElapsedSeconds(Math.floor((Date.now() - startedAtRef.current) / 1000));
+        update();
+        const timer = window.setInterval(update, 1000);
+        return () => window.clearInterval(timer);
+    }, []);
+
+    return elapsedSeconds;
+}
+
+function formatElapsedSeconds(seconds: number) {
+    if (seconds < 60) return `${seconds} 秒`;
+    const minutes = Math.floor(seconds / 60);
+    const restSeconds = seconds % 60;
+    return `${minutes} 分 ${restSeconds} 秒`;
 }
 
 function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "node" | "theme" | "onRetry">) {
@@ -613,7 +639,15 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
     }, [isEditingContent, node.id]);
 
     return (
-        <div className="flex h-full w-full flex-col overflow-hidden pt-8">
+        <div
+            data-canvas-no-zoom
+            className="flex h-full w-full flex-col overflow-hidden pt-8"
+            onWheelCapture={(event) => {
+                const scroller = isEditingContent ? textareaRef?.current : displayRef.current;
+                if (scroller) scrollElementWithWheel(scroller, event);
+            }}
+            onWheel={(event) => event.stopPropagation()}
+        >
             <button
                 type="button"
                 className="absolute right-3 top-3 z-20 inline-flex h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-medium opacity-85 backdrop-blur-md transition hover:scale-[1.02] hover:opacity-100"

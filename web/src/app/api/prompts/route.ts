@@ -35,9 +35,9 @@ const gptImage2CaseFiles = ["README.md", "cases/ad-creative.md", "cases/characte
 const cacheTtlMs = 1000 * 60 * 60;
 const promptCacheRoot = process.env.PROMPT_CACHE_DIR || join(tmpdir(), "infinite-canvas-prompt-cache");
 const promptLibraryCacheDir = process.env.PROMPT_LIBRARY_CACHE_DIR || promptCacheRoot;
-const promptLibraryCacheFile = join(promptLibraryCacheDir, "prompt-library.json");
+const promptLibraryCacheFile = join(promptLibraryCacheDir, "prompt-library-v3.json");
 
-const categories: PromptCategory[] = [
+const sourceCategories: PromptCategory[] = [
     { category: "gpt-image-2-prompts", githubUrl: "https://github.com/EvoLinkAI/awesome-gpt-image-2-API-and-Prompts", build: buildGptImage2Prompts },
     { category: "awesome-gpt-image", githubUrl: "https://github.com/ZeroLu/awesome-gpt-image", build: buildAwesomeGptImagePrompts },
     { category: "awesome-gpt4o-image-prompts", githubUrl: "https://github.com/ImgEdify/Awesome-GPT4o-Image-Prompts", build: buildAwesomeGpt4oImagePrompts },
@@ -45,6 +45,13 @@ const categories: PromptCategory[] = [
     { category: "youmind-nano-banana-pro", githubUrl: "https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts", build: () => buildYouMindPrompts(youMindNanoBananaProRawBase, "youmind-nano-banana-pro", "nano-banana-pro") },
     { category: "davidwu-gpt-image2-prompts", githubUrl: "https://github.com/davidwuw0811-boop/awesome-gpt-image2-prompts", build: buildDavidWuGptImage2Prompts },
 ];
+
+const curatedTags = ["商品图", "电商海报", "广告创意", "人物肖像", "场景图", "摄影写实", "插画动漫", "界面设计", "文字排版", "建筑空间", "游戏娱乐", "信息图表", "短视频", "品牌包装", "需要参考图"] as const;
+const curatedCategories = ["精选案例", "商品电商", "人像摄影", "设计排版", "场景空间", "视频创意", "游戏娱乐"] as const;
+const curatedTagSet = new Set<string>(curatedTags);
+const internalTagPattern = /^(?:@|#)|老板原创|internal|author|source|github|twitter|x\.com|open-design|原创$|other$/i;
+const riskyPromptPattern =
+    /特朗普|川普|\btrump\b|奥特曼|ultraman|iphone|apple\s+park|elon\s*musk|马斯克|\bgta\b|grand\s+theft\s+auto|英雄联盟|league\s+of\s+legends|黑神话|悟空|harry\s+potter|disney|marvel|pokemon|pokémon|naruto|one\s+piece|杀手|hitman|塞尔达|zelda|林克|刘亦菲|tiktok|抖音|youtube|openai\s*总部|gpt-6/i;
 
 let memoryCache: { items: Prompt[]; fetchedAt: number } | null = null;
 let loadingPrompts: Promise<Prompt[]> | null = null;
@@ -63,7 +70,7 @@ export async function GET(request: NextRequest) {
     return Response.json({
         items: filtered.slice((page - 1) * pageSize, page * pageSize),
         tags: collectTags(withoutTagFilter),
-        categories: categories.map((item) => item.category),
+        categories: collectCategories(items),
         total: filtered.length,
     });
 }
@@ -80,7 +87,7 @@ async function getPrompts() {
 async function loadPrompts() {
     const diskCache = await readPromptLibraryCache();
     const settled = await Promise.all(
-        categories.map(async (category) => {
+        sourceCategories.map(async (category) => {
             try {
                 const items = await category.build();
                 return { failed: false, items: items.map((item) => ({ ...item, category: category.category, githubUrl: category.githubUrl })) };
@@ -89,11 +96,12 @@ async function loadPrompts() {
             }
         }),
     );
-    const items = settled.flatMap((result) => result.items);
+    const items = sanitizePrompts(settled.flatMap((result) => result.items));
     const failedCount = settled.filter((result) => result.failed).length;
     if (diskCache?.items.length && shouldUsePromptDiskCache(items, diskCache.items, failedCount)) {
-        memoryCache = { items: diskCache.items, fetchedAt: Date.now() };
-        return diskCache.items;
+        const cachedItems = sanitizePrompts(diskCache.items);
+        memoryCache = { items: cachedItems, fetchedAt: Date.now() };
+        return cachedItems;
     }
     if (items.length) await writePromptLibraryCache(items);
     memoryCache = { items, fetchedAt: Date.now() };
@@ -132,6 +140,61 @@ function filterPrompts(items: Prompt[], options: { keyword: string; category: st
         if (!options.keyword) return true;
         return [item.title, item.prompt, item.category, ...item.tags].join(" ").toLowerCase().includes(options.keyword);
     });
+}
+
+function sanitizePrompts(items: Prompt[]) {
+    return items.map((item) => sanitizePrompt(item)).filter((item): item is Prompt => Boolean(item));
+}
+
+function sanitizePrompt(item: Prompt): Prompt | null {
+    if (!isPromptSafe(item)) return null;
+    const tags = sanitizePromptTags(item);
+    return {
+        ...item,
+        tags,
+        category: categoryFromTags(tags),
+    };
+}
+
+function isPromptSafe(item: Prompt) {
+    return !riskyPromptPattern.test([item.title, item.prompt, item.category, ...item.tags].join("\n"));
+}
+
+function sanitizePromptTags(item: Pick<Prompt, "title" | "prompt" | "tags" | "category">) {
+    const sourceText = [item.title, item.prompt, item.category, ...item.tags.filter((tag) => !internalTagPattern.test(tag))].join(" ").toLowerCase();
+    const tags: string[] = [];
+    const add = (tag: (typeof curatedTags)[number], pattern?: RegExp) => {
+        if (!pattern || pattern.test(sourceText)) tags.push(tag);
+    };
+
+    add("商品图", /商品|产品|product|ecommerce|e-commerce|电商|detail|展示|cleaner|bottle|packshot|packaging|package/);
+    add("电商海报", /海报|poster|banner|主图|广告图|product_poster|social_post/);
+    add("广告创意", /广告|ad\b|advertis|creative|campaign|营销|促销|卖点|brand/);
+    add("人物肖像", /人物|人像|头像|portrait|character|profile|face|model|写真|自拍/);
+    add("场景图", /场景|scene|环境|空间|室内|家居|厨房|城市|landscape|background/);
+    add("摄影写实", /摄影|照片|photo|photography|realistic|写实|raw|camera|cinematic/);
+    add("插画动漫", /插画|动漫|anime|illustration|漫画|cartoon|二次元/);
+    add("界面设计", /ui|界面|app|dashboard|landing|web|website|screen/);
+    add("文字排版", /文字|排版|typography|font|logo|text|letter|字体/);
+    add("建筑空间", /建筑|architecture|空间|interior|room|house|building/);
+    add("游戏娱乐", /游戏|game|娱乐|sci[-_ ]?fi|fantasy|vfx/);
+    add("信息图表", /信息图|infographic|diagram|chart|map|表格|流程|slide|slides|document/);
+    add("短视频", /视频|短视频|short_video|animation|dance|cinematic|story|film/);
+    add("品牌包装", /品牌|logo|包装|package|packaging|label|card/);
+    add("需要参考图", /需要参考图|reference|ref\b|参考图/);
+
+    const uniqueTags = Array.from(new Set(tags)).filter((tag) => curatedTagSet.has(tag));
+    return uniqueTags.length ? uniqueTags.slice(0, 4) : ["广告创意"];
+}
+
+function categoryFromTags(tags: string[]) {
+    if (tags.some((tag) => tag === "短视频")) return "视频创意";
+    if (tags.some((tag) => ["商品图", "电商海报", "广告创意", "品牌包装"].includes(tag))) return "商品电商";
+    if (tags.some((tag) => tag === "人物肖像")) return "人像摄影";
+    if (tags.some((tag) => ["界面设计", "文字排版", "信息图表"].includes(tag))) return "设计排版";
+    if (tags.some((tag) => ["建筑空间", "场景图", "摄影写实"].includes(tag))) return "场景空间";
+    if (tags.some((tag) => tag === "游戏娱乐")) return "游戏娱乐";
+    return "精选案例";
 }
 
 async function buildGptImage2Prompts() {
@@ -303,7 +366,13 @@ function markdownPreview(images: string[]) {
 }
 
 function collectTags(items: Prompt[]) {
-    return Array.from(new Set(items.flatMap((item) => item.tags).filter(Boolean)));
+    const available = new Set(items.flatMap((item) => item.tags).filter(Boolean));
+    return curatedTags.filter((tag) => available.has(tag));
+}
+
+function collectCategories(items: Prompt[]) {
+    const available = new Set(items.map((item) => item.category).filter(Boolean));
+    return curatedCategories.filter((category) => available.has(category));
 }
 
 function leftPad(value: number) {

@@ -22,7 +22,10 @@ type ModelPickerProps = {
 export function ModelPicker({ config, value, onChange, capability, className, fullWidth = false, placeholder = "选择模型", onMissingConfig }: ModelPickerProps) {
     const pickerId = useId();
     const [open, setOpen] = useState(false);
-    const options = useMemo(() => Array.from(new Set([...(config.channelMode === "local" && !capability ? [value] : []), ...selectableModelsByCapability(config, capability)].filter((model): model is string => Boolean(model)))), [capability, config, value]);
+    const options = useMemo(
+        () => Array.from(new Set([...(config.channelMode === "local" && !capability ? [value] : []), ...selectableModelsByCapability(config, capability)].filter((model): model is string => Boolean(model)))),
+        [capability, config, value],
+    );
     const current = value || "";
 
     useEffect(() => {
@@ -32,6 +35,28 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
         window.addEventListener("model-picker-open", closeOtherPicker);
         return () => window.removeEventListener("model-picker-open", closeOtherPicker);
     }, [pickerId]);
+
+    if (options.length === 1 && current && options[0] === current) {
+        return (
+            <button
+                type="button"
+                aria-disabled="true"
+                tabIndex={-1}
+                className={cn(
+                    "canvas-composer-model-picker inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-input bg-transparent px-3 text-sm font-normal opacity-80 shadow-sm",
+                    fullWidth ? "w-full min-w-0 justify-start" : "w-fit min-w-[9rem] justify-start",
+                    className,
+                )}
+                title={modelOptionLabel(config, current)}
+                aria-label={`当前模型：${modelOptionLabel(config, current)}`}
+                onMouseDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+            >
+                <ModelIcon model={current} />
+                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{modelOptionLabel(config, current)}</span>
+            </button>
+        );
+    }
 
     return (
         <Select

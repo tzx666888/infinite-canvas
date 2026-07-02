@@ -201,6 +201,30 @@ function CanvasRefreshShell() {
     );
 }
 
+function CanvasEmptyGuide({ theme, onCreateText, onCreateImage, onUpload }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onCreateText: () => void; onCreateImage: () => void; onUpload: () => void }) {
+    return (
+        <div className="pointer-events-none absolute inset-0 z-40 grid place-items-center px-6">
+            <div className="pointer-events-auto w-full max-w-[440px] rounded-2xl border p-5 shadow-2xl backdrop-blur-xl" style={{ background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}>
+                <div className="text-base font-semibold">从第一张素材开始</div>
+                <p className="mt-2 text-sm leading-6" style={{ color: theme.node.muted }}>
+                    输入一句话、上传产品图，或先放一个图片节点。空白处双击也可以直接写提示词。
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                    <Button type="primary" icon={<Plus className="size-4" />} onClick={onCreateText}>
+                        写提示词
+                    </Button>
+                    <Button icon={<Upload className="size-4" />} onClick={onUpload}>
+                        上传图片
+                    </Button>
+                    <Button icon={<ImageIcon className="size-4" />} onClick={onCreateImage}>
+                        图片节点
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function FusionPlacementPlanPreview({ plan }: { plan: CanvasFusionPlacementPlan }) {
     return (
         <div className="max-h-[58vh] overflow-y-auto pr-1 text-sm">
@@ -745,7 +769,7 @@ function InfiniteCanvasPage() {
             setConnections((prev) => [...prev, { id: nanoid(), ...connection }]);
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
-            if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
+            if (type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
             setPendingConnectionCreate(null);
             setConnecting(null);
         },
@@ -933,9 +957,23 @@ function InfiniteCanvasPage() {
         setAgentUndoSnapshot(null);
         return { ...agentUndoSnapshot, projectId, title: currentProject?.title || "未命名画布" };
     }, [agentUndoSnapshot, currentProject?.title, projectId]);
+    const createTextNodeAt = useCallback((position: Position) => {
+        const newNode = createCanvasNode(CanvasNodeType.Text, position);
+        setNodes((prev) => [...prev, newNode]);
+        setSelectedNodeIds(new Set([newNode.id]));
+        setSelectedConnectionId(null);
+        setDialogNodeId(newNode.id);
+        setEditingNodeId(newNode.id);
+        setEditRequestNonce((value) => value + 1);
+    }, []);
+
     const createNode = useCallback(
         (type: CanvasNodeType, position?: Position) => {
             const targetPosition = position || getCanvasCenter();
+            if (type === CanvasNodeType.Text) {
+                createTextNodeAt(targetPosition);
+                return;
+            }
             const configMetadata =
                 type === CanvasNodeType.Config
                     ? {
@@ -949,9 +987,9 @@ function InfiniteCanvasPage() {
             setNodes((prev) => [...prev, newNode]);
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
-            if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
+            if (type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
         },
-        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
+        [createTextNodeAt, effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
     );
 
     const restoreCanvasSnapshot = useCallback((entry: CanvasHistoryEntry) => {
@@ -1278,6 +1316,15 @@ function InfiniteCanvasPage() {
             setSelectedConnectionId(null);
         },
         [cancelPendingConnectionCreate, screenToCanvas],
+    );
+
+    const handleCanvasDoubleClick = useCallback(
+        (event: ReactMouseEvent<HTMLDivElement>) => {
+            setContextMenu(null);
+            cancelPendingConnectionCreate();
+            createTextNodeAt(screenToCanvas(event.clientX, event.clientY));
+        },
+        [cancelPendingConnectionCreate, createTextNodeAt, screenToCanvas],
     );
 
     const handleNodeMouseDown = useCallback((event: ReactMouseEvent, nodeId: string) => {
@@ -3016,6 +3063,10 @@ function InfiniteCanvasPage() {
     const handleGenerateNode = useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+            if (generationRequestsRef.current.has(nodeId) || sourceNode?.metadata?.status === NODE_STATUS_LOADING) {
+                message.info("当前节点正在生成，请稍等完成后再操作");
+                return;
+            }
             const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
@@ -3875,6 +3926,7 @@ function InfiniteCanvasPage() {
                         setContextMenu(null);
                     }}
                     onCanvasMouseDown={handleCanvasMouseDown}
+                    onCanvasDoubleClick={handleCanvasDoubleClick}
                     onCanvasDeselect={deselectCanvas}
                     onContextMenu={preventCanvasContextMenu}
                     onDrop={handleDrop}
@@ -4017,6 +4069,10 @@ function InfiniteCanvasPage() {
                     ) : null}
                     {pendingConnectionCreate ? <ConnectionCreateMenu pending={pendingConnectionCreate} hasVideo={hasVideoModels} onCreate={(type) => createConnectedNode(type, pendingConnectionCreate)} onClose={cancelPendingConnectionCreate} /> : null}
                 </InfiniteCanvas>
+
+                {projectLoaded && !nodes.length ? (
+                    <CanvasEmptyGuide theme={theme} onCreateText={() => createTextNodeAt(getCanvasCenter())} onCreateImage={() => createNode(CanvasNodeType.Image)} onUpload={() => handleUploadRequest(undefined, getCanvasCenter())} />
+                ) : null}
 
                 <CanvasActivityStatus
                     theme={theme}

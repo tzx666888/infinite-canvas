@@ -69,6 +69,10 @@ const webdavDomainLabels: Record<AppSyncDomainKey, string> = {
     "video-workbench": "历史数据",
 };
 
+function closeFloatingModelPickers() {
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("model-picker-open", { detail: "app-config-close-floating" }));
+}
+
 function createWebdavDomainProgress(): Record<AppSyncDomainKey, WebdavDomainProgress> {
     return webdavDomainKeys.reduce(
         (progress, key) => ({
@@ -115,6 +119,7 @@ export function AppConfigModal() {
             message.warning("请先填写 TokAxis API Key");
             return;
         }
+        closeFloatingModelPickers();
         setConfigDialogOpen(false);
         message.success(shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存");
         clearPromptContinue();
@@ -262,7 +267,10 @@ export function AppConfigModal() {
             open={isConfigOpen}
             width={980}
             centered
-            onCancel={() => setConfigDialogOpen(false)}
+            onCancel={() => {
+                closeFloatingModelPickers();
+                setConfigDialogOpen(false);
+            }}
             styles={{ body: { maxHeight: "72vh", overflowY: "auto", paddingRight: 12 } }}
             footer={
                 <Button type="primary" onClick={finishConfig}>
@@ -272,7 +280,10 @@ export function AppConfigModal() {
         >
             <Tabs
                 activeKey={activeTab}
-                onChange={setActiveTab}
+                onChange={(key) => {
+                    closeFloatingModelPickers();
+                    setActiveTab(key);
+                }}
                 items={[
                     {
                         key: "channels",

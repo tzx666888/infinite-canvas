@@ -51,15 +51,15 @@ export default function IndexPage() {
                         <Highlighter action="underline" color="#FF9800">
                             视觉画布
                         </Highlighter>
-                        中生成、连接和重组
+                        中快速制作
                         <Highlighter action="highlight" color="#87CEFA">
-                            图片、文字与图形
+                            商品图、详情页与短视频素材
                         </Highlighter>
-                        ，让创作从单次生成变成连续推演。
+                        ，把产品图、场景图和卖点提示词连起来，一步步沉淀可投放素材。
                     </p>
                     <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
                         <Button type="primary" size="large" href={`/${primaryTool.slug}`} icon={<ArrowRight className="size-4" />} iconPlacement="end">
-                            开始使用
+                            开始做商品图
                         </Button>
                         <Button size="large" href="/canvas">
                             打开画布
@@ -72,7 +72,7 @@ export default function IndexPage() {
                         <div />
                         <div className="max-w-2xl text-center">
                             <h2 className="text-3xl font-semibold text-stone-950 dark:text-stone-100">沉淀每一次好结果</h2>
-                            <p className="mt-3 text-base leading-7 text-stone-500 dark:text-stone-400">收藏稳定出图的提示词、参考风格和结果图片，让下一次创作从已有经验开始。</p>
+                            <p className="mt-3 text-base leading-7 text-stone-500 dark:text-stone-400">收藏稳定出图的提示词、商品角度和投放素材，让下一批店铺图从已有经验开始。</p>
                         </div>
                         <Button type="link" href="/prompts" className="justify-self-center md:justify-self-end" icon={<ArrowRight className="size-4" />} iconPlacement="end">
                             查看提示词库
