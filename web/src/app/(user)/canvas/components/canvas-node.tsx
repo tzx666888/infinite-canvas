@@ -22,6 +22,39 @@ const PANEL_MIN_TEXTAREA_HEIGHT = 72;
 const PANEL_MAX_TEXTAREA_HEIGHT = 360;
 const LEGACY_STORYBOARD_REVIEW_VIDEO_ERROR = "12宫格分镜候选不能直接生成视频";
 
+type ScrollableWheelEvent = {
+    deltaX: number;
+    deltaY: number;
+    preventDefault: () => void;
+    stopPropagation: () => void;
+};
+
+function scrollElementWithWheel(element: HTMLElement, event: ScrollableWheelEvent) {
+    const canScrollY = element.scrollHeight > element.clientHeight;
+    const canScrollX = element.scrollWidth > element.clientWidth;
+    if (!canScrollY && !canScrollX) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (canScrollY && event.deltaY !== 0) {
+        element.scrollTop += event.deltaY;
+    }
+    if (canScrollX && event.deltaX !== 0) {
+        element.scrollLeft += event.deltaX;
+    }
+}
+
+function bindScrollableWheel(element: HTMLElement) {
+    const handleWheel = (event: WheelEvent) => {
+        if (event.defaultPrevented) return;
+        scrollElementWithWheel(element, event);
+    };
+
+    element.addEventListener("wheel", handleWheel, { passive: false });
+    return () => element.removeEventListener("wheel", handleWheel);
+}
+
 type CanvasNodeProps = {
     data: CanvasNodeData;
     scale: number;
@@ -152,9 +185,7 @@ export const CanvasNode = React.memo(function CanvasNode({
         const textarea = textareaRef.current;
         if (!textarea) return;
 
-        const handleWheel = (event: WheelEvent) => event.stopPropagation();
-        textarea.addEventListener("wheel", handleWheel, { passive: false });
-        return () => textarea.removeEventListener("wheel", handleWheel);
+        return bindScrollableWheel(textarea);
     }, [data.type, isEditingContent]);
 
     useEffect(() => {
@@ -571,6 +602,15 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
     const fontSize = node.metadata?.fontSize || 14;
     const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, boxSizing: "border-box" } as React.CSSProperties;
     const isStoryboardPlan = Boolean(node.metadata?.commerceVideoPlan?.beats?.length);
+    const displayRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (isEditingContent) return;
+        const display = displayRef.current;
+        if (!display) return;
+
+        return bindScrollableWheel(display);
+    }, [isEditingContent, node.id]);
 
     return (
         <div className="flex h-full w-full flex-col overflow-hidden pt-8">
@@ -593,6 +633,7 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
             {isEditingContent ? (
                 <CanvasResourceMentionTextarea
                     ref={textareaRef}
+                    data-canvas-no-zoom
                     className="thin-scrollbar block h-full w-full resize-none overflow-y-auto whitespace-pre-wrap break-words border-none bg-transparent pl-4 pr-14 pt-0 pb-4 m-0 font-mono outline-none select-text appearance-none"
                     style={textStyle}
                     value={node.metadata?.content || ""}
@@ -605,10 +646,18 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                     }}
                     onMouseDown={(event) => event.stopPropagation()}
                     onPointerDown={(event) => event.stopPropagation()}
+                    onWheelCapture={(event) => scrollElementWithWheel(event.currentTarget, event)}
                     onWheel={(event) => event.stopPropagation()}
                 />
             ) : (
-                <div className="thin-scrollbar block h-full w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent pl-4 pr-14 pt-0 pb-4 font-mono" style={textStyle} onWheel={(event) => event.stopPropagation()}>
+                <div
+                    ref={displayRef}
+                    data-canvas-no-zoom
+                    className="thin-scrollbar block h-full w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent pl-4 pr-14 pt-0 pb-4 font-mono"
+                    style={textStyle}
+                    onWheelCapture={(event) => scrollElementWithWheel(event.currentTarget, event)}
+                    onWheel={(event) => event.stopPropagation()}
+                >
                     {node.metadata?.content || <span style={{ color: theme.node.placeholder }}>双击编辑文字</span>}
                 </div>
             )}
