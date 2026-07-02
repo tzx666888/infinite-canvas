@@ -132,15 +132,18 @@ function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: numbe
         : `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references.`;
     const roleGuidance = buildReferenceRoleGuidance(direction, requestReferenceCount);
     const marketGuidance = buildLocalMarketVideoGuidance(direction);
+    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration);
     return [
         `Create a ${duration}-second vertical ecommerce video using all attached images in Grok reference-to-video mode.`,
         referenceCountLine,
         buildReferenceLabelMap(requestReferenceCount),
         roleGuidance,
         marketGuidance,
-        "Use every reference as a mandatory visual anchor. Preserve exact product identity, package silhouette, label blocks, colors, object count, people, and scene logic. Never rename, translate, recolor, rebrand, or replace the product.",
+        dramaGuidance,
+        "Use each reference at the right story moment instead of forcing all references into every frame. Preserve exact product identity, package silhouette, label blocks, colors, object count, people, and scene logic. Never rename, translate, recolor, rebrand, or replace the product.",
         "Use clean edited cuts and stable local motion. Keep normal adult proportions and one consistent presenter. No stretched torso, warped face, melted hand, extra finger, product/person hybrid, or morph between shots.",
         "If audio is generated, use one consistent presenter-matched voice. A visible female presenter requires a natural female voice; never switch to male narration or change language unexpectedly.",
+        "Visible speech rule: when a visible presenter is speaking, animate natural synchronized lips, jaw, cheeks, and facial micro-expressions. Never add spoken dialogue over a frozen mouth or static smile. If using off-screen voiceover, keep the presenter looking/listening naturally instead of pretending to speak.",
         "No storyboard artifacts: remove panel numbers, grid borders, badges, captions, arrows, labels, and sheet layout.",
         `Direction: ${limitInlinePrompt(direction || "Animate the references naturally while preserving visual identity and scene continuity.", 2200)}`,
     ].filter(Boolean).join("\n");
@@ -173,8 +176,8 @@ function buildReferenceRoleGuidance(direction: string, requestReferenceCount: nu
     if (pair) {
         lines.push(
             `- <IMAGE_${pair.base}> is the primary scene, presenter, mood, camera angle, lighting, and opening-frame foundation.`,
-            `- <IMAGE_${pair.reference}> is the required product/object identity reference. Insert or feature this product/object clearly in the <IMAGE_${pair.base}> scene while preserving its exact geometry, colors, material, details, and object count.`,
-            `- The final video must visibly combine <IMAGE_${pair.base}> and <IMAGE_${pair.reference}>; do not output a video that only follows one of them.`,
+            `- <IMAGE_${pair.reference}> is the required product/object identity reference. Feature it as a separate product at natural scale during reveal/demo/hero shots while preserving its geometry, colors, material, details, and object count.`,
+            `- Combine <IMAGE_${pair.base}> and <IMAGE_${pair.reference}> across the video sequence, not by welding both references into every single frame.`,
         );
     } else {
         lines.push(
@@ -182,6 +185,10 @@ function buildReferenceRoleGuidance(direction: string, requestReferenceCount: nu
             "- Any product/object reference must appear as a recognizable hero element, not as a loose color/style hint.",
         );
     }
+    lines.push(
+        "- Do not turn the product/object reference into a cup, food, clothing, fingernails, body part, decoration, or oversized random prop.",
+        "- Keep hands, face, body, and product as separate physical objects with believable contact, scale, and occlusion.",
+    );
     return lines.join("\n");
 }
 
@@ -206,6 +213,22 @@ function buildLocalMarketVideoGuidance(direction: string) {
         lines.push("Commerce structure: strong hook in the first 1-2 seconds, immediate product visibility, quick benefit/demo moment, believable use case, final product hero and soft call-to-action. Do not invent unsafe claims, fake prices, or fake platform badges.");
     }
     return lines.join("\n");
+}
+
+function buildCommerceDramaVideoGuidance(direction: string, duration: number) {
+    const wantsDrama = /(微剧|短剧|剧情|反转|drama|story|storyline|scenario|skit)/i.test(direction);
+    const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
+    if (!wantsDrama && !wantsCommerce) return "";
+    const revealAt = Math.max(1, Math.min(3, Math.floor(duration * 0.25)));
+    const demoAt = Math.max(revealAt + 1, Math.min(duration - 2, Math.floor(duration * 0.55)));
+    const heroAt = Math.max(demoAt + 1, Math.max(1, duration - 2));
+    return [
+        `Shot rhythm for a ${duration}s short commerce video:`,
+        `- 0-${revealAt}s: mini-drama hook from the primary scene/person reference; show a relatable reaction, curiosity moment, or short presenter line with visible natural lip-sync, not a static product pose.`,
+        `- ${revealAt}-${demoAt}s: product reveal from the product reference as its own object at plausible scale; keep the object separate from hands and body.`,
+        `- ${demoAt}-${heroAt}s: quick benefit/demo close-ups with clean cuts; use motion that makes the product desirable without changing its shape.`,
+        `- ${heroAt}-${duration}s: result/reaction plus product hero shot and soft call-to-action; if the presenter speaks, lips must move naturally in sync.`,
+    ].join("\n");
 }
 
 function limitVideoPrompt(value: string, maxChars = 3600) {
