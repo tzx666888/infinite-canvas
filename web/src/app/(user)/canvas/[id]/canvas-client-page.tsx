@@ -3368,10 +3368,16 @@ function InfiniteCanvasPage() {
                     const videoIdentityImages = mergeReferenceImages(generationContext.referenceImages, storyboardIdentityImages);
                     const allVideoReferenceImages = mergeReferenceImages(videoIdentityImages, storyboardReferenceFrames);
                     const baseVideoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, allVideoReferenceImages.length);
-                    const videoReferenceImages = selectGrokReferenceVideoImagesWithPriority(videoIdentityImages, storyboardReferenceFrames, baseVideoGenerationConfig.model);
-                    const videoGenerationConfig = resolveReferenceImageVideoConfig(baseVideoGenerationConfig, videoReferenceImages.length);
+                    let videoReferenceImages = selectGrokReferenceVideoImagesWithPriority(videoIdentityImages, storyboardReferenceFrames, baseVideoGenerationConfig.model);
+                    let videoPromptSource = effectivePrompt;
+                    const directProductLock = buildDirectProductLockVideoContext(videoPromptSource, videoReferenceImages, storyboardReferenceFrames.length, baseVideoGenerationConfig.model);
+                    if (directProductLock) {
+                        videoReferenceImages = directProductLock.referenceImages;
+                        videoPromptSource = directProductLock.prompt;
+                    }
+                    const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, videoReferenceImages.length);
                     const videoIdentityReferenceCount = Math.min(videoIdentityImages.length, videoReferenceImages.length);
-                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(effectivePrompt, storyboardReferenceFrames.length, videoGenerationConfig.videoSeconds, videoReferenceImages.length, videoIdentityReferenceCount);
+                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(videoPromptSource, storyboardReferenceFrames.length, videoGenerationConfig.videoSeconds, videoReferenceImages.length, videoIdentityReferenceCount);
                     if (!videoPrompt && !videoReferenceImages.length && !generationContext.referenceVideos.length && !generationContext.referenceAudios.length) {
                         throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
                     }
@@ -3591,10 +3597,17 @@ function InfiniteCanvasPage() {
             const retryIdentityImages = mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryIdentityImages);
             const retryImages = node.type === CanvasNodeType.Video ? mergeReferenceImages(retryIdentityImages, storyboardRetryImages) : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
             let retryVideoImages = retryImages;
+            let retryVideoPromptSource = prompt;
             if (node.type === CanvasNodeType.Video) {
-                generationConfig = resolveReferenceImageVideoConfig(generationConfig, retryImages.length);
+                const retryOriginalGenerationConfig = generationConfig;
+                generationConfig = resolveReferenceImageVideoConfig(retryOriginalGenerationConfig, retryImages.length);
                 retryVideoImages = selectGrokReferenceVideoImagesWithPriority(retryIdentityImages, storyboardRetryImages, generationConfig.model);
-                generationConfig = resolveReferenceImageVideoConfig(generationConfig, retryVideoImages.length);
+                const directProductLock = buildDirectProductLockVideoContext(retryVideoPromptSource, retryVideoImages, storyboardRetryImages.length, generationConfig.model);
+                if (directProductLock) {
+                    retryVideoImages = directProductLock.referenceImages;
+                    retryVideoPromptSource = directProductLock.prompt;
+                }
+                generationConfig = resolveReferenceImageVideoConfig(retryOriginalGenerationConfig, retryVideoImages.length);
             }
             const retryPrompt = savedImageMetadata?.productDetailShot ? prompt : buildIdentityPreservingImageEditPrompt(prompt, retrySourceImages.length > 0 || Boolean(hasSavedImageMetadata && retryImages.length), retryImages);
             const retryMask = savedImageMetadata?.editMask ? await resolveMetadataEditMask(savedImageMetadata.editMask) : undefined;
@@ -3640,7 +3653,7 @@ function InfiniteCanvasPage() {
                 if (node.type === CanvasNodeType.Video) {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
                     const retryIdentityReferenceCount = Math.min(retryIdentityImages.length, retryVideoImages.length);
-                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(prompt, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, retryIdentityReferenceCount);
+                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(retryVideoPromptSource, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, retryIdentityReferenceCount);
                     const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryVideoImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
@@ -4943,6 +4956,48 @@ function limitVideoPromptLength(prompt: string) {
 function limitInlinePrompt(value: string, maxChars: number) {
     if (value.length <= maxChars) return value;
     return `${value.slice(0, maxChars - 32).trim()}...`;
+}
+
+function buildDirectProductLockVideoContext(prompt: string, referenceImages: ReferenceImage[], storyboardReferenceCount: number, model: string) {
+    if (storyboardReferenceCount > 0 || referenceImages.length < 2 || !isGrokCanvasVideoModel(model)) return null;
+    const pair = inferDirectReferencePair(prompt, referenceImages.length);
+    if (!pair) return null;
+    const productReference = referenceImages[pair.reference - 1];
+    if (!productReference) return null;
+    const cleanedIntent = stripImageMentionRoles(prompt);
+    return {
+        referenceImages: [productReference],
+        prompt: [
+            "PRODUCT-LOCKED DIRECT VIDEO.",
+            "Use the single attached image as the exact product/object source frame. Preserve its exact silhouette, proportions, transparent/solid material, surface pattern, color blocks, component count, and component placement.",
+            "Do not stretch, elongate, melt, simplify, duplicate, remove, rotate into a new design, or reimagine any product/object part.",
+            "The user also referenced another image for scene/person/story mood, but direct Grok multi-reference video is disabled here because it deforms product identity. Generate any scene, presenter, or story around the locked product only if the product stays faithful.",
+            "Prefer short product close-ups, believable hand interaction, simple camera movement, and B-roll over complex full-body fusion. Keep the product as a separate physical object at realistic scale.",
+            `User intent: ${limitInlinePrompt(cleanedIntent || "Create a short commerce video around the locked product reference.", 900)}`,
+        ].join("\n"),
+    };
+}
+
+function isGrokCanvasVideoModel(model: string) {
+    return (model.trim().toLowerCase().split("::").at(-1) || "") === "grok-imagine-video";
+}
+
+function inferDirectReferencePair(prompt: string, referenceCount: number) {
+    const match = prompt.match(/(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*([1-9]\d*)\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using|with)\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*([1-9]\d*)/i);
+    if (!match) return null;
+    const base = Number(match[1]);
+    const reference = Number(match[2]);
+    if (!Number.isFinite(base) || !Number.isFinite(reference)) return null;
+    if (base < 1 || reference < 1 || base > referenceCount || reference > referenceCount || base === reference) return null;
+    return { base, reference };
+}
+
+function stripImageMentionRoles(prompt: string) {
+    return prompt
+        .replace(/(?:让|用|以)?\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using|with)\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*/gi, "根据锁定产品参考图")
+        .replace(/@?\s*(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*/gi, "参考素材")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function mergeReferenceImages(...groups: ReferenceImage[][]) {

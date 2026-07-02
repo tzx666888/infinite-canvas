@@ -118,21 +118,25 @@ function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: numbe
     if (rawPrompt.includes("STORYBOARD-DIRECTED VIDEO.")) return rawPrompt;
     const direction = canonicalizeVideoReferencePrompt(rawPrompt);
     const duration = normalizeDurationNumber(seconds);
+    const marketGuidance = buildLocalMarketVideoGuidance(direction);
+    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration);
     if (requestReferenceCount === 1) {
         return [
             `Create a ${duration}-second video by animating the attached source image as the exact opening frame.`,
             "Preserve the same subject or product identity, package geometry, colors, label placement, object count, environment, composition, and camera orientation.",
             "Add only physically plausible local motion. Keep faces, bodies, hands, labels, rigid objects, and background geometry stable; no morphing, redesign, rebranding, or invented label text.",
+            "If the source image is a product/object, keep it as a rigid unchanged product. Do not elongate it, add or remove parts, alter its surface pattern, or redesign its component count while creating motion around it.",
+            marketGuidance,
+            dramaGuidance,
             "If audio is generated, use one consistent voice matching the visible presenter and the user's requested language. A visible female presenter requires a female voice; never change speaker or voice gender.",
+            "Visible speech rule: when a visible presenter is speaking, animate natural synchronized lips, jaw, cheeks, and facial micro-expressions. Never add spoken dialogue over a frozen mouth or static smile. If using off-screen voiceover, keep the presenter looking/listening naturally instead of pretending to speak.",
             `Direction: ${limitInlinePrompt(direction || "Animate the source naturally while preserving visual identity.", 2200)}`,
-        ].join("\n");
+        ].filter(Boolean).join("\n");
     }
     const referenceCountLine = originalReferenceCount > requestReferenceCount
         ? `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references selected from ${originalReferenceCount} source images.`
         : `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references.`;
     const roleGuidance = buildReferenceRoleGuidance(direction, requestReferenceCount);
-    const marketGuidance = buildLocalMarketVideoGuidance(direction);
-    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration);
     return [
         `Create a ${duration}-second vertical ecommerce video using all attached images in Grok reference-to-video mode.`,
         referenceCountLine,
