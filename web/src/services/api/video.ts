@@ -113,8 +113,10 @@ function selectGrokVideoModel(config: AiConfig) {
 }
 
 function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: number, requestReferenceCount: number, seconds: string) {
-    if (!requestReferenceCount) return prompt;
-    if (prompt.includes("STORYBOARD-DIRECTED VIDEO.")) return prompt;
+    const rawPrompt = prompt.trim();
+    if (!requestReferenceCount) return rawPrompt;
+    if (rawPrompt.includes("STORYBOARD-DIRECTED VIDEO.")) return rawPrompt;
+    const direction = canonicalizeVideoReferencePrompt(rawPrompt);
     const duration = normalizeDurationNumber(seconds);
     if (requestReferenceCount === 1) {
         return [
@@ -122,25 +124,88 @@ function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: numbe
             "Preserve the same subject or product identity, package geometry, colors, label placement, object count, environment, composition, and camera orientation.",
             "Add only physically plausible local motion. Keep faces, bodies, hands, labels, rigid objects, and background geometry stable; no morphing, redesign, rebranding, or invented label text.",
             "If audio is generated, use one consistent voice matching the visible presenter and the user's requested language. A visible female presenter requires a female voice; never change speaker or voice gender.",
-            `Direction: ${limitInlinePrompt(prompt.trim() || "Animate the source naturally while preserving visual identity.", 2200)}`,
+            `Direction: ${limitInlinePrompt(direction || "Animate the source naturally while preserving visual identity.", 2200)}`,
         ].join("\n");
     }
     const referenceCountLine = originalReferenceCount > requestReferenceCount
         ? `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references selected from ${originalReferenceCount} source images.`
         : `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references.`;
+    const roleGuidance = buildReferenceRoleGuidance(direction, requestReferenceCount);
+    const marketGuidance = buildLocalMarketVideoGuidance(direction);
     return [
         `Create a ${duration}-second vertical ecommerce video using all attached images in Grok reference-to-video mode.`,
         referenceCountLine,
+        buildReferenceLabelMap(requestReferenceCount),
+        roleGuidance,
+        marketGuidance,
         "Use every reference as a mandatory visual anchor. Preserve exact product identity, package silhouette, label blocks, colors, object count, people, and scene logic. Never rename, translate, recolor, rebrand, or replace the product.",
         "Use clean edited cuts and stable local motion. Keep normal adult proportions and one consistent presenter. No stretched torso, warped face, melted hand, extra finger, product/person hybrid, or morph between shots.",
         "If audio is generated, use one consistent presenter-matched voice. A visible female presenter requires a natural female voice; never switch to male narration or change language unexpectedly.",
         "No storyboard artifacts: remove panel numbers, grid borders, badges, captions, arrows, labels, and sheet layout.",
-        `Direction: ${limitInlinePrompt(prompt.trim() || "Animate the references naturally while preserving visual identity and scene continuity.", 2200)}`,
-    ].join("\n");
+        `Direction: ${limitInlinePrompt(direction || "Animate the references naturally while preserving visual identity and scene continuity.", 2200)}`,
+    ].filter(Boolean).join("\n");
 }
 
 function normalizeDurationNumber(value: string) {
     return Math.max(1, Math.floor(Number(value) || 6));
+}
+
+function canonicalizeVideoReferencePrompt(prompt: string) {
+    return prompt
+        .replace(/<\s*(?:IMAGE|IMG|PHOTO|PICTURE)\s*[_\-\s]?\s*([1-9]\d*)\s*>/gi, "<IMAGE_$1>")
+        .replace(/@?\s*(?:图片|图像|图)\s*([1-9]\d*)/g, "<IMAGE_$1>")
+        .replace(/@?\s*(?:image|img|photo|picture)\s*#?\s*([1-9]\d*)/gi, "<IMAGE_$1>")
+        .replace(/@\s*(<IMAGE_\d+>)/g, "$1")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function buildReferenceLabelMap(requestReferenceCount: number) {
+    const labels = Array.from({ length: requestReferenceCount }, (_, index) => `<IMAGE_${index + 1}> = attached reference image ${index + 1}`);
+    return `Reference label map: ${labels.join("; ")}. User labels such as 图片1, 图1, Image 1, and <IMAGE_1> all refer to the same attached file.`;
+}
+
+function buildReferenceRoleGuidance(direction: string, requestReferenceCount: number) {
+    const pair = inferDirectedReferencePair(direction, requestReferenceCount);
+    const lines = [
+        "Reference-role discipline: follow the user's explicit image-number roles instead of treating references as generic inspiration.",
+    ];
+    if (pair) {
+        lines.push(
+            `- <IMAGE_${pair.base}> is the primary scene, presenter, mood, camera angle, lighting, and opening-frame foundation.`,
+            `- <IMAGE_${pair.reference}> is the required product/object identity reference. Insert or feature this product/object clearly in the <IMAGE_${pair.base}> scene while preserving its exact geometry, colors, material, details, and object count.`,
+            `- The final video must visibly combine <IMAGE_${pair.base}> and <IMAGE_${pair.reference}>; do not output a video that only follows one of them.`,
+        );
+    } else {
+        lines.push(
+            "- If one reference is a person/scene and another is a product/object, combine them in the same commercial story.",
+            "- Any product/object reference must appear as a recognizable hero element, not as a loose color/style hint.",
+        );
+    }
+    return lines.join("\n");
+}
+
+function inferDirectedReferencePair(direction: string, requestReferenceCount: number) {
+    const match = direction.match(/<IMAGE_([1-9]\d*)>\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using|with)\s*<IMAGE_([1-9]\d*)>/i);
+    if (!match) return null;
+    const base = Number(match[1]);
+    const reference = Number(match[2]);
+    if (!Number.isFinite(base) || !Number.isFinite(reference)) return null;
+    if (base < 1 || reference < 1 || base > requestReferenceCount || reference > requestReferenceCount || base === reference) return null;
+    return { base, reference };
+}
+
+function buildLocalMarketVideoGuidance(direction: string) {
+    const wantsIndonesia = /(印尼|印度尼西亚|indonesia|indonesian|bahasa(?: indonesia)?|jakarta|shopee|tokopedia|tiktok\s*shop)/i.test(direction);
+    const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
+    const lines: string[] = [];
+    if (wantsIndonesia) {
+        lines.push("Local market: make the video feel like an Indonesian social-commerce ad. If voice or on-screen text is generated, use natural Bahasa Indonesia and Southeast Asian ecommerce rhythm unless the product branding itself uses another language.");
+    }
+    if (wantsCommerce) {
+        lines.push("Commerce structure: strong hook in the first 1-2 seconds, immediate product visibility, quick benefit/demo moment, believable use case, final product hero and soft call-to-action. Do not invent unsafe claims, fake prices, or fake platform badges.");
+    }
+    return lines.join("\n");
 }
 
 function limitVideoPrompt(value: string, maxChars = 3600) {
