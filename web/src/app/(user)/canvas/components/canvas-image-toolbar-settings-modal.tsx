@@ -136,8 +136,8 @@ export function ImageToolSettingsModal({
             footer={
                 <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                        <span>显示按钮文字</span>
-                        <Switch checked={showLabels} onChange={onShowLabelsChange} />
+                        <span>按钮文字固定显示</span>
+                        <Switch checked disabled onChange={() => onShowLabelsChange(true)} />
                     </div>
                     <Space>
                         <Button onClick={onReset}>恢复默认</Button>

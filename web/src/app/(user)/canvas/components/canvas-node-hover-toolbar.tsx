@@ -87,14 +87,13 @@ export function CanvasNodeHoverToolbar({
     onDelete,
 }: CanvasNodeHoverToolbarProps) {
     const [quickImageToolIds, setQuickImageToolIds] = useState<ImageQuickToolId[]>(defaultImageQuickToolIds);
-    const [showImageToolLabels, setShowImageToolLabels] = useState(false);
     const [draftImageToolIds, setDraftImageToolIds] = useState<ImageQuickToolId[]>(defaultImageQuickToolIds);
-    const [draftShowImageToolLabels, setDraftShowImageToolLabels] = useState(false);
+    const [draftShowImageToolLabels, setDraftShowImageToolLabels] = useState(true);
     const [imageToolSettingsOpen, setImageToolSettingsOpen] = useState(false);
     const [imageMoreOpen, setImageMoreOpen] = useState(false);
     const [toolbarConfirmOpen, setToolbarConfirmOpen] = useState(false);
     const toolbarRef = useRef<HTMLDivElement>(null);
-    const [toolbarSize, setToolbarSize] = useState({ width: 520, height: 48 });
+    const [toolbarSize, setToolbarSize] = useState({ width: 720, height: 52 });
     const [windowSize, setWindowSize] = useState(() => ({
         width: typeof window === "undefined" ? 1440 : window.innerWidth,
         height: typeof window === "undefined" ? 900 : window.innerHeight,
@@ -109,7 +108,6 @@ export function CanvasNodeHoverToolbar({
             const parsed = JSON.parse(stored) as unknown;
             const config = readImageQuickToolsConfig(parsed);
             setQuickImageToolIds(ensureCoreImageToolIds(config.ids));
-            setShowImageToolLabels(config.showLabels);
         } catch {
             window.localStorage.removeItem(IMAGE_QUICK_TOOLS_STORAGE_KEY);
         }
@@ -168,7 +166,7 @@ export function CanvasNodeHoverToolbar({
     function openImageToolSettings() {
         onKeep(nodeId);
         setDraftImageToolIds(ensureCoreImageToolIds(quickImageToolIds));
-        setDraftShowImageToolLabels(showImageToolLabels);
+        setDraftShowImageToolLabels(true);
         setImageToolSettingsOpen(true);
     }
 
@@ -262,13 +260,12 @@ export function CanvasNodeHoverToolbar({
 
     const resetImageToolSettings = () => {
         setDraftImageToolIds(defaultImageQuickToolIds);
-        setDraftShowImageToolLabels(false);
+        setDraftShowImageToolLabels(true);
     };
 
     const saveImageToolSettings = () => {
-        const config = { ids: ensureCoreImageToolIds(draftImageToolIds), showLabels: draftShowImageToolLabels };
+        const config = { ids: ensureCoreImageToolIds(draftImageToolIds), showLabels: true };
         setQuickImageToolIds(config.ids);
-        setShowImageToolLabels(config.showLabels);
         window.localStorage.setItem(IMAGE_QUICK_TOOLS_STORAGE_KEY, JSON.stringify(config));
         closeImageToolSettings();
     };
@@ -277,8 +274,8 @@ export function CanvasNodeHoverToolbar({
         <>
             <div
                 ref={toolbarRef}
-                className="thin-scrollbar absolute z-[70] flex h-12 max-w-[calc(100vw-24px)] -translate-x-1/2 -translate-y-full items-center overflow-x-auto rounded-[18px] border border-black/10 bg-white text-[15px] text-[#242529] shadow-[0_8px_28px_rgba(15,23,42,.12)]"
-                style={{ left, top }}
+                className="thin-scrollbar absolute z-[70] flex max-h-[156px] -translate-x-1/2 -translate-y-full flex-wrap items-center gap-x-1 gap-y-1 overflow-x-hidden overflow-y-auto rounded-[18px] border border-black/10 bg-white px-2 py-1.5 text-[14px] leading-none text-[#242529] shadow-[0_8px_28px_rgba(15,23,42,.12)]"
+                style={{ left, top, maxWidth: "min(760px, calc(100vw - 24px))" }}
                 onMouseEnter={() => onKeep(node.id)}
                 onMouseLeave={() => {
                     if (!imageToolSettingsOpen && !imageMoreOpen && !toolbarConfirmOpen) onLeave();
@@ -287,7 +284,7 @@ export function CanvasNodeHoverToolbar({
                 onPointerDown={(event) => event.stopPropagation()}
             >
                 {toolbarTools.map((tool) => (
-                    <ToolbarAction key={tool.id} {...tool} showLabel={hasImage ? showImageToolLabels : true} onConfirmOpenChange={setToolbarConfirmOpen} />
+                    <ToolbarAction key={tool.id} {...tool} showLabel={true} onConfirmOpenChange={setToolbarConfirmOpen} />
                 ))}
                 {hasImage && overflowTools.length ? (
                     <Dropdown
@@ -302,15 +299,15 @@ export function CanvasNodeHoverToolbar({
                         }}
                     >
                         <span>
-                            <ToolbarAction id="more" title="更多图片工具" label="更多" icon={<Ellipsis className="size-4" />} onClick={() => onKeep(nodeId)} showLabel={showImageToolLabels} />
+                            <ToolbarAction id="more" title="更多图片工具" label="更多" icon={<Ellipsis className="size-4" />} onClick={() => onKeep(nodeId)} showLabel={true} />
                         </span>
                     </Dropdown>
                 ) : null}
-                {hasImage ? <ToolbarAction id="settings" title="自定义快捷工具" label="工具" icon={<Settings2 className="size-4" />} active={imageToolSettingsOpen} onClick={openImageToolSettings} showLabel={showImageToolLabels} /> : null}
+                {hasImage ? <ToolbarAction id="settings" title="自定义快捷工具" label="工具" icon={<Settings2 className="size-4" />} active={imageToolSettingsOpen} onClick={openImageToolSettings} showLabel={true} /> : null}
                 {hasImage && deleteTool ? (
                     <>
-                        <span className="mx-1 h-6 w-px bg-black/10" />
-                        <ToolbarAction {...deleteTool} showLabel={false} onConfirmOpenChange={setToolbarConfirmOpen} />
+                        <span className="mx-1 h-7 w-px shrink-0 bg-black/10" />
+                        <ToolbarAction {...deleteTool} showLabel={true} onConfirmOpenChange={setToolbarConfirmOpen} />
                     </>
                 ) : null}
             </div>
@@ -410,10 +407,10 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
 function ToolbarAction({ title, label, icon, onClick, showLabel, active = false, danger = false, confirmTitle, confirmDescription, confirmOkText, onConfirmOpenChange }: ToolbarTool & { showLabel: boolean; onConfirmOpenChange?: (open: boolean) => void }) {
     const hasText = showLabel && Boolean(label);
     const button = (
-        <button type="button" className={`group relative flex h-12 items-center whitespace-nowrap px-1.5 ${danger ? "text-[#ef4444]" : ""}`} onClick={confirmTitle ? undefined : onClick} aria-label={title}>
-            <span className={`flex h-9 items-center ${hasText ? "gap-2 px-2.5" : "justify-center px-2"} rounded-lg transition group-hover:bg-[#f0f0f1] ${active ? "bg-[#eeeeef]" : ""}`}>
-                {icon}
-                {hasText ? <span>{label}</span> : null}
+        <button type="button" className={`group relative flex h-10 shrink-0 items-center whitespace-nowrap px-0.5 ${danger ? "text-[#ef4444]" : ""}`} onClick={confirmTitle ? undefined : onClick} aria-label={title}>
+            <span className={`flex h-8 items-center ${hasText ? "gap-1.5 px-2.5" : "justify-center px-2"} rounded-lg transition group-hover:bg-[#f0f0f1] ${active ? "bg-[#eeeeef]" : ""}`}>
+                <span className="shrink-0">{icon}</span>
+                {hasText ? <span className="whitespace-nowrap text-[13px] font-medium">{label}</span> : null}
             </span>
         </button>
     );

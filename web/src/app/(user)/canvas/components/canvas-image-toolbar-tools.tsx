@@ -38,7 +38,7 @@ export type ImageQuickToolsConfig = {
     showLabels: boolean;
 };
 
-export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v7";
+export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v8";
 
 const availableBaseToolIds: ImageQuickToolId[] = ["info", "delete", "saveAsset", "download", "edit"];
 const defaultBaseToolIds: ImageQuickToolId[] = ["saveAsset", "download"];
@@ -168,14 +168,14 @@ export function normalizeImageQuickToolIds(value: unknown[]) {
 export function readImageQuickToolsConfig(value: unknown): ImageQuickToolsConfig {
     if (Array.isArray(value)) {
         const ids = normalizeImageQuickToolIds(value);
-        return { ids: ids.length ? ids : defaultImageQuickToolIds, showLabels: false };
+        return { ids: ids.length ? ids : defaultImageQuickToolIds, showLabels: true };
     }
-    if (!value || typeof value !== "object") return { ids: defaultImageQuickToolIds, showLabels: false };
+    if (!value || typeof value !== "object") return { ids: defaultImageQuickToolIds, showLabels: true };
     const data = value as Partial<ImageQuickToolsConfig>;
     const ids = Array.isArray(data.ids) ? normalizeImageQuickToolIds(data.ids) : defaultImageQuickToolIds;
     return {
         ids: ids.length ? ids : defaultImageQuickToolIds,
-        showLabels: data.showLabels === true,
+        showLabels: true,
     };
 }
 
