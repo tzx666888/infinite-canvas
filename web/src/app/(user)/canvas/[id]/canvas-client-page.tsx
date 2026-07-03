@@ -5046,7 +5046,12 @@ function isGrokCanvasVideoModel(model: string) {
 }
 
 function inferDirectReferencePair(prompt: string, referenceCount: number) {
-    const match = prompt.match(/(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*([1-9]\d*)\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using|with)\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*([1-9]\d*)/i);
+    const imageRef = String.raw`(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*([1-9]\d*)`;
+    const directedMatchers = [
+        new RegExp(`${imageRef}\\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using)\\s*${imageRef}`, "i"),
+        new RegExp(`${imageRef}\\s*(?:带|带着|拿|拿着|手持|展示|使用|融入|融合|加入|植入|结合|搭配|with|featuring|holding|using|showing|including|include|add(?:ing)?)\\s*${imageRef}(?:\\s*(?:产品|商品|物品|道具|object|product|item))?`, "i"),
+    ];
+    const match = directedMatchers.map((matcher) => prompt.match(matcher)).find(Boolean);
     if (!match) return null;
     const base = Number(match[1]);
     const reference = Number(match[2]);
@@ -5058,6 +5063,7 @@ function inferDirectReferencePair(prompt: string, referenceCount: number) {
 function stripImageMentionRoles(prompt: string) {
     return prompt
         .replace(/(?:让|用|以)?\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using|with)\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*/gi, "根据锁定产品参考图")
+        .replace(/(?:让|用|以)?\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*\s*(?:带|带着|拿|拿着|手持|展示|使用|融入|融合|加入|植入|结合|搭配|with|featuring|holding|using|showing|including|include|add(?:ing)?)\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*(?:\s*(?:产品|商品|物品|道具|object|product|item))?/gi, "根据锁定产品参考图")
         .replace(/@?\s*(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*/gi, "参考素材")
         .replace(/\s+/g, " ")
         .trim();

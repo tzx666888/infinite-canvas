@@ -197,7 +197,11 @@ function buildReferenceRoleGuidance(direction: string, requestReferenceCount: nu
 }
 
 function inferDirectedReferencePair(direction: string, requestReferenceCount: number) {
-    const match = direction.match(/<IMAGE_([1-9]\d*)>\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using|with)\s*<IMAGE_([1-9]\d*)>/i);
+    const directedMatchers = [
+        /<IMAGE_([1-9]\d*)>\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using)\s*<IMAGE_([1-9]\d*)>/i,
+        /<IMAGE_([1-9]\d*)>\s*(?:带|带着|拿|拿着|手持|展示|使用|融入|融合|加入|植入|结合|搭配|with|featuring|holding|using|showing|including|include|add(?:ing)?)\s*<IMAGE_([1-9]\d*)>(?:\s*(?:产品|商品|物品|道具|object|product|item))?/i,
+    ];
+    const match = directedMatchers.map((matcher) => direction.match(matcher)).find(Boolean);
     if (!match) return null;
     const base = Number(match[1]);
     const reference = Number(match[2]);
