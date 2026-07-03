@@ -99,7 +99,19 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
         if (!taskId) throw new Error("视频接口没有返回任务 ID");
         return { id: taskId, provider: "openai", model };
     } catch (error) {
-        throw new Error(readAxiosError(error, "视频任务创建失败"));
+        const errorMessage = readAxiosError(error, "视频任务创建失败");
+        console.warn("[canvas-video] create task failed", {
+            message: errorMessage,
+            status: axios.isAxiosError(error) ? error.response?.status : undefined,
+            response: axios.isAxiosError(error) ? summarizeDebugValue(error.response?.data) : undefined,
+            model: modelName,
+            seconds,
+            size: normalizeVideoSize(config.size),
+            resolution: normalizeVideoResolution(config.vquality),
+            referenceCount: requestReferences.length,
+            promptLength: promptText.length,
+        });
+        throw new Error(errorMessage);
     }
 }
 
@@ -439,6 +451,16 @@ function readAxiosError(error: unknown, fallback: string) {
     }
     if (error instanceof DOMException && error.name === "AbortError") return "请求已取消";
     return error instanceof Error ? normalizeVideoProviderError(error.message, fallback) : fallback;
+}
+
+function summarizeDebugValue(value: unknown) {
+    if (value == null) return "";
+    if (typeof value === "string") return limitInlinePrompt(value, 700);
+    try {
+        return limitInlinePrompt(JSON.stringify(value), 700);
+    } catch {
+        return String(value);
+    }
 }
 
 function readProviderTaskError(error: SeedanceTask["error"] | VideoResponse["error"] | string | undefined, fallback: string) {

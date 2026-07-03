@@ -93,6 +93,21 @@ async function proxyTokaxis(request: NextRequest, context: RouteContext) {
     });
     responseHeaders.set("Cache-Control", "no-store");
 
+    if (!upstreamResponse.ok && /^v1\/videos(?:\/|$)/.test(path)) {
+        const responseText = await upstreamResponse.text();
+        console.error("[tokaxis-proxy] video upstream failed", {
+            path,
+            status: upstreamResponse.status,
+            statusText: upstreamResponse.statusText,
+            body: responseText.slice(0, 1000),
+        });
+        return new Response(responseText, {
+            status: upstreamResponse.status,
+            statusText: upstreamResponse.statusText,
+            headers: responseHeaders,
+        });
+    }
+
     return new Response(upstreamResponse.body, {
         status: upstreamResponse.status,
         statusText: upstreamResponse.statusText,
