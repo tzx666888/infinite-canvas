@@ -9,14 +9,14 @@ import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
 type VideoResponse = { id?: string; request_id?: string; status?: string; error?: { message?: string } | string; video?: { url?: string } | null; content?: { video_url?: string } | null; video_url?: string };
-type ApiVideoResponse = VideoResponse | { code?: number; data?: VideoResponse | null; msg?: string };
+type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string };
 type SeedanceTask = {
     id: string;
     status?: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "expired";
     error?: { code?: string; message?: string } | null;
     content?: { video_url?: string; last_frame_url?: string } | null;
 };
-type ApiEnvelope<T> = T | { code?: number; data?: T | null; msg?: string };
+type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string };
 type RequestOptions = { signal?: AbortSignal };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
@@ -442,8 +442,8 @@ function unwrapSeedanceTask(payload: ApiEnvelope<SeedanceTask>) {
 
 function unwrapEnvelope<T>(payload: ApiEnvelope<T>, emptyMessage: string): T {
     if (!payload) throw new Error(emptyMessage);
-    if (typeof payload === "object" && "code" in payload && typeof payload.code === "number") {
-        if (payload.code !== 0) throw new Error(payload.msg || "请求失败");
+    if (typeof payload === "object" && "code" in payload && payload.code !== undefined) {
+        if (payload.code !== 0 && payload.code !== "0") throw new Error(payload.msg || payload.message || "请求失败");
         if (!payload.data) throw new Error(emptyMessage);
         return payload.data;
     }
@@ -452,10 +452,10 @@ function unwrapEnvelope<T>(payload: ApiEnvelope<T>, emptyMessage: string): T {
 
 function readAxiosError(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return "请求已取消";
-    if (axios.isAxiosError<{ error?: { message?: string } | string; msg?: string; code?: number }>(error)) {
+    if (axios.isAxiosError<{ error?: { message?: string } | string; msg?: string; message?: string; code?: number | string }>(error)) {
         if (error.response?.status === 502) return statusMessage(502, fallback);
         const responseData = error.response?.data;
-        const providerMessage = typeof responseData === "string" ? responseData : responseData?.msg || readProviderTaskError(responseData?.error, "");
+        const providerMessage = typeof responseData === "string" ? responseData : responseData?.msg || responseData?.message || readProviderTaskError(responseData?.error, "");
         return providerMessage ? normalizeVideoProviderError(providerMessage, fallback) : statusMessage(error.response?.status, fallback);
     }
     if (error instanceof DOMException && error.name === "AbortError") return "请求已取消";
@@ -488,6 +488,15 @@ function statusMessage(status: number | undefined, fallback: string) {
 function normalizeVideoProviderError(message: string, fallback: string) {
     const text = message.trim();
     const lower = text.toLowerCase();
+    if (
+        lower.includes("grok_video_channel_unavailable") ||
+        lower.includes("model_cooldown") ||
+        lower.includes("resource-exhausted") ||
+        lower.includes("requests per minute") ||
+        lower.includes("当前分组上游负载已饱和")
+    ) {
+        return "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
+    }
     if (lower.includes("not_found") || lower.includes("generation_not_found") || lower.includes("not found")) {
         return "视频上游没有找到生成结果，通常是模型参数或参考图不受支持，请换用干净关键帧/其他视频模型后重试";
     }

@@ -36,6 +36,7 @@ const STRIPPED_REQUEST_HEADERS = [
 ];
 const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "transfer-encoding"];
 const VIDEO_CREATE_RETRY_DELAYS_MS = [1200, 2500, 4500];
+const GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE = "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
 const legacyGrokVideoTaskIds = new Set<string>();
 
 type RouteContext = {
@@ -144,9 +145,10 @@ async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorizatio
                 body: responseText.slice(0, 1000),
             });
         }
-        const taskId = readVideoTaskId(responseText);
+        const normalizedResponseText = normalizeLegacyVideoCreateFailureText(responseText) || responseText;
+        const taskId = readVideoTaskId(normalizedResponseText);
         if (taskId) legacyGrokVideoTaskIds.add(taskId);
-        return new Response(responseText, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: jsonResponseHeaders(upstreamResponse.headers) });
+        return new Response(normalizedResponseText, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: jsonResponseHeaders(upstreamResponse.headers) });
     } catch (error) {
         const message = error instanceof Error ? error.message : "Grok 视频任务创建失败";
         return Response.json({ error: { message } }, { status: 400 });
@@ -182,13 +184,37 @@ async function postLegacyGrokVideoJson(body: Record<string, unknown>, authorizat
 }
 
 function isRetryableVideoCreateFailure(response: Response, responseText: string) {
-    if (response.status === 408 || response.status === 409 || response.status === 425 || response.status === 429 || response.status >= 500) return true;
     const text = responseText.toLowerCase();
-    return text.includes("fail_to_fetch_task") || text.includes("负载已饱和") || text.includes("too many requests") || text.includes("no available") || text.includes("temporarily unavailable");
+    if (isNonRetryableGrokVideoCapacityFailure(text)) return false;
+    if (response.status === 429) return false;
+    if (response.status === 408 || response.status === 409 || response.status === 425 || response.status >= 500) return true;
+    return text.includes("temporarily unavailable");
 }
 
 function delay(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeLegacyVideoCreateFailureText(responseText: string) {
+    const text = responseText.toLowerCase();
+    if (!isNonRetryableGrokVideoCapacityFailure(text)) return "";
+    return JSON.stringify({
+        code: "grok_video_channel_unavailable",
+        message: GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE,
+        error: { code: "grok_video_channel_unavailable", message: GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE },
+    });
+}
+
+function isNonRetryableGrokVideoCapacityFailure(text: string) {
+    return (
+        (text.includes("resource-exhausted") && text.includes("grok-imagine-video")) ||
+        (text.includes("requests per minute") && text.includes("0/0")) ||
+        (text.includes("all credentials for model") && text.includes("cooling down")) ||
+        text.includes("model_cooldown") ||
+        text.includes("authentication token has been invalidated") ||
+        text.includes("prompt length exceeds") ||
+        text.includes("当前分组上游负载已饱和")
+    );
 }
 
 async function proxyLegacyGrokVideoPoll(upstreamUrl: URL, authorization: string, taskId: string) {
