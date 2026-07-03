@@ -3375,7 +3375,7 @@ function InfiniteCanvasPage() {
                         videoReferenceImages = directProductLock.referenceImages;
                         videoPromptSource = directProductLock.prompt;
                     }
-                    const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, videoReferenceImages.length);
+                    const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, directProductLock ? 2 : videoReferenceImages.length);
                     const videoIdentityReferenceCount = Math.min(videoIdentityImages.length, videoReferenceImages.length);
                     const videoPrompt = buildStoryboardReviewSheetVideoPrompt(videoPromptSource, storyboardReferenceFrames.length, videoGenerationConfig.videoSeconds, videoReferenceImages.length, videoIdentityReferenceCount);
                     if (!videoPrompt && !videoReferenceImages.length && !generationContext.referenceVideos.length && !generationContext.referenceAudios.length) {
@@ -3413,7 +3413,28 @@ function InfiniteCanvasPage() {
                     if (!isEmptyVideoNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]);
                     const controller = startGenerationRequest(videoId, nodeId, nodeId, runController);
                     try {
-                        const video = await storeGeneratedVideo(await requestVideoGeneration(videoGenerationConfig, videoPrompt, videoReferenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal }));
+                        let requestVideoPrompt = videoPrompt;
+                        let requestVideoReferenceImages = videoReferenceImages;
+                        if (directProductLock) {
+                            const bridgeImage = await createDirectProductBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), directProductLock, videoGenerationConfig.size, controller.signal);
+                            requestVideoReferenceImages = mergeReferenceImages([bridgeImage], directProductLock.referenceImages);
+                            requestVideoPrompt = buildStoryboardReviewSheetVideoPrompt(directProductLock.videoPrompt, storyboardReferenceFrames.length, videoGenerationConfig.videoSeconds, requestVideoReferenceImages.length, Math.min(1, requestVideoReferenceImages.length));
+                            setNodes((prev) =>
+                                prev.map((node) =>
+                                    node.id === videoId
+                                        ? {
+                                              ...node,
+                                              metadata: {
+                                                  ...node.metadata,
+                                                  prompt: requestVideoPrompt,
+                                                  references: generationReferenceUrls({ ...generationContext, referenceImages: requestVideoReferenceImages }),
+                                              },
+                                          }
+                                        : node,
+                                ),
+                            );
+                        }
+                        const video = await storeGeneratedVideo(await requestVideoGeneration(videoGenerationConfig, requestVideoPrompt, requestVideoReferenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal }));
                         const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                         setNodes((prev) =>
                             prev.map((node) =>
@@ -3433,7 +3454,7 @@ function InfiniteCanvasPage() {
                                               vquality: videoGenerationConfig.vquality,
                                               generateAudio: videoGenerationConfig.videoGenerateAudio,
                                               watermark: videoGenerationConfig.videoWatermark,
-                                              references: generationReferenceUrls({ ...generationContext, referenceImages: videoReferenceImages }),
+                                              references: generationReferenceUrls({ ...generationContext, referenceImages: requestVideoReferenceImages }),
                                           },
                                       }
                                     : node,
@@ -3598,16 +3619,17 @@ function InfiniteCanvasPage() {
             const retryImages = node.type === CanvasNodeType.Video ? mergeReferenceImages(retryIdentityImages, storyboardRetryImages) : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
             let retryVideoImages = retryImages;
             let retryVideoPromptSource = prompt;
+            let retryDirectProductLock: ReturnType<typeof buildDirectProductLockVideoContext> = null;
             if (node.type === CanvasNodeType.Video) {
                 const retryOriginalGenerationConfig = generationConfig;
                 generationConfig = resolveReferenceImageVideoConfig(retryOriginalGenerationConfig, retryImages.length);
                 retryVideoImages = selectGrokReferenceVideoImagesWithPriority(retryIdentityImages, storyboardRetryImages, generationConfig.model);
-                const directProductLock = buildDirectProductLockVideoContext(retryVideoPromptSource, retryVideoImages, storyboardRetryImages.length, generationConfig.model);
-                if (directProductLock) {
-                    retryVideoImages = directProductLock.referenceImages;
-                    retryVideoPromptSource = directProductLock.prompt;
+                retryDirectProductLock = buildDirectProductLockVideoContext(retryVideoPromptSource, retryVideoImages, storyboardRetryImages.length, generationConfig.model);
+                if (retryDirectProductLock) {
+                    retryVideoImages = retryDirectProductLock.referenceImages;
+                    retryVideoPromptSource = retryDirectProductLock.prompt;
                 }
-                generationConfig = resolveReferenceImageVideoConfig(retryOriginalGenerationConfig, retryVideoImages.length);
+                generationConfig = resolveReferenceImageVideoConfig(retryOriginalGenerationConfig, retryDirectProductLock ? 2 : retryVideoImages.length);
             }
             const retryPrompt = savedImageMetadata?.productDetailShot ? prompt : buildIdentityPreservingImageEditPrompt(prompt, retrySourceImages.length > 0 || Boolean(hasSavedImageMetadata && retryImages.length), retryImages);
             const retryMask = savedImageMetadata?.editMask ? await resolveMetadataEditMask(savedImageMetadata.editMask) : undefined;
@@ -3653,7 +3675,12 @@ function InfiniteCanvasPage() {
                 if (node.type === CanvasNodeType.Video) {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
                     const retryIdentityReferenceCount = Math.min(retryIdentityImages.length, retryVideoImages.length);
-                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(retryVideoPromptSource, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, retryIdentityReferenceCount);
+                    let videoPrompt = buildStoryboardReviewSheetVideoPrompt(retryVideoPromptSource, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, retryIdentityReferenceCount);
+                    if (retryDirectProductLock) {
+                        const bridgeImage = await createDirectProductBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), retryDirectProductLock, generationConfig.size, controller.signal);
+                        retryVideoImages = mergeReferenceImages([bridgeImage], retryDirectProductLock.referenceImages);
+                        videoPrompt = buildStoryboardReviewSheetVideoPrompt(retryDirectProductLock.videoPrompt, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, Math.min(1, retryVideoImages.length));
+                    }
                     const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryVideoImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
@@ -4962,19 +4989,55 @@ function buildDirectProductLockVideoContext(prompt: string, referenceImages: Ref
     if (storyboardReferenceCount > 0 || referenceImages.length < 2 || !isGrokCanvasVideoModel(model)) return null;
     const pair = inferDirectReferencePair(prompt, referenceImages.length);
     if (!pair) return null;
+    const baseReference = referenceImages[pair.base - 1];
     const productReference = referenceImages[pair.reference - 1];
-    if (!productReference) return null;
+    if (!baseReference || !productReference) return null;
     const cleanedIntent = stripImageMentionRoles(prompt);
     return {
         referenceImages: [productReference],
-        prompt: [
-            "PRODUCT-LOCKED DIRECT VIDEO.",
-            "Use the single attached image as the exact product/object source frame. Preserve its exact silhouette, proportions, transparent/solid material, surface pattern, color blocks, component count, and component placement.",
+        bridgeReferences: [baseReference, productReference],
+        bridgePrompt: [
+            "Create one vertical ecommerce video keyframe that safely combines the references.",
+            "Image 1 is the scene/person/mood reference. Preserve its camera feeling, lighting direction, and lifestyle atmosphere, but do not need to copy every detail.",
+            "Image 2 is the exact product/object identity reference. Reproduce this product as a separate physical object with the same silhouette, proportions, transparent/solid material, red/white pattern, part count, and part placement.",
+            "Place the product naturally in the scene as a believable product reveal or product hero moment. If full person-product interaction risks product deformation, prefer a clean tabletop/hand-held product hero keyframe.",
             "Do not stretch, elongate, melt, simplify, duplicate, remove, rotate into a new design, or reimagine any product/object part.",
-            "The user also referenced another image for scene/person/story mood, but direct Grok multi-reference video is disabled here because it deforms product identity. Generate any scene, presenter, or story around the locked product only if the product stays faithful.",
-            "Prefer short product close-ups, believable hand interaction, simple camera movement, and B-roll over complex full-body fusion. Keep the product as a separate physical object at realistic scale.",
+            "No captions, no UI, no panel grid, no badges, no fake platform labels. Output a single polished keyframe only.",
             `User intent: ${limitInlinePrompt(cleanedIntent || "Create a short commerce video around the locked product reference.", 900)}`,
         ].join("\n"),
+        videoPrompt: [
+            "PRODUCT-LOCKED KEYFRAME VIDEO.",
+            "<IMAGE_1> is the approved bridge keyframe and must be used as the visual opening foundation.",
+            "<IMAGE_2> is the original product identity reference. Use it only to keep the product faithful; do not redesign it or add/remove parts.",
+            "Animate with subtle camera motion, natural hand/product movement, and short commerce rhythm. Keep the product separate from the body and stable in shape.",
+            "If the presenter appears to speak, animate natural synchronized lips and facial micro-expressions. Otherwise use off-screen voiceover with B-roll.",
+            `User intent: ${limitInlinePrompt(cleanedIntent || "Create a short commerce video around the locked product reference.", 900)}`,
+        ].join("\n"),
+        prompt: [
+            "PRODUCT-LOCKED DIRECT VIDEO.",
+            "The system will first create a product-locked bridge keyframe from the referenced scene/person and product images, then animate that keyframe. Do not use raw multi-reference Grok fusion as the final video source.",
+            `User intent: ${limitInlinePrompt(cleanedIntent || "Create a short commerce video around the locked product reference.", 900)}`,
+        ].join("\n"),
+    };
+}
+
+async function createDirectProductBridgeReference(config: AiConfig, context: NonNullable<ReturnType<typeof buildDirectProductLockVideoContext>>, size: string, signal?: AbortSignal): Promise<ReferenceImage> {
+    const bridgeConfig = {
+        ...config,
+        count: "1",
+        size: size || config.size || "9:16",
+        quality: config.quality === "auto" ? "high" : config.quality,
+    };
+    const image = await requestEdit(bridgeConfig, context.bridgePrompt, context.bridgeReferences, undefined, { signal }).then((items) => items[0]);
+    if (!image?.dataUrl) throw new Error("产品锁定关键帧生成失败，请重试");
+    const uploaded = await uploadImage(image.dataUrl);
+    return {
+        id: `product-bridge:${nanoid()}`,
+        name: "产品锁定关键帧.png",
+        type: uploaded.mimeType || "image/png",
+        dataUrl: uploaded.url,
+        url: uploaded.url,
+        storageKey: uploaded.storageKey,
     };
 }
 
