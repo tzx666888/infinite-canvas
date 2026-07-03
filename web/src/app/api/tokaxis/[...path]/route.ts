@@ -35,6 +35,7 @@ const STRIPPED_REQUEST_HEADERS = [
     "upgrade",
 ];
 const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "transfer-encoding"];
+const VIDEO_CREATE_RETRY_DELAYS_MS = [1200, 2500, 4500];
 const legacyGrokVideoTaskIds = new Set<string>();
 
 type RouteContext = {
@@ -133,18 +134,12 @@ async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorizatio
             ...(referenceImages.length ? { images: referenceImages.map((reference) => reference.url), reference_images: referenceImages } : {}),
         };
 
-        const upstreamUrl = new URL(`${TOKAXIS_ORIGIN}/v1/videos`);
-        const upstreamResponse = await fetch(upstreamUrl, {
-            method: "POST",
-            headers: { Authorization: authorization, "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-            cache: "no-store",
-        });
-        const responseText = await upstreamResponse.text();
+        const { upstreamResponse, responseText, attempt } = await postLegacyGrokVideoJson(body, authorization);
         if (!upstreamResponse.ok) {
             console.error("[tokaxis-proxy] legacy video upstream failed", {
                 status: upstreamResponse.status,
                 statusText: upstreamResponse.statusText,
+                attempts: attempt,
                 referenceCount: referenceImages.length,
                 body: responseText.slice(0, 1000),
             });
@@ -156,6 +151,44 @@ async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorizatio
         const message = error instanceof Error ? error.message : "Grok 视频任务创建失败";
         return Response.json({ error: { message } }, { status: 400 });
     }
+}
+
+async function postLegacyGrokVideoJson(body: Record<string, unknown>, authorization: string) {
+    const upstreamUrl = new URL(`${TOKAXIS_ORIGIN}/v1/videos`);
+    const requestBody = JSON.stringify(body);
+    let lastResponse: Response | null = null;
+    let lastText = "";
+    for (let attempt = 1; attempt <= VIDEO_CREATE_RETRY_DELAYS_MS.length + 1; attempt += 1) {
+        const upstreamResponse = await fetch(upstreamUrl, {
+            method: "POST",
+            headers: { Authorization: authorization, "Content-Type": "application/json" },
+            body: requestBody,
+            cache: "no-store",
+        });
+        const responseText = await upstreamResponse.text();
+        if (upstreamResponse.ok || !isRetryableVideoCreateFailure(upstreamResponse, responseText) || attempt > VIDEO_CREATE_RETRY_DELAYS_MS.length) {
+            return { upstreamResponse, responseText, attempt };
+        }
+        lastResponse = upstreamResponse;
+        lastText = responseText;
+        console.warn("[tokaxis-proxy] retrying video create after transient upstream failure", {
+            status: upstreamResponse.status,
+            attempt,
+            body: responseText.slice(0, 300),
+        });
+        await delay(VIDEO_CREATE_RETRY_DELAYS_MS[attempt - 1]);
+    }
+    return { upstreamResponse: lastResponse || new Response(null, { status: 502 }), responseText: lastText, attempt: VIDEO_CREATE_RETRY_DELAYS_MS.length + 1 };
+}
+
+function isRetryableVideoCreateFailure(response: Response, responseText: string) {
+    if (response.status === 408 || response.status === 409 || response.status === 425 || response.status === 429 || response.status >= 500) return true;
+    const text = responseText.toLowerCase();
+    return text.includes("fail_to_fetch_task") || text.includes("负载已饱和") || text.includes("too many requests") || text.includes("no available") || text.includes("temporarily unavailable");
+}
+
+function delay(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function proxyLegacyGrokVideoPoll(upstreamUrl: URL, authorization: string, taskId: string) {
