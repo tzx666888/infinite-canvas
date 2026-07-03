@@ -135,6 +135,14 @@ async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorizatio
         const upstreamUrl = new URL(`${TOKAXIS_ORIGIN}/v1/videos`);
         const upstreamResponse = await fetch(upstreamUrl, { method: "POST", headers: { Authorization: authorization }, body: form, cache: "no-store" });
         const responseText = await upstreamResponse.text();
+        if (!upstreamResponse.ok) {
+            console.error("[tokaxis-proxy] legacy video upstream failed", {
+                status: upstreamResponse.status,
+                statusText: upstreamResponse.statusText,
+                referenceCount: references.length,
+                body: responseText.slice(0, 1000),
+            });
+        }
         const taskId = readVideoTaskId(responseText);
         if (taskId) legacyGrokVideoTaskIds.add(taskId);
         return new Response(responseText, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: jsonResponseHeaders(upstreamResponse.headers) });

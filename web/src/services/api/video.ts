@@ -1,6 +1,5 @@
 import axios from "axios";
 
-import { dataUrlToFile } from "@/lib/image-utils";
 import { normalizeReferenceVideoSeconds, selectGrokReferenceVideoImages } from "@/lib/video-model-settings";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -84,17 +83,18 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds).trim());
     if (!promptText && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
 
-    const body = new FormData();
-    body.append("model", modelName);
-    body.append("prompt", promptText);
-    body.append("seconds", seconds);
-    if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
-    body.append("resolution_name", normalizeVideoResolution(config.vquality));
-    body.append("preset", "normal");
-    const files = await Promise.all(requestReferences.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
-    files.forEach((file) => body.append("input_reference", file));
+    const referenceImages = await Promise.all(requestReferences.map(async (image) => ({ url: await imageToDataUrl(image) })));
+    const body = {
+        model: modelName,
+        prompt: promptText,
+        seconds,
+        duration: Number(seconds),
+        aspect_ratio: videoAspectRatio(config.size),
+        resolution: normalizeVideoResolution(config.vquality),
+        reference_images: referenceImages,
+    };
     try {
-        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
+        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos/generations"), body, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
         const taskId = created.id || created.request_id;
         if (!taskId) throw new Error("视频接口没有返回任务 ID");
         return { id: taskId, provider: "openai", model };
@@ -104,9 +104,10 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
             message: errorMessage,
             status: axios.isAxiosError(error) ? error.response?.status : undefined,
             response: axios.isAxiosError(error) ? summarizeDebugValue(error.response?.data) : undefined,
+            endpoint: "/videos/generations",
             model: modelName,
             seconds,
-            size: normalizeVideoSize(config.size),
+            aspectRatio: body.aspect_ratio,
             resolution: normalizeVideoResolution(config.vquality),
             referenceCount: requestReferences.length,
             promptLength: promptText.length,
@@ -421,6 +422,14 @@ function normalizeVideoResolution(value: string) {
     if (value === "auto" || value === "high" || value === "medium") return "720p";
     const resolution = value.replace(/p$/i, "") || "720";
     return `${resolution}p`;
+}
+
+function videoAspectRatio(value: string) {
+    const size = normalizeVideoSize(value);
+    if (!size) return "9:16";
+    const dimensions = /^(\d+)x(\d+)$/.exec(size);
+    if (!dimensions) return ["16:9", "4:3"].includes(value) ? "16:9" : "9:16";
+    return Number(dimensions[1]) > Number(dimensions[2]) ? "16:9" : "9:16";
 }
 
 function unwrapVideoResponse(payload: ApiVideoResponse) {
