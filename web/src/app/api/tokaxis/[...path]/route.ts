@@ -118,28 +118,34 @@ async function proxyTokaxis(request: NextRequest, context: RouteContext) {
 async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorization: string) {
     try {
         const payload = (await request.json()) as LegacyGrokVideoPayload;
-        const form = new FormData();
-        form.append("model", stringValue(payload.model) || "grok-imagine-video");
-        form.append("prompt", stringValue(payload.prompt));
         const references = Array.isArray(payload.reference_images) ? payload.reference_images.slice(0, 7) : [];
-        form.append("seconds", legacyGrokVideoSeconds(payload.duration ?? payload.seconds, references.length));
-        form.append("size", legacyVideoSize(payload.aspect_ratio));
-        form.append("resolution_name", legacyVideoResolution(payload.resolution));
-        form.append("preset", "normal");
-
-        for (const [index, reference] of references.entries()) {
-            const blob = await legacyReferenceImageBlob(reference?.url);
-            if (blob) form.append("input_reference", blob, `reference-${index + 1}.${legacyImageExtension(blob.type)}`);
-        }
+        const referenceImages = references.map((reference) => ({ url: stringValue(reference?.url) })).filter((reference) => reference.url);
+        const body = {
+            model: stringValue(payload.model) || "grok-imagine-video",
+            prompt: stringValue(payload.prompt),
+            seconds: legacyGrokVideoSeconds(payload.duration ?? payload.seconds, referenceImages.length),
+            duration: Number(legacyGrokVideoSeconds(payload.duration ?? payload.seconds, referenceImages.length)),
+            size: legacyVideoSize(payload.aspect_ratio),
+            aspect_ratio: stringValue(payload.aspect_ratio) || "9:16",
+            resolution: legacyVideoResolution(payload.resolution),
+            resolution_name: legacyVideoResolution(payload.resolution),
+            preset: "normal",
+            ...(referenceImages.length ? { images: referenceImages.map((reference) => reference.url), reference_images: referenceImages } : {}),
+        };
 
         const upstreamUrl = new URL(`${TOKAXIS_ORIGIN}/v1/videos`);
-        const upstreamResponse = await fetch(upstreamUrl, { method: "POST", headers: { Authorization: authorization }, body: form, cache: "no-store" });
+        const upstreamResponse = await fetch(upstreamUrl, {
+            method: "POST",
+            headers: { Authorization: authorization, "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            cache: "no-store",
+        });
         const responseText = await upstreamResponse.text();
         if (!upstreamResponse.ok) {
             console.error("[tokaxis-proxy] legacy video upstream failed", {
                 status: upstreamResponse.status,
                 statusText: upstreamResponse.statusText,
-                referenceCount: references.length,
+                referenceCount: referenceImages.length,
                 body: responseText.slice(0, 1000),
             });
         }
