@@ -3479,16 +3479,15 @@ function InfiniteCanvasPage() {
                     const storyboardReviewSheetImages = storyboardReviewSheetWholeReferences(nodeId, nodesRef.current, connectionsRef.current);
                     const usesWholeStoryboardSheet = storyboardReviewSheetImages.length > 0;
                     const storyboardIdentityImages = await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current);
-                    const reviewSheetIds = new Set(storyboardReviewSheetImages.map((reference) => reference.id));
-                    const connectedIdentityImages = generationContext.referenceImages.filter((reference) => !reviewSheetIds.has(reference.id));
-                    const wholeStoryboardIdentityCandidates = mergeReferenceImages(storyboardIdentityImages, connectedIdentityImages);
-                    const storyboardReferenceFrames = !usesWholeStoryboardSheet || !wholeStoryboardIdentityCandidates.length ? await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current) : [];
-                    // Task 245 proved that Fast can keep the full 15-second edit
-                    // with one I2V anchor. Prefer the original clean identity
-                    // source, then a clean first panel; never send all 12 frames.
-                    const wholeStoryboardAnchorImages = usesWholeStoryboardSheet
-                        ? (wholeStoryboardIdentityCandidates.length ? wholeStoryboardIdentityCandidates : mergeReferenceImages(storyboardReferenceFrames, storyboardReviewSheetImages)).slice(0, 1)
-                        : [];
+                    const storyboardKeyframeAnchorImages = usesWholeStoryboardSheet ? storyboardReviewSheetKeyframeAnchorReferences(nodeId, nodesRef.current, connectionsRef.current) : [];
+                    const storyboardOpeningPanelImages = usesWholeStoryboardSheet && !storyboardKeyframeAnchorImages.length ? await storyboardReviewSheetOpeningPanelReferences(nodeId, nodesRef.current, connectionsRef.current) : [];
+                    const storyboardReferenceFrames = usesWholeStoryboardSheet ? [] : await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current);
+                    // Fast treats its one I2V reference as the literal first frame.
+                    // Prefer the selected review sheet's clean generated keyframe;
+                    // otherwise use its opening panel only as an image-model seed
+                    // and rebuild a clean high-resolution bridge before video.
+                    const wholeStoryboardAnchorImages = usesWholeStoryboardSheet ? mergeReferenceImages(storyboardKeyframeAnchorImages, storyboardOpeningPanelImages, storyboardReviewSheetImages).slice(0, 1) : [];
+                    const needsStoryboardBridge = usesWholeStoryboardSheet && !storyboardKeyframeAnchorImages.length && wholeStoryboardAnchorImages.length > 0;
                     const videoIdentityImages = usesWholeStoryboardSheet ? wholeStoryboardAnchorImages : mergeReferenceImages(generationContext.referenceImages, storyboardIdentityImages);
                     const storyboardVideoImages = usesWholeStoryboardSheet ? [] : storyboardReferenceFrames;
                     const allVideoReferenceImages = mergeReferenceImages(videoIdentityImages, storyboardVideoImages);
@@ -3501,7 +3500,7 @@ function InfiniteCanvasPage() {
                         videoPromptSource = directProductLock.prompt;
                     }
                     const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, directProductLock ? 1 : videoReferenceImages.length);
-                    const videoIdentityReferenceCount = usesWholeStoryboardSheet ? videoReferenceImages.length : Math.min(videoIdentityImages.length, videoReferenceImages.length);
+                    const videoIdentityReferenceCount = Math.min(videoIdentityImages.length, videoReferenceImages.length);
                     const storyboardPlan = sourceNode?.metadata?.commerceVideoPlan;
                     if (usesWholeStoryboardSheet && storyboardPlan?.beats?.length) {
                         videoPromptSource = compileVideoPrompt(storyboardPlan, {
@@ -3549,6 +3548,7 @@ function InfiniteCanvasPage() {
                             videoSourcePrompt: videoPromptSource,
                             videoConstraintVersion: usesWholeStoryboardSheet || storyboardVideoImages.length ? GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION : undefined,
                             videoReferenceImages: generationImageReferenceUrls(videoReferenceImages),
+                            storyboardVideoAnchorMode: usesWholeStoryboardSheet ? (storyboardKeyframeAnchorImages.length ? "keyframe" : "bridge-pending") : undefined,
                             commerceVideoPlan: usesWholeStoryboardSheet ? storyboardPlan : undefined,
                             references: generationReferenceUrls({ ...generationContext, referenceImages: videoReferenceImages }),
                         },
@@ -3564,7 +3564,27 @@ function InfiniteCanvasPage() {
                     try {
                         let requestVideoPrompt = videoPrompt;
                         let requestVideoReferenceImages = videoReferenceImages;
-                        if (directProductLock) {
+                        if (needsStoryboardBridge && requestVideoReferenceImages[0]) {
+                            const bridgeImage = await createStoryboardVideoBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), requestVideoReferenceImages[0], videoGenerationConfig.size, storyboardPlan, controller.signal);
+                            requestVideoReferenceImages = [bridgeImage];
+                            requestVideoPrompt = buildWholeStoryboardI2VPrompt(videoPromptSource, videoGenerationConfig.videoSeconds, videoAspectRatioForSize(videoGenerationConfig.size), storyboardPlan, 1, 1);
+                            setNodes((prev) =>
+                                prev.map((node) =>
+                                    node.id === videoId
+                                        ? {
+                                              ...node,
+                                              metadata: {
+                                                  ...node.metadata,
+                                                  prompt: requestVideoPrompt,
+                                                  videoReferenceImages: generationImageReferenceUrls(requestVideoReferenceImages),
+                                                  storyboardVideoAnchorMode: "generated-bridge",
+                                                  references: generationReferenceUrls({ ...generationContext, referenceImages: requestVideoReferenceImages }),
+                                              },
+                                          }
+                                        : node,
+                                ),
+                            );
+                        } else if (directProductLock) {
                             const bridgeImage = await createDirectProductBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), directProductLock, videoGenerationConfig.size, controller.signal);
                             requestVideoReferenceImages = [bridgeImage];
                             requestVideoPrompt = buildStoryboardReviewSheetVideoPrompt(
@@ -3607,7 +3627,7 @@ function InfiniteCanvasPage() {
                                           metadata: {
                                               ...node.metadata,
                                               ...videoMetadata(video),
-                                              prompt: videoPrompt,
+                                              prompt: requestVideoPrompt,
                                               model: videoGenerationConfig.model,
                                               size: videoGenerationConfig.size,
                                               seconds: videoGenerationConfig.videoSeconds,
@@ -3769,9 +3789,11 @@ function InfiniteCanvasPage() {
             const retriesWholeStoryboardSheet = storyboardRetryWholeImages.length > 0;
             const storedVideoReferenceImages = node.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(node.metadata) : [];
             const storyboardRetryIdentityImages = node.type === CanvasNodeType.Video ? await storyboardReviewSheetIdentityReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
-            const storedWholeStoryboardAnchors = retriesWholeStoryboardSheet ? mergeReferenceImages(storedVideoReferenceImages, storyboardRetryIdentityImages) : [];
-            const storyboardRetryImages =
-                node.type === CanvasNodeType.Video && (!retriesWholeStoryboardSheet || !storedWholeStoryboardAnchors.length) ? await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
+            const storyboardRetryKeyframeImages = retriesWholeStoryboardSheet ? storyboardReviewSheetKeyframeAnchorReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
+            const hasReusableStoredStoryboardAnchor = retriesWholeStoryboardSheet && storedVideoReferenceImages.length > 0 && (node.metadata?.storyboardVideoAnchorMode === "keyframe" || node.metadata?.storyboardVideoAnchorMode === "generated-bridge");
+            const storyboardRetryOpeningPanelImages =
+                retriesWholeStoryboardSheet && !storyboardRetryKeyframeImages.length && !hasReusableStoredStoryboardAnchor ? await storyboardReviewSheetOpeningPanelReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
+            const storyboardRetryImages = node.type === CanvasNodeType.Video && !retriesWholeStoryboardSheet ? await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const hasVideoReferences =
                 node.type === CanvasNodeType.Video &&
                 Boolean(storyboardRetryWholeImages.length || storedVideoReferenceImages.length || storyboardRetryImages.length || context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
@@ -3789,14 +3811,16 @@ function InfiniteCanvasPage() {
                 return;
             }
             const retrySourceImages = hasSavedImageMetadata ? [] : sourceNodeReferenceImages(sourceNode);
-            const retryWholeGridIds = new Set(storyboardRetryWholeImages.map((reference) => reference.id));
-            const retryConnectedIdentityImages = (context?.referenceImages || []).filter((reference) => !retryWholeGridIds.has(reference.id));
-            // Whole-video retries must keep exactly one clean I2V identity
-            // anchor. Stored metadata wins, followed by the original source and
-            // a clean first panel; the collage is only a last-resort fallback.
+            // Trust only anchors explicitly persisted by the clean keyframe/bridge
+            // flow. Older nodes are upgraded from their selected opening panel;
+            // the complete grid is only an image-model seed of last resort.
             const retryWholeStoryboardAnchors = retriesWholeStoryboardSheet
-                ? mergeReferenceImages(storedVideoReferenceImages, storyboardRetryIdentityImages, retryConnectedIdentityImages, retryReferenceImages || [], storyboardRetryImages, storyboardRetryWholeImages).slice(0, 1)
+                ? (hasReusableStoredStoryboardAnchor
+                      ? mergeReferenceImages(storedVideoReferenceImages, storyboardRetryKeyframeImages, storyboardRetryOpeningPanelImages, storyboardRetryWholeImages)
+                      : mergeReferenceImages(storyboardRetryKeyframeImages, storyboardRetryOpeningPanelImages, storyboardRetryWholeImages)
+                  ).slice(0, 1)
                 : [];
+            const needsRetryStoryboardBridge = retriesWholeStoryboardSheet && !storyboardRetryKeyframeImages.length && !hasReusableStoredStoryboardAnchor && retryWholeStoryboardAnchors.length > 0;
             const retryIdentityImages = retriesWholeStoryboardSheet ? retryWholeStoryboardAnchors : mergeReferenceImages(storyboardRetryIdentityImages, storedVideoReferenceImages, retrySourceImages, retryReferenceImages || []);
             const retryImages =
                 node.type === CanvasNodeType.Video
@@ -3877,7 +3901,27 @@ function InfiniteCanvasPage() {
                               videoAspectRatioForSize(generationConfig.size),
                               node.metadata?.commerceVideoPlan,
                           );
-                    if (retryDirectProductLock) {
+                    if (needsRetryStoryboardBridge && retryVideoImages[0]) {
+                        const bridgeImage = await createStoryboardVideoBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), retryVideoImages[0], generationConfig.size, node.metadata?.commerceVideoPlan, controller.signal);
+                        retryVideoImages = [bridgeImage];
+                        videoPrompt = buildWholeStoryboardI2VPrompt(retryVideoPromptSource, generationConfig.videoSeconds, videoAspectRatioForSize(generationConfig.size), node.metadata?.commerceVideoPlan, 1, 1);
+                        setNodes((prev) =>
+                            prev.map((item) =>
+                                item.id === node.id
+                                    ? {
+                                          ...item,
+                                          metadata: {
+                                              ...item.metadata,
+                                              prompt: videoPrompt,
+                                              videoReferenceImages: generationImageReferenceUrls(retryVideoImages),
+                                              storyboardVideoAnchorMode: "generated-bridge",
+                                              references: generationReferenceUrls({ referenceImages: retryVideoImages, referenceVideos: context?.referenceVideos || [], referenceAudios: context?.referenceAudios || [] }),
+                                          },
+                                      }
+                                    : item,
+                            ),
+                        );
+                    } else if (retryDirectProductLock) {
                         const bridgeImage = await createDirectProductBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), retryDirectProductLock, generationConfig.size, controller.signal);
                         retryVideoImages = [bridgeImage];
                         videoPrompt = buildStoryboardReviewSheetVideoPrompt(
@@ -3914,6 +3958,13 @@ function InfiniteCanvasPage() {
                                           videoSourcePrompt: retryVideoPromptSource,
                                           videoConstraintVersion: retriesWholeStoryboardSheet || storyboardRetryImages.length ? GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION : undefined,
                                           videoReferenceImages: generationImageReferenceUrls(retryVideoImages).length ? generationImageReferenceUrls(retryVideoImages) : item.metadata?.videoReferenceImages,
+                                          storyboardVideoAnchorMode: retriesWholeStoryboardSheet
+                                              ? item.metadata?.storyboardVideoAnchorMode === "generated-bridge"
+                                                  ? "generated-bridge"
+                                                  : storyboardRetryKeyframeImages.length
+                                                    ? "keyframe"
+                                                    : item.metadata?.storyboardVideoAnchorMode
+                                              : undefined,
                                           references: generationReferenceUrls({ referenceImages: retryVideoImages, referenceVideos: context?.referenceVideos || [], referenceAudios: context?.referenceAudios || [] }),
                                       },
                                   }
@@ -5101,6 +5152,51 @@ function storyboardReviewSheetWholeReferences(nodeId: string, nodes: CanvasNodeD
     return mergeReferenceImages(...storyboardReviewSheetNodes(nodeId, nodes, connections).map(sourceNodeReferenceImages));
 }
 
+function storyboardReviewSheetKeyframeAnchorReferences(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const reviewSheets = storyboardReviewSheetNodes(nodeId, nodes, connections);
+    const selectedReview = reviewSheets.find((item) => item.id === nodeId) || reviewSheets[0];
+    if (!selectedReview) return [];
+    const exactCandidates = nodes
+        .filter((item) => item.metadata?.storyboardRole === "keyframe" && item.metadata?.storyboardReviewNodeId === selectedReview.id && item.metadata?.content)
+        .sort((a, b) => (a.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER) - (b.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER));
+    if (exactCandidates.length) return mergeReferenceImages(...exactCandidates.slice(0, 1).map(sourceNodeReferenceImages));
+
+    const fallbackCandidates = nodes
+        .filter(
+            (item) =>
+                item.metadata?.storyboardRole === "keyframe" &&
+                item.metadata?.content &&
+                item.metadata?.storyboardPlanId === selectedReview.metadata?.storyboardPlanId &&
+                item.metadata?.storyboardReviewIndex === selectedReview.metadata?.storyboardReviewIndex,
+        )
+        .sort((a, b) => (a.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER) - (b.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER));
+    return mergeReferenceImages(...fallbackCandidates.slice(0, 1).map(sourceNodeReferenceImages));
+}
+
+async function storyboardReviewSheetOpeningPanelReferences(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const reviewSheets = storyboardReviewSheetNodes(nodeId, nodes, connections);
+    const selectedReview = reviewSheets.find((item) => item.id === nodeId) || reviewSheets[0];
+    if (!selectedReview) return [];
+    const [reference] = sourceNodeReferenceImages(selectedReview);
+    if (!reference) return [];
+    const dataUrl = await imageToDataUrl(reference);
+    if (!dataUrl) return [];
+    try {
+        const [openingPanel] = await splitDataUrl(dataUrl, { rows: STORYBOARD_REVIEW_ROWS, columns: STORYBOARD_REVIEW_COLUMNS });
+        if (!openingPanel) return [];
+        return [
+            {
+                id: `${reference.id}-storyboard-opening-panel`,
+                name: `${selectedReview.title || reference.id}-opening-panel.png`,
+                type: "image/png",
+                dataUrl: await cropStoryboardVideoFrame(openingPanel.dataUrl),
+            },
+        ];
+    } catch {
+        return [];
+    }
+}
+
 function storyboardReviewSheetNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const node = nodes.find((item) => item.id === nodeId);
     return [...(node && isStoryboardReviewSheetNode(node) ? [node] : []), ...getGenerationResourceNodes(nodeId, nodes, connections).filter(isStoryboardReviewSheetNode)];
@@ -5182,17 +5278,21 @@ function buildWholeStoryboardI2VPrompt(prompt: string, videoSeconds = "15", aspe
                 : "Treat this as a product-led short video. Preserve the exact product geometry, colors, labels, component count, and scale while following only the compiled ordered actions.";
     const referenceDirection = attachedReferenceCount
         ? identityReferenceCount
-            ? "<IMAGE_1> is the exact opening-frame identity anchor. Preserve its adult face, hair, wardrobe or product, body proportions, colors, materials, and visible geometry in every shot. The storyboard timeline is supplied in writing; never show a grid or collage."
-            : "<IMAGE_1> is the source storyboard image. Decode its order but recreate every beat as clean full-frame footage; never show the grid or collage."
+            ? "<IMAGE_1> is the clean high-resolution opening-frame identity anchor. Use its exact crop as the literal first shot without reconstructing hidden anatomy. Preserve the same eyes, jawline, adult face, hair, wardrobe or product, body proportions, colors, materials, and geometry at every cut. The timeline is supplied in writing; never show a grid or collage."
+            : "<IMAGE_1> is the complete ordered storyboard and multi-pose identity sheet, not a literal opening frame. Decode its panel order and derive the same normal face, body proportions, wardrobe or product geometry from the consensus across panels, never from one distorted panel. Recreate clean full-frame shots; never show or animate the sheet, grid, borders, or collage."
         : "The storyboard has been compiled into the ordered written direction; no image reference is attached.";
     const presenterSpeechDirection =
         mode === "apparel" || mode === "subject"
-            ? plan?.audioPlan?.mode === "voiceover" || plan?.audioPlan?.mode === "ambient-only"
+            ? !plan?.audioPlan || plan.audioPlan.mode === "voiceover" || plan.audioPlan.mode === "ambient-only"
                 ? ""
-                : plan?.audioPlan?.mode === "mixed"
+                : plan.audioPlan.mode === "mixed"
                   ? "PRESENTER PERFORMANCE LOCK: every presenter-assigned cue is generated as one synchronized voice-and-face performance in a clear close or medium shot. Do not cut away until the cue ends; place narration-only or silent B-roll between presenter cues."
-                  : "ON-CAMERA SALES PERFORMANCE: generate the voice and facial performance together. All speech occurs in clear close or medium shots of the same presenter, with the face visible for each complete phrase and no cutaway until it ends. Use no off-screen voiceover; keep detail shots, back views, turns, and silent smiles free of speech."
+                  : "ON-CAMERA SPEECH LOCK: generate voice and face together; keep every complete phrase in a clear close or medium shot of the same presenter. No voiceover; face-hidden shots stay silent."
             : "";
+    const cutAndAnatomyDirection =
+        mode === "apparel" || mode === "subject"
+            ? "CUT AND ANATOMY LOCK: show exactly one fully formed presenter per frame. Finish each shot before an instantaneous hard cut to the next complete pose. Never crossfade, dissolve, overlap, ghost, clone, trail, or morph between poses; never leave a smaller duplicate person in the background. Keep one stable face, skull, neck, shoulders, torso, waist, two arms, two separate legs, joints, and limb lengths."
+            : "CUT LOCK: finish each shot before an instantaneous hard cut. Never crossfade, dissolve, overlap, ghost, duplicate, stretch, or morph a subject or product between shots.";
     const audioDirection = compileStoryboardAudioDirection(plan, text, Number(videoSeconds) || 15);
     if (mode === "product") {
         return buildStoryboardVideoConstraintPrompt({
@@ -5212,12 +5312,13 @@ function buildWholeStoryboardI2VPrompt(prompt: string, videoSeconds = "15", aspe
             referenceDirection,
             audioDirection,
             presenterSpeechDirection,
+            cutAndAnatomyDirection,
             locationSequenceDirection,
             `User direction: ${userDirection}`,
             `The source 12-panel storyboard has been compiled into the ordered direction above. Follow those beats as clean full-frame ${aspectRatio} shots with direct editorial cuts.`,
             modeDirection,
-            "Use decisive cuts, varied wide, medium, and detail framing, and believable motion supported by the ordered beats.",
-            `Create exactly ${normalizeStoryboardVideoSeconds(videoSeconds, 1)} seconds with one consistent subject, wardrobe, product, and visual world. No collage, captions, morphing, duplication, stretching, or substitutions.`,
+            "Use varied wide, medium, and detail framing with believable local motion inside each shot.",
+            `Create exactly ${normalizeStoryboardVideoSeconds(videoSeconds, 1)} seconds with one consistent subject, wardrobe, product, and visual world. No collage, captions, deformation, duplication, stretching, or substitutions.`,
         ]
             .filter(Boolean)
             .join("\n");
@@ -5377,6 +5478,39 @@ async function createDirectProductBridgeReference(config: AiConfig, context: Non
     return {
         id: `product-bridge:${nanoid()}`,
         name: "产品锁定关键帧.png",
+        type: uploaded.mimeType || "image/png",
+        dataUrl: uploaded.url,
+        url: uploaded.url,
+        storageKey: uploaded.storageKey,
+    };
+}
+
+async function createStoryboardVideoBridgeReference(config: AiConfig, seedReference: ReferenceImage, size: string, plan?: CanvasCommerceVideoPlan, signal?: AbortSignal): Promise<ReferenceImage> {
+    const bridgeConfig = {
+        ...config,
+        count: "1",
+        size: size || config.size || "9:16",
+        quality: config.quality === "auto" ? "high" : config.quality,
+    };
+    const firstBeat = [...(plan?.beats || [])].sort((a, b) => a.index - b.index)[0];
+    const bridgePrompt = [
+        "Create one clean high-resolution vertical opening keyframe for an ecommerce talking video.",
+        "Image 1 is the identity and opening-composition source. If it came from a storyboard, recreate only this single selected moment as one full-frame photograph; never output, retain, or imply a grid, panel border, collage, split screen, or transition.",
+        "Preserve the exact visible adult face, skull, hairline, hairstyle, skin tone, age, wardrobe, body proportions, environment, and product identity from Image 1. Do not beautify into a different person or average the face with another identity.",
+        "If a presenter is visible, use a stable front-facing medium or chest-up composition with the full head, neck, both shoulders, torso, and two naturally separate arms readable. Keep a straight natural spine and symmetric shoulder structure; never stretch, bend, curve, melt, duplicate, crop through a joint, or invent hidden anatomy to fill the vertical frame.",
+        "If a product is visible, preserve its exact silhouette, closure, component count, colors, label placement, scale, and relationship to the presenter. Keep it separate from hands and body.",
+        firstBeat?.description ? `Opening action: ${limitInlinePrompt(firstBeat.description, 600)}` : "Keep the selected opening action and expression immediately readable.",
+        plan?.visualIdentity ? `Identity description: ${limitInlinePrompt(plan.visualIdentity, 500)}` : "",
+        "Natural photographic lighting, realistic skin and fabric, sharp facial features, clean hands, no text overlay, no subtitle, no watermark. Output exactly one polished image.",
+    ]
+        .filter(Boolean)
+        .join("\n");
+    const image = await requestEdit(bridgeConfig, bridgePrompt, [seedReference], undefined, { signal }).then((items) => items[0]);
+    if (!image?.dataUrl) throw new Error("分镜视频首帧重建失败，请重试");
+    const uploaded = await uploadImage(image.dataUrl);
+    return {
+        id: `storyboard-bridge:${nanoid()}`,
+        name: "分镜视频锁定首帧.png",
         type: uploaded.mimeType || "image/png",
         dataUrl: uploaded.url,
         url: uploaded.url,

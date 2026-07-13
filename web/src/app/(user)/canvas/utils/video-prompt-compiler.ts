@@ -11,7 +11,7 @@ export type VideoPromptContext = {
 
 type CommerceVideoBeat = NonNullable<CanvasCommerceVideoPlan["beats"]>[number];
 
-const DEFAULT_ENHANCEMENT_WORDS = "4K ultra HD, cinematic quality, natural body proportions, smooth continuous motion, no frame skipping, consistent appearance throughout";
+const DEFAULT_ENHANCEMENT_WORDS = "4K ultra HD, cinematic quality, natural body proportions, smooth natural motion within each shot, clean hard cuts, consistent appearance throughout";
 const visiblePresenterPattern = /\b(?:adult|woman|women|female|lady|mother|mom|wife|man|men|male|father|dad|husband|presenter|host|model|actor|actress|person)\b|成年人|女性|女人|妈妈|妻子|女主播|男性|男人|爸爸|丈夫|男主播|主播|模特|演员/i;
 
 export function compileVideoPrompt(plan: CanvasCommerceVideoPlan, context: VideoPromptContext): string {
@@ -69,11 +69,9 @@ export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | 
             "Audio and speech lock: generate clear audible commercial speech in the final audio track; do not return a silent or music-only video.",
             voice,
             languageDirection,
-            "Create the voice and visible performance together: the same adult presenter delivers two or three concise, natural, evidence-safe sales phrases during close or medium shots where the face stays clearly visible for each complete phrase.",
-            "Let the wording and timing fit the physical performance and editorial cuts naturally; do not force a continuous timed narration script.",
-            "Generate genuinely synchronized lips, jaw, cheeks, breath, and facial micro-expressions with the voice. Do not cut away from the face until a spoken phrase ends.",
-            "Use no off-screen voiceover. Keep product details, body or garment details, back views, turns, demonstrations without a visible face, and reaction holds silent with only ambience or low music.",
-            "Never play speech over a hidden, frozen, smiling, or non-speaking mouth. Keep music below the voice. No captions, subtitles, invented prices, discounts, certifications, brand wording, testimonials, medical claims, or unsupported benefits.",
+            compileLegacyPresenterSpeechSchedule(duration),
+            "Write exactly one short, natural, evidence-safe sales phrase per scheduled window, with no second sentence or added clause; for Mandarin use at most 12 Han characters per phrase. Generate voice and face together with synchronized lips, jaw, cheeks, breath, and expression.",
+            "Use no off-screen voiceover and no speech outside the scheduled windows. No captions, subtitles, invented prices, certifications, brand wording, testimonials, medical claims, or unsupported benefits.",
         ].join(" ");
     }
 
@@ -101,6 +99,29 @@ export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | 
         scriptDirection,
         "Keep music below the voice. No captions, subtitles, invented prices, discounts, certifications, brand wording, testimonials, medical claims, or unsupported benefits.",
     ].join(" ");
+}
+
+function compileLegacyPresenterSpeechSchedule(duration: number) {
+    const seconds = Math.max(4, Math.min(15, Math.round(duration || 15)));
+    if (seconds <= 8) {
+        const firstStart = formatSpeechTime(seconds * 0.08);
+        const firstEnd = formatSpeechTime(seconds * 0.36);
+        const finalStart = formatSpeechTime(seconds * 0.66);
+        const finalEnd = formatSpeechTime(seconds * 0.97);
+        return `MANDATORY ON-CAMERA SPEECH SCHEDULE: ${firstStart}-${firstEnd}s first face-to-camera sales line; ${finalStart}-${finalEnd}s second face-to-camera CTA. Reuse one identical stationary front-facing chest-up presenter setup in every speech window: exact same face, hair state, camera, focal length, and lighting; shoulders square, full face and mouth visible, no walking, profile, or turn-away. Hold the shot until the voice and mouth stop. Every other time range is silent B-roll. Never speak during a torso-only, product-only, back, face-hidden, detail, or transition shot.`;
+    }
+
+    const firstStart = formatSpeechTime(seconds * 0.05);
+    const firstEnd = formatSpeechTime(seconds * 0.25);
+    const secondStart = formatSpeechTime(seconds * 0.28);
+    const secondEnd = formatSpeechTime(seconds * 0.5);
+    const finalStart = formatSpeechTime(seconds * 0.78);
+    const finalEnd = formatSpeechTime(seconds * 0.98);
+    return `MANDATORY ON-CAMERA SPEECH SCHEDULE: ${firstStart}-${firstEnd}s first face-to-camera sales line; ${secondStart}-${secondEnd}s second face-to-camera benefit line; ${finalStart}-${finalEnd}s final face-to-camera CTA. Reuse one identical stationary front-facing chest-up presenter setup in every speech window: exact same face, hair state, camera, focal length, and lighting; shoulders square, full face and mouth visible, no walking, profile, or turn-away. Hold the shot until the voice and mouth stop. Every other time range, especially ${secondEnd}-${finalStart}s, is silent B-roll. Never speak during a torso-only, product-only, back, face-hidden, detail, or transition shot.`;
+}
+
+function formatSpeechTime(value: number) {
+    return (Math.round(value * 10) / 10).toFixed(1);
 }
 
 function compileStoryboardBeatAudioDirection(plan: CanvasCommerceVideoPlan, beat: CommerceVideoBeat, duration: number) {
@@ -176,7 +197,7 @@ function compileGrokPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBe
     const actionChain = beatText.length ? beatText.map((text, index) => (index === 0 ? text : `then ${text}`)).join(", ") : fallbackActionChain(plan, mode, category);
     const prompt = [
         videoOpening(mode, context, category),
-        `Use one continuous visual storyline: ${actionChain}.`,
+        `Use one edited sequence of distinct shots joined only by instantaneous hard cuts: ${actionChain}.`,
         locationConstraint(plan, mode, false),
         identityConstraint(plan, mode),
         videoRhythm(mode),

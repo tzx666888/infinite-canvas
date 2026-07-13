@@ -209,6 +209,7 @@ export type CanvasNodeMetadata = {
     videoSourcePrompt?: string;
     videoConstraintVersion?: string;
     videoReferenceImages?: string[];
+    storyboardVideoAnchorMode?: "keyframe" | "bridge-pending" | "generated-bridge";
     storageKey?: string;
     mimeType?: string;
     bytes?: number;
