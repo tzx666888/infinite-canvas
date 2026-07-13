@@ -181,21 +181,24 @@ function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: numbe
     if (rawPrompt.includes("STORYBOARD-DIRECTED VIDEO.")) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
     const direction = canonicalizeVideoReferencePrompt(rawPrompt);
     const duration = normalizeDurationNumber(seconds);
+    const marketGuidance = buildLocalMarketVideoGuidance(direction);
+    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration);
     if (referenceMode === "i2v") {
         return [
             `Create a ${duration}-second video by animating the attached source image as the exact opening frame.`,
-            "Preserve every visible identity from that source: the same adult face, hair, wardrobe, body proportions, environment, object geometry, colors, label layout, and object count.",
-            "Follow the requested shot order with direct editorial cuts. Never cross-dissolve, morph, stretch, merge, or redraw a person or rigid object during a shot transition.",
-            "Do not invent a person, product, package, bottle, tool, or prop unless the direction explicitly names it. Keep hands, face, neck, shoulders, torso, and limbs anatomically stable.",
+            "Preserve the same subject or product identity, package geometry, colors, label placement, object count, environment, composition, and camera orientation.",
+            "Add only physically plausible local motion. Keep faces, bodies, hands, labels, rigid objects, and background geometry stable; no morphing, redesign, rebranding, or invented label text.",
+            "If the source image is a product/object, keep it as a rigid unchanged product. Do not elongate it, add or remove parts, alter its surface pattern, or redesign its component count while creating motion around it.",
             explicitProductScalePrompt,
-            "Use off-screen voiceover by default. Animate visible speech only when the direction explicitly says the presenter speaks on camera.",
+            marketGuidance,
+            dramaGuidance,
+            "If audio is generated, use one consistent voice matching the visible presenter and the user's requested language. A visible female presenter requires a female voice; never change speaker or voice gender.",
+            "Visible speech rule: when a visible presenter is speaking, keep the face clearly visible for the complete line and animate natural synchronized lips, jaw, cheeks, breath, and facial micro-expressions. Never add spoken dialogue over a frozen mouth, static smile, back view, or product-only close-up. Put silent detail shots between spoken lines instead.",
             `Direction: ${limitInlinePrompt(direction || "Animate the source naturally while preserving visual identity.", 2200)}`,
         ]
             .filter(Boolean)
             .join("\n");
     }
-    const marketGuidance = buildLocalMarketVideoGuidance(direction);
-    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration);
     const referenceCountLine =
         originalReferenceCount > requestReferenceCount
             ? `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references selected from ${originalReferenceCount} source images.`

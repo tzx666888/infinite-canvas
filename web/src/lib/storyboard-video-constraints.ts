@@ -1,4 +1,4 @@
-export const GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION = "commerce-v7-four-cue-voice";
+export const GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION = "commerce-v8-i2v-on-camera";
 export const STORYBOARD_DIRECTED_VIDEO_MARKER = "STORYBOARD-DIRECTED VIDEO.";
 
 type StoryboardVideoConstraintInput = {
@@ -24,10 +24,13 @@ export function buildStoryboardVideoConstraintPrompt(input: StoryboardVideoConst
     const timelineStart = identityReferenceCount + 1;
     const timelineEnd = identityReferenceCount + storyboardAnchorCount;
     const usesWholeStoryboardGrid = Boolean(input.wholeStoryboardGrid);
+    const hasCompiledIdentityAnchor = usesWholeStoryboardGrid && identityReferenceCount > 0;
     const referenceRoles = usesWholeStoryboardGrid
-        ? attachedReferenceCount > 0
-            ? `<IMAGE_1> is the complete ordered ${input.sourcePanelCount}-panel storyboard grid and is not a visible opening shot. Decode its panels left-to-right, top-to-bottom as timeline anchors.`
-            : `The source ${input.sourcePanelCount}-panel storyboard has already been compiled into the ordered user direction; no image reference is attached.`
+        ? hasCompiledIdentityAnchor
+            ? `<IMAGE_1> is the exact opening-frame identity anchor for the same presenter, wardrobe, and product. The ${input.sourcePanelCount}-panel storyboard timeline has been compiled into the written direction; do not show or invent a grid.`
+            : attachedReferenceCount > 0
+              ? `<IMAGE_1> is the complete ordered ${input.sourcePanelCount}-panel storyboard grid and is not a visible opening shot. Decode its panels left-to-right, top-to-bottom as timeline anchors.`
+              : `The source ${input.sourcePanelCount}-panel storyboard has already been compiled into the ordered user direction; no image reference is attached.`
         : identityReferenceCount > 0 && storyboardAnchorCount > 0
           ? `<IMAGE_1> is the exact product/source identity lock and is not a timeline shot. <IMAGE_${timelineStart}> through <IMAGE_${timelineEnd}> are ordered timeline anchors sampled from the original ${input.sourcePanelCount}-panel storyboard.`
           : identityReferenceCount > 0
@@ -37,11 +40,12 @@ export function buildStoryboardVideoConstraintPrompt(input: StoryboardVideoConst
               : "No storyboard timeline image is attached; use only the written direction and do not invent image references.";
 
     if (usesWholeStoryboardGrid) {
-        const storyboardGuidance =
-            attachedReferenceCount > 0
-                ? "Treat the attached storyboard grid as mandatory shot-order guidance, not loose inspiration."
-                : "Treat the compiled ordered storyboard direction as mandatory shot-order guidance, not loose inspiration; no image is attached.";
-        const productIdentitySource = attachedReferenceCount > 0 ? "the grid" : "the written direction";
+        const storyboardGuidance = hasCompiledIdentityAnchor
+            ? "Animate the attached identity image as the exact opening anchor, then follow the compiled storyboard direction with direct cuts. Preserve that same identity in every shot."
+            : attachedReferenceCount > 0
+              ? "Treat the attached storyboard grid as mandatory shot-order guidance, not loose inspiration."
+              : "Treat the compiled ordered storyboard direction as mandatory shot-order guidance, not loose inspiration; no image is attached.";
+        const productIdentitySource = hasCompiledIdentityAnchor ? "<IMAGE_1>" : attachedReferenceCount > 0 ? "the grid" : "the written direction";
         const assemblePrompt = (userDirection: string) =>
             [
                 STORYBOARD_DIRECTED_VIDEO_MARKER,
@@ -52,8 +56,8 @@ export function buildStoryboardVideoConstraintPrompt(input: StoryboardVideoConst
                 `User direction: ${userDirection}`,
                 "Timeline: 0-18% problem/reaction hook; 18-32% product rescue; 32-68% application and visible proof; 68-86% clean result; 86-100% label-readable product hero.",
                 `Product lock: preserve the exact package shape, closure, colors, label layout, scale, and object count from ${productIdentitySource}. Never rename, translate, recolor, rebrand, or replace it.`,
-                "Shot lock: follow the panels in order with direct cuts and one readable action per shot. No morphs, dissolves, repeated opening, unrelated footage, or duplicate actions.",
-                `Human lock: keep one consistent presenter with natural anatomy and proportions; never stretch a person to fill ${input.aspectRatio} or fuse a person with the product.`,
+                "Shot lock: follow the compiled beats or source panels in order with direct cuts and one readable action per shot. No morphs, dissolves, repeated opening, unrelated footage, or duplicate actions.",
+                `Human lock: keep the exact same presenter face, hair, wardrobe, age, body proportions, and voice across the entire video; never stretch a person to fill ${input.aspectRatio}, switch identity at a cut, or fuse a person with the product.`,
                 "Commerce rhythm: show the product in the opening third, demonstration, and final hero; visibly resolve the opening problem.",
                 "Output clean full-frame footage only: never show the grid, panels, numbers, captions, subtitles, watermark, fake offer, certification, or impossible result.",
             ]

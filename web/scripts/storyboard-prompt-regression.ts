@@ -19,17 +19,17 @@ const apparelPlan: CanvasCommerceVideoPlan = {
     selectedHookType: "visual-shock",
     hookDescription: "A small wave reaches the adult model as the camera pushes toward the black bikini silhouette.",
     audioPlan: {
-        mode: "mixed",
+        mode: "on-camera",
         language: "English",
         voice: "One natural energetic adult female voice",
-        script: "That wave surprised me, but this secure fit stays comfortable from the beach to the pool. Move freely and enjoy every resort moment.",
+        script: "That wave surprised me! This secure fit moves comfortably. Enjoy every resort moment.",
     },
     beats: [
         { ...beat(0, "hook", "The adult woman reacts naturally to a small wave while wearing the same black string bikini.", "a sunny tropical beach"), spokenLine: "That wave surprised me!" },
-        beat(1, "pain", "She walks with a confident natural turn while keeping the same face, body proportions, and bikini design.", "the connected resort shoreline"),
+        { ...beat(1, "pain", "She faces the camera and speaks while walking naturally with the same face, body proportions, and bikini design.", "the connected resort shoreline"), spokenLine: "This secure fit moves comfortably." },
         beat(2, "demo", "A closer angle shows the same bikini straps, triangular cups, material, and fit on the same adult model.", "a bright poolside terrace"),
         beat(3, "demo", "She moves naturally through falling water and the same black bikini remains unchanged.", "a tropical resort waterfall"),
-        beat(4, "cta", "She finishes in a confident full-body pose with the same garment fully visible.", "a shaded poolside lounge"),
+        { ...beat(4, "cta", "She faces the camera and delivers the final line with the same garment fully visible.", "a shaded poolside lounge"), spokenLine: "Enjoy every resort moment." },
     ],
     enhancementWords: "Photorealistic daylight, stable anatomy, consistent face and garment identity.",
 };
@@ -98,6 +98,8 @@ assert.doesNotMatch(firstClipPrompt, /falling water/i);
 assert.match(waterfallClipPrompt, /falling water/i);
 assert.doesNotMatch(waterfallClipPrompt, /small wave/i);
 assert.match(waterfallClipPrompt, /do not replay/i);
+assert.match(waterfallClipPrompt, /silent B-roll beat/i);
+assert.match(waterfallClipPrompt, /Generate no speech/i);
 assert.match(firstClipPrompt, /generate clear audible speech/i);
 assert.match(firstClipPrompt, /That wave surprised me!/i);
 assert.match(firstClipPrompt, /synchronized lips/i);
@@ -106,11 +108,13 @@ const wholeAudioDirection = compileStoryboardAudioDirection(apparelPlan, apparel
 assert.match(wholeAudioDirection, /do not return a silent or music-only video/i);
 assert.match(wholeAudioDirection, /natural English/i);
 assert.match(wholeAudioDirection, /adult female voice/i);
-assert.match(wholeAudioDirection, /Perform this exact spoken script once/i);
-assert.match(wholeAudioDirection, /That wave surprised me, but this secure fit/i);
-assert.match(wholeAudioDirection, /Narration timing lock/i);
-assert.match(wholeAudioDirection, /0-3s say 'That wave surprised me!'/i);
-assert.match(wholeAudioDirection, /Do not front-load/i);
+assert.match(wholeAudioDirection, /On-camera cue timing/i);
+assert.match(wholeAudioDirection, /0-3s the same presenter faces the camera and says 'That wave surprised me!'/i);
+assert.match(wholeAudioDirection, /3-6s the same presenter faces the camera and says 'This secure fit moves comfortably.'/i);
+assert.match(wholeAudioDirection, /12-15s the same presenter faces the camera and says 'Enjoy every resort moment.'/i);
+assert.match(wholeAudioDirection, /Keep 6-9s, 9-12s silent/i);
+assert.match(wholeAudioDirection, /do not cut away until each quoted line ends/i);
+assert.doesNotMatch(wholeAudioDirection, /Perform this exact spoken script once/i);
 
 const legacyApparelPlan: CanvasCommerceVideoPlan = {
     ...apparelPlan,
@@ -120,18 +124,17 @@ const legacyApparelPlan: CanvasCommerceVideoPlan = {
 const legacyAudioDirection = compileStoryboardAudioDirection(legacyApparelPlan, apparelPlan.directorBrief, 15);
 assert.match(legacyAudioDirection, /generate clear audible commercial speech/i, "saved 3.0 plans without audioPlan must regain speech");
 assert.match(legacyAudioDirection, /speak natural Mandarin Chinese/i);
-assert.match(legacyAudioDirection, /0-3s say '看，这套一上身就很亮眼。'/i);
-assert.match(legacyAudioDirection, /3-6s say '选衣服，款式和细节都要看清。'/i);
-assert.match(legacyAudioDirection, /6-9s say '近一点看，做工细节都很清楚。'/i);
-assert.match(legacyAudioDirection, /9-15s say '正面侧面都看一遍，整体更直观，喜欢这套就选它吧。'/i);
-assert.match(legacyAudioDirection, /Perform each exact cue line once/i);
-assert.match(legacyAudioDirection, /Never replace it with director notes or production terminology/i);
-assert.match(legacyAudioDirection, /Keep the final combined demonstration-and-CTA sentence intact/i);
-assert.doesNotMatch(legacyAudioDirection, /one brief target-language phrase|adult model|garment inspection/i);
+assert.match(legacyAudioDirection, /same adult presenter delivers two or three concise/i);
+assert.match(legacyAudioDirection, /do not force a continuous timed narration script/i);
+assert.match(legacyAudioDirection, /genuinely synchronized lips, jaw, cheeks, breath/i);
+assert.match(legacyAudioDirection, /Use no off-screen voiceover/i);
+assert.match(legacyAudioDirection, /detail.*back views.*silent/i);
+assert.match(legacyAudioDirection, /Never play speech over a hidden, frozen, smiling, or non-speaking mouth/i);
+assert.doesNotMatch(legacyAudioDirection, /Narration timing lock|say '看，|Perform each exact cue line/i);
 assert.doesNotMatch(legacyAudioDirection, /26-34 English words/i);
 const tenSecondLegacyAudioDirection = compileStoryboardAudioDirection(legacyApparelPlan, apparelPlan.directorBrief, 10);
-assert.match(tenSecondLegacyAudioDirection, /6-10s say '正面侧面都看一遍，整体更直观，喜欢这套就选它吧。'/i, "saved 15-second beat ranges must scale to a 10-second model request");
-assert.doesNotMatch(tenSecondLegacyAudioDirection, /8-10s say|12-15s say/i);
+assert.match(tenSecondLegacyAudioDirection, /two or three concise, natural/i);
+assert.doesNotMatch(tenSecondLegacyAudioDirection, /\d+-\d+s say/i);
 assert.equal(resolveStoryboardMode({ productCategory: "apparel" }), "apparel", "legacy apparel plans without storyboardMode must not receive product-cleaning constraints");
 
 const silentAudioDirection = compileStoryboardAudioDirection({ ...apparelPlan, audioPlan: { mode: "ambient-only" } }, "music only", 15);
@@ -162,7 +165,7 @@ const channel28ConstraintPrompt = buildStoryboardVideoConstraintPrompt({
     aspectRatio: "16:9",
     audioDirection: "Audio lock: use one consistent adult female voice.",
 });
-assert.equal(GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, "commerce-v7-four-cue-voice");
+assert.equal(GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, "commerce-v8-i2v-on-camera");
 assert.equal(channel28ConstraintPrompt.split(STORYBOARD_DIRECTED_VIDEO_MARKER).length - 1, 1, "constraint template must be emitted once");
 assert.match(channel28ConstraintPrompt, /<IMAGE_1> is the exact product\/source identity lock/);
 assert.match(channel28ConstraintPrompt, /<IMAGE_2> through <IMAGE_7> are ordered timeline anchors/);
@@ -187,7 +190,22 @@ assert.match(wholeGridConstraintPrompt, /<IMAGE_1> is the complete ordered 12-pa
 assert.match(wholeGridConstraintPrompt, /Decode its panels left-to-right, top-to-bottom/);
 assert.match(wholeGridConstraintPrompt, /Timeline: 0-18%/);
 assert.match(wholeGridConstraintPrompt, /Commerce rhythm:/);
-assert.match(wholeGridConstraintPrompt, /Narration timing lock:/);
+assert.match(wholeGridConstraintPrompt, /Create the voice and visible performance together/);
+
+const anchoredWholeGridConstraintPrompt = buildStoryboardVideoConstraintPrompt({
+    userDirection: "Follow the compiled beach apparel beats in order.",
+    duration: 15,
+    sourcePanelCount: 12,
+    attachedReferenceCount: 1,
+    identityReferenceCount: 1,
+    aspectRatio: "9:16",
+    audioDirection: legacyAudioDirection,
+    wholeStoryboardGrid: true,
+});
+assert.match(anchoredWholeGridConstraintPrompt, /<IMAGE_1> is the exact opening-frame identity anchor/i);
+assert.match(anchoredWholeGridConstraintPrompt, /Animate the attached identity image as the exact opening anchor/i);
+assert.match(anchoredWholeGridConstraintPrompt, /same presenter face, hair, wardrobe, age, body proportions, and voice/i);
+assert.doesNotMatch(anchoredWholeGridConstraintPrompt, /attached storyboard grid|from the grid/i);
 
 const compiledWholeGridConstraintPrompt = buildStoryboardVideoConstraintPrompt({
     userDirection: "Follow the compiled beach apparel beats in order.",
@@ -299,14 +317,20 @@ const hoverToolbarSource = readFileSync(new URL("../src/app/(user)/canvas/compon
 const configStoreSource = readFileSync(new URL("../src/stores/use-config-store.ts", import.meta.url), "utf8");
 const promptPanelSource = readFileSync(new URL("../src/app/(user)/canvas/components/canvas-node-prompt-panel.tsx", import.meta.url), "utf8");
 const videoServiceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
-assert.match(canvasClientSource, /storyboardReviewSheetWholeReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "storyboard video generation must detect the selected whole grid before compiling its T2V prompt");
-assert.match(canvasClientSource, /usesWholeStoryboardSheet \? \[\] : mergeReferenceImages\(generationContext\.referenceImages, storyboardIdentityImages\)/, "a connected whole grid must take priority over underlying identity-source fallbacks");
-assert.match(canvasClientSource, /const storyboardVideoImages = usesWholeStoryboardSheet \? \[\] : storyboardReferenceFrames/, "whole-grid generation must restore the proven 15-second T2V request contract");
-assert.match(canvasClientSource, /referenceMode: "t2v"/, "whole-grid prompt compilation must not claim an I2V reference");
-assert.match(canvasClientSource, /retriesWholeStoryboardSheet\s*\? \[\]/, "whole-grid retry must remain T2V instead of reattaching the collage");
-assert.match(canvasClientSource, /buildWholeStoryboardI2VPrompt/, "whole-grid T2V must use the compact channel-28-style prompt path");
-assert.match(canvasClientSource, /storyboard has been compiled into the ordered direction above/, "whole-grid T2V must describe the compiled plan instead of a phantom attached grid");
-assert.match(canvasClientSource, /no image reference is attached/, "whole-grid T2V must state its actual reference contract");
+assert.match(canvasClientSource, /storyboardReviewSheetWholeReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "storyboard video generation must detect the selected whole grid before compiling its I2V prompt");
+assert.match(canvasClientSource, /const wholeStoryboardAnchorImages = usesWholeStoryboardSheet/, "whole-grid generation must resolve one clean identity anchor");
+assert.match(
+    canvasClientSource,
+    /wholeStoryboardIdentityCandidates\.length \? wholeStoryboardIdentityCandidates : mergeReferenceImages\(storyboardReferenceFrames, storyboardReviewSheetImages\)/,
+    "whole-grid generation must prefer the original identity source and only fall back to a clean first panel",
+);
+assert.match(canvasClientSource, /const storyboardVideoImages = usesWholeStoryboardSheet \? \[\] : storyboardReferenceFrames/, "whole-grid generation must not attach all storyboard panels");
+assert.match(canvasClientSource, /referenceMode: videoReferenceImages\.length \? "i2v" : "t2v"/, "whole-grid prompt compilation must describe the actual single-image contract");
+assert.match(canvasClientSource, /const retryWholeStoryboardAnchors = retriesWholeStoryboardSheet/, "whole-grid retry must restore the saved clean identity anchor");
+assert.match(canvasClientSource, /retriesWholeStoryboardSheet \? retryImages : selectGrokReferenceVideoImagesWithPriority/, "whole-grid retry must keep exactly one I2V image");
+assert.match(canvasClientSource, /buildWholeStoryboardI2VPrompt/, "whole-grid I2V must use the compact task-245-style prompt path");
+assert.match(canvasClientSource, /<IMAGE_1> is the exact opening-frame identity anchor/, "whole-grid I2V must declare the real identity reference contract");
+assert.match(canvasClientSource, /ON-CAMERA SALES PERFORMANCE/, "whole-grid presenter videos must bind every cue to visible synchronized speech");
 assert.match(canvasClientSource, /wholeStoryboardGrid: true/, "product whole-grid I2V must restore the direct-response commerce template");
 assert.match(canvasClientSource, /MANDATORY LOCATION SEQUENCE/, "whole-grid prompt must preserve the structured location order outside the compacted plan text");
 assert.match(canvasClientSource, /Do not merge, substitute, omit, or revisit locations/, "whole-grid prompt must keep every planned location distinct");
@@ -321,6 +345,8 @@ assert.match(configStoreSource, /shouldMigrateTextModel \? \["gpt-5\.6-sol"\]/, 
 assert.doesNotMatch(promptPanelSource, /tokaxis::gpt-5\.5/, "prompt polish UI must not retain a GPT-5.5 fallback");
 assert.match(videoServiceSource, /referenceMode === "i2v" \? \{ image: referenceImages\[0\] \}/, "Fast single-image mode must send the explicit image field");
 assert.match(videoServiceSource, /referenceMode === "r2v" \? \{ reference_images: referenceImages \}/, "reference-to-video mode must preserve reference_images");
+assert.match(videoServiceSource, /Visible speech rule: when a visible presenter is speaking, keep the face clearly visible for the complete line/i, "single-image I2V must preserve the task-245 visible-speech contract");
+assert.doesNotMatch(videoServiceSource, /Use off-screen voiceover by default/, "single-image I2V must not regress to detached narration");
 assert.doesNotMatch(videoServiceSource, /reference_images:\s*referenceImages,\s*\n\s*};/, "video requests must not force every image input into reference_images");
 
 console.log("storyboard prompt regression: passed");

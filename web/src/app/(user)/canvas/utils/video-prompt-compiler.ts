@@ -53,22 +53,43 @@ export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | 
 
     const evidence = [userDirection, plan?.visualIdentity || "", ...(plan?.beats || []).map((beat) => beat.description || "")].join(" ");
     const hasVisiblePresenter = plan?.storyboardMode === "apparel" || plan?.storyboardMode === "subject" || visiblePresenterPattern.test(evidence);
-    const mode = audioPlan?.mode || (hasVisiblePresenter ? "mixed" : "voiceover");
+    // Saved plans from before audioPlan existed should behave like the proven
+    // presenter-led I2V workflow, not silently fall back to detached narration.
+    const mode = audioPlan?.mode || (hasVisiblePresenter ? "on-camera" : "voiceover");
     const voice = compactSpeechText(audioPlan?.voice || "", 180) || inferredVoiceDirection(evidence);
     const script = compactSpeechText(audioPlan?.script || "", 520);
     const fallbackLanguage = script ? audioPlan?.language : resolveFallbackSpeechLanguage(plan, userDirection);
     const languageDirection = storyboardLanguageDirection(fallbackLanguage, userDirection);
+
+    // Older saved storyboards do not have an audioPlan. The proven July 10
+    // single-reference I2V result let Grok compose short lines around visible
+    // performances instead of forcing narration across every visual beat.
+    if (!audioPlan && hasVisiblePresenter) {
+        return [
+            "Audio and speech lock: generate clear audible commercial speech in the final audio track; do not return a silent or music-only video.",
+            voice,
+            languageDirection,
+            "Create the voice and visible performance together: the same adult presenter delivers two or three concise, natural, evidence-safe sales phrases during close or medium shots where the face stays clearly visible for each complete phrase.",
+            "Let the wording and timing fit the physical performance and editorial cuts naturally; do not force a continuous timed narration script.",
+            "Generate genuinely synchronized lips, jaw, cheeks, breath, and facial micro-expressions with the voice. Do not cut away from the face until a spoken phrase ends.",
+            "Use no off-screen voiceover. Keep product details, body or garment details, back views, turns, demonstrations without a visible face, and reaction holds silent with only ambience or low music.",
+            "Never play speech over a hidden, frozen, smiling, or non-speaking mouth. Keep music below the voice. No captions, subtitles, invented prices, discounts, certifications, brand wording, testimonials, medical claims, or unsupported benefits.",
+        ].join(" ");
+    }
+
     const timingDirection = compileWholeVideoSpeechTiming(plan, duration, Boolean(script), userDirection);
     const performance =
         mode === "on-camera"
-            ? "The visible adult presenter delivers the spoken script on camera with natural synchronized lips, jaw, cheeks, breath, and facial micro-expressions."
+            ? "The same visible adult presenter performs every spoken cue on camera. Keep the face clearly visible and looking toward the camera for the complete line, with natural synchronized lips, jaw, cheeks, breath, and facial micro-expressions. Put detail close-ups, back views, and silent reaction holds only between cue lines. Never use off-screen voiceover for a quoted cue and never play speech over a frozen mouth or static smile."
             : mode === "mixed"
-              ? "Lip-sync only a cue whose shot clearly shows the adult presenter addressing the camera; use off-screen voiceover for demos and detail shots. Never force mouth movement in a non-speaking shot."
+              ? "Perform every cue assigned to the visible adult presenter on camera with the face clearly visible for the complete line and natural synchronized lips, jaw, and facial motion. Use off-screen voiceover only for a beat explicitly written as narration with no presenter spokenLine; place detail shots and back views between spoken cues. Never play speech over a frozen mouth or static smile."
               : "Use off-screen voiceover. Do not animate a visible mouth unless an explicit beat line is assigned to that presenter.";
-    const scriptDirection = script
-        ? `Perform this exact spoken script once, naturally, without paraphrasing or reading production instructions: "${script}" Distribute its clauses across the matching cue ranges in order.`
-        : timingDirection
-          ? "Perform each exact cue line once with natural conversational emphasis; do not paraphrase it or read any production instruction aloud."
+    const scriptDirection = timingDirection
+        ? "Perform each exact cue line once with natural conversational emphasis; do not paraphrase it or read any production instruction aloud."
+        : script
+          ? mode === "on-camera"
+              ? `Perform this exact spoken script once, naturally, across two or three close or medium face shots: "${script}" Choose phrase breaks that fit the visible performance; keep non-face shots silent.`
+              : `Perform this exact spoken script once, naturally, without paraphrasing or reading production instructions: "${script}"`
           : `Write and perform one concise, evidence-safe commercial script of about ${speechWordBudget(duration)} English words or equivalent cadence, using only visible facts and the requested actions.`;
 
     return [
@@ -94,6 +115,9 @@ function compileStoryboardBeatAudioDirection(plan: CanvasCommerceVideoPlan, beat
     const voice = compactSpeechText(audioPlan?.voice || "", 180) || inferredVoiceDirection(evidence);
     const spokenLine = compactSpeechText(beat.spokenLine || "", 220);
     const fullScript = compactSpeechText(audioPlan?.script || "", 420);
+    if (audioPlan?.mode === "on-camera" && !spokenLine) {
+        return "This is a silent B-roll beat. Generate no speech, dialogue, narration, or singing; use only natural location sound and low background music. Do not animate the presenter as if speaking.";
+    }
     const speech = spokenLine
         ? `Say exactly this line once: "${spokenLine}"`
         : fullScript
@@ -384,6 +408,27 @@ function storyboardLanguageDirection(explicitLanguage: string | undefined, userD
 function compileWholeVideoSpeechTiming(plan: CanvasCommerceVideoPlan | undefined, duration: number, hasExactScript: boolean, userDirection: string) {
     const beats = orderBeats(plan?.beats);
     if (!beats.length) return "";
+    const audioMode = plan?.audioPlan?.mode;
+    const presenterCueBeats = beats.filter((beat) => compactSpeechText(beat.spokenLine || "", 110));
+    if ((audioMode === "on-camera" || audioMode === "mixed") && presenterCueBeats.length) {
+        const selectedCueBeats = presenterCueBeats.length <= 6 ? presenterCueBeats : pickEvenly(presenterCueBeats, 6);
+        const allParsedRanges = beats.map((beat) => parseSpeechTimeRange(beat.timeRange));
+        const plannedEnd = Math.max(0, ...allParsedRanges.map((range) => range?.end || 0));
+        const timeScale = plannedEnd > 0 && Math.abs(plannedEnd - duration) > 0.25 ? duration / plannedEnd : 1;
+        const cues = selectedCueBeats.map((beat) => {
+            const parsedRange = parseSpeechTimeRange(beat.timeRange);
+            const range = parsedRange ? `${formatCueSecond(parsedRange.start * timeScale)}-${formatCueSecond(parsedRange.end * timeScale)}s` : "a dedicated face shot";
+            return `${range} the same presenter faces the camera and says '${compactSpeechText(beat.spokenLine || "", 110)}'`;
+        });
+        const silentRanges = beats
+            .filter((beat) => !compactSpeechText(beat.spokenLine || "", 110))
+            .map((beat) => parseSpeechTimeRange(beat.timeRange))
+            .filter((range): range is { start: number; end: number } => Boolean(range))
+            .map((range) => `${formatCueSecond(range.start * timeScale)}-${formatCueSecond(range.end * timeScale)}s`);
+        const silenceRule = silentRanges.length ? ` Keep ${silentRanges.join(", ")} silent with ambience or low music only.` : "";
+        return `On-camera cue timing: ${cues.join("; ")}. Keep the face visible and do not cut away until each quoted line ends.${silenceRule}`;
+    }
+    if (audioMode === "on-camera" && hasExactScript) return "";
     const selectedBeats = beats.length <= 6 ? beats : pickEvenly(beats, 6);
     const usesLegacyFallback = !hasExactScript && selectedBeats.every((beat) => !compactSpeechText(beat.spokenLine || "", 110));
     const beatGroups = usesLegacyFallback ? groupLegacySpeechBeats(selectedBeats) : selectedBeats.map((beat) => [beat]);

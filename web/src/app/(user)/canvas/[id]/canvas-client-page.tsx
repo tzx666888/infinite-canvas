@@ -3478,12 +3478,18 @@ function InfiniteCanvasPage() {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
                     const storyboardReviewSheetImages = storyboardReviewSheetWholeReferences(nodeId, nodesRef.current, connectionsRef.current);
                     const usesWholeStoryboardSheet = storyboardReviewSheetImages.length > 0;
-                    const storyboardReferenceFrames = usesWholeStoryboardSheet ? [] : await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current);
-                    const storyboardIdentityImages = usesWholeStoryboardSheet ? [] : await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current);
-                    // The proven channel-28 workflow compiled the selected grid
-                    // into a 15-second T2V prompt. Sending the collage itself as
-                    // I2V forces Fast down to 10 seconds and weakens the edit.
-                    const videoIdentityImages = usesWholeStoryboardSheet ? [] : mergeReferenceImages(generationContext.referenceImages, storyboardIdentityImages);
+                    const storyboardIdentityImages = await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current);
+                    const reviewSheetIds = new Set(storyboardReviewSheetImages.map((reference) => reference.id));
+                    const connectedIdentityImages = generationContext.referenceImages.filter((reference) => !reviewSheetIds.has(reference.id));
+                    const wholeStoryboardIdentityCandidates = mergeReferenceImages(storyboardIdentityImages, connectedIdentityImages);
+                    const storyboardReferenceFrames = !usesWholeStoryboardSheet || !wholeStoryboardIdentityCandidates.length ? await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current) : [];
+                    // Task 245 proved that Fast can keep the full 15-second edit
+                    // with one I2V anchor. Prefer the original clean identity
+                    // source, then a clean first panel; never send all 12 frames.
+                    const wholeStoryboardAnchorImages = usesWholeStoryboardSheet
+                        ? (wholeStoryboardIdentityCandidates.length ? wholeStoryboardIdentityCandidates : mergeReferenceImages(storyboardReferenceFrames, storyboardReviewSheetImages)).slice(0, 1)
+                        : [];
+                    const videoIdentityImages = usesWholeStoryboardSheet ? wholeStoryboardAnchorImages : mergeReferenceImages(generationContext.referenceImages, storyboardIdentityImages);
                     const storyboardVideoImages = usesWholeStoryboardSheet ? [] : storyboardReferenceFrames;
                     const allVideoReferenceImages = mergeReferenceImages(videoIdentityImages, storyboardVideoImages);
                     const baseVideoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, allVideoReferenceImages.length);
@@ -3495,18 +3501,18 @@ function InfiniteCanvasPage() {
                         videoPromptSource = directProductLock.prompt;
                     }
                     const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, directProductLock ? 1 : videoReferenceImages.length);
-                    const videoIdentityReferenceCount = Math.min(videoIdentityImages.length, videoReferenceImages.length);
+                    const videoIdentityReferenceCount = usesWholeStoryboardSheet ? videoReferenceImages.length : Math.min(videoIdentityImages.length, videoReferenceImages.length);
                     const storyboardPlan = sourceNode?.metadata?.commerceVideoPlan;
                     if (usesWholeStoryboardSheet && storyboardPlan?.beats?.length) {
                         videoPromptSource = compileVideoPrompt(storyboardPlan, {
                             model: "grok",
                             duration: Number(videoGenerationConfig.videoSeconds),
                             aspectRatio: videoAspectRatioForSize(videoGenerationConfig.size),
-                            referenceMode: "t2v",
+                            referenceMode: videoReferenceImages.length ? "i2v" : "t2v",
                         });
                     }
                     const videoPrompt = usesWholeStoryboardSheet
-                        ? buildWholeStoryboardI2VPrompt(videoPromptSource, videoGenerationConfig.videoSeconds, videoAspectRatioForSize(videoGenerationConfig.size), storyboardPlan)
+                        ? buildWholeStoryboardI2VPrompt(videoPromptSource, videoGenerationConfig.videoSeconds, videoAspectRatioForSize(videoGenerationConfig.size), storyboardPlan, videoReferenceImages.length, videoIdentityReferenceCount)
                         : buildStoryboardReviewSheetVideoPrompt(
                               videoPromptSource,
                               storyboardReferenceFrames.length,
@@ -3761,9 +3767,11 @@ function InfiniteCanvasPage() {
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
             const storyboardRetryWholeImages = node.type === CanvasNodeType.Video ? storyboardReviewSheetWholeReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const retriesWholeStoryboardSheet = storyboardRetryWholeImages.length > 0;
-            const storyboardRetryImages = node.type === CanvasNodeType.Video && !retriesWholeStoryboardSheet ? await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
-            const storyboardRetryIdentityImages = node.type === CanvasNodeType.Video && !retriesWholeStoryboardSheet ? await storyboardReviewSheetIdentityReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const storedVideoReferenceImages = node.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(node.metadata) : [];
+            const storyboardRetryIdentityImages = node.type === CanvasNodeType.Video ? await storyboardReviewSheetIdentityReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
+            const storedWholeStoryboardAnchors = retriesWholeStoryboardSheet ? mergeReferenceImages(storedVideoReferenceImages, storyboardRetryIdentityImages) : [];
+            const storyboardRetryImages =
+                node.type === CanvasNodeType.Video && (!retriesWholeStoryboardSheet || !storedWholeStoryboardAnchors.length) ? await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const hasVideoReferences =
                 node.type === CanvasNodeType.Video &&
                 Boolean(storyboardRetryWholeImages.length || storedVideoReferenceImages.length || storyboardRetryImages.length || context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
@@ -3781,19 +3789,28 @@ function InfiniteCanvasPage() {
                 return;
             }
             const retrySourceImages = hasSavedImageMetadata ? [] : sourceNodeReferenceImages(sourceNode);
-            // A connected whole storyboard keeps the proven compiled T2V path
-            // on retry. Stored identity fallbacks remain for legacy nodes whose
-            // clean keyframe references can no longer be restored.
-            const retryIdentityImages = retriesWholeStoryboardSheet ? [] : mergeReferenceImages(storyboardRetryIdentityImages, storedVideoReferenceImages, retrySourceImages, retryReferenceImages || []);
+            const retryWholeGridIds = new Set(storyboardRetryWholeImages.map((reference) => reference.id));
+            const retryConnectedIdentityImages = (context?.referenceImages || []).filter((reference) => !retryWholeGridIds.has(reference.id));
+            // Whole-video retries must keep exactly one clean I2V identity
+            // anchor. Stored metadata wins, followed by the original source and
+            // a clean first panel; the collage is only a last-resort fallback.
+            const retryWholeStoryboardAnchors = retriesWholeStoryboardSheet
+                ? mergeReferenceImages(storedVideoReferenceImages, storyboardRetryIdentityImages, retryConnectedIdentityImages, retryReferenceImages || [], storyboardRetryImages, storyboardRetryWholeImages).slice(0, 1)
+                : [];
+            const retryIdentityImages = retriesWholeStoryboardSheet ? retryWholeStoryboardAnchors : mergeReferenceImages(storyboardRetryIdentityImages, storedVideoReferenceImages, retrySourceImages, retryReferenceImages || []);
             const retryImages =
-                node.type === CanvasNodeType.Video ? (retriesWholeStoryboardSheet ? [] : mergeReferenceImages(retryIdentityImages, storyboardRetryImages)) : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
+                node.type === CanvasNodeType.Video
+                    ? retriesWholeStoryboardSheet
+                        ? retryWholeStoryboardAnchors
+                        : mergeReferenceImages(retryIdentityImages, storyboardRetryImages)
+                    : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
             let retryVideoImages = retryImages;
             let retryVideoPromptSource = prompt;
             let retryDirectProductLock: ReturnType<typeof buildDirectProductLockVideoContext> = null;
             if (node.type === CanvasNodeType.Video) {
                 const retryOriginalGenerationConfig = generationConfig;
                 generationConfig = resolveReferenceImageVideoConfig(retryOriginalGenerationConfig, retryImages.length);
-                retryVideoImages = selectGrokReferenceVideoImagesWithPriority(retryIdentityImages, storyboardRetryImages, generationConfig.model);
+                retryVideoImages = retriesWholeStoryboardSheet ? retryImages : selectGrokReferenceVideoImagesWithPriority(retryIdentityImages, storyboardRetryImages, generationConfig.model);
                 retryDirectProductLock = buildDirectProductLockVideoContext(retryVideoPromptSource, retryVideoImages, storyboardRetryImages.length, generationConfig.model, generationConfig.videoProductScaleMode);
                 if (retryDirectProductLock) {
                     retryVideoImages = retryDirectProductLock.referenceImages;
@@ -3850,7 +3867,7 @@ function InfiniteCanvasPage() {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
                     const retryIdentityReferenceCount = Math.min(retryIdentityImages.length, retryVideoImages.length);
                     let videoPrompt = retriesWholeStoryboardSheet
-                        ? buildWholeStoryboardI2VPrompt(retryVideoPromptSource, generationConfig.videoSeconds, videoAspectRatioForSize(generationConfig.size), node.metadata?.commerceVideoPlan)
+                        ? buildWholeStoryboardI2VPrompt(retryVideoPromptSource, generationConfig.videoSeconds, videoAspectRatioForSize(generationConfig.size), node.metadata?.commerceVideoPlan, retryVideoImages.length, retryIdentityReferenceCount)
                         : buildStoryboardReviewSheetVideoPrompt(
                               retryVideoPromptSource,
                               storyboardRetryImages.length,
@@ -3895,7 +3912,7 @@ function InfiniteCanvasPage() {
                                           generateAudio: generationConfig.videoGenerateAudio,
                                           watermark: generationConfig.videoWatermark,
                                           videoSourcePrompt: retryVideoPromptSource,
-                                          videoConstraintVersion: storyboardRetryImages.length ? GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION : undefined,
+                                          videoConstraintVersion: retriesWholeStoryboardSheet || storyboardRetryImages.length ? GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION : undefined,
                                           videoReferenceImages: generationImageReferenceUrls(retryVideoImages).length ? generationImageReferenceUrls(retryVideoImages) : item.metadata?.videoReferenceImages,
                                           references: generationReferenceUrls({ referenceImages: retryVideoImages, referenceVideos: context?.referenceVideos || [], referenceAudios: context?.referenceAudios || [] }),
                                       },
@@ -5146,7 +5163,7 @@ async function cropStoryboardVideoFrame(dataUrl: string) {
     }
 }
 
-function buildWholeStoryboardI2VPrompt(prompt: string, videoSeconds = "15", aspectRatio: "9:16" | "16:9" | "1:1" = "9:16", plan?: CanvasCommerceVideoPlan) {
+function buildWholeStoryboardI2VPrompt(prompt: string, videoSeconds = "15", aspectRatio: "9:16" | "16:9" | "1:1" = "9:16", plan?: CanvasCommerceVideoPlan, attachedReferenceCount = 0, identityReferenceCount = 0) {
     const unwrappedPrompt = unwrapStoryboardVideoUserDirection(prompt);
     const text = compactStoryboardVideoPrompt(normalizeVideoGenerationPrompt(unwrappedPrompt || (prompt.includes("STORYBOARD-DIRECTED VIDEO.") ? "" : prompt)), Number(videoSeconds) || 15, 1800);
     const mode = plan ? resolveStoryboardMode(plan) : "product";
@@ -5163,14 +5180,27 @@ function buildWholeStoryboardI2VPrompt(prompt: string, videoSeconds = "15", aspe
               : mode === "scene"
                 ? "Treat this as a scene-progression montage inside one coherent visual world, following the ordered environmental changes without importing unrelated entities."
                 : "Treat this as a product-led short video. Preserve the exact product geometry, colors, labels, component count, and scale while following only the compiled ordered actions.";
+    const referenceDirection = attachedReferenceCount
+        ? identityReferenceCount
+            ? "<IMAGE_1> is the exact opening-frame identity anchor. Preserve its adult face, hair, wardrobe or product, body proportions, colors, materials, and visible geometry in every shot. The storyboard timeline is supplied in writing; never show a grid or collage."
+            : "<IMAGE_1> is the source storyboard image. Decode its order but recreate every beat as clean full-frame footage; never show the grid or collage."
+        : "The storyboard has been compiled into the ordered written direction; no image reference is attached.";
+    const presenterSpeechDirection =
+        mode === "apparel" || mode === "subject"
+            ? plan?.audioPlan?.mode === "voiceover" || plan?.audioPlan?.mode === "ambient-only"
+                ? ""
+                : plan?.audioPlan?.mode === "mixed"
+                  ? "PRESENTER PERFORMANCE LOCK: every presenter-assigned cue is generated as one synchronized voice-and-face performance in a clear close or medium shot. Do not cut away until the cue ends; place narration-only or silent B-roll between presenter cues."
+                  : "ON-CAMERA SALES PERFORMANCE: generate the voice and facial performance together. All speech occurs in clear close or medium shots of the same presenter, with the face visible for each complete phrase and no cutaway until it ends. Use no off-screen voiceover; keep detail shots, back views, turns, and silent smiles free of speech."
+            : "";
     const audioDirection = compileStoryboardAudioDirection(plan, text, Number(videoSeconds) || 15);
     if (mode === "product") {
         return buildStoryboardVideoConstraintPrompt({
             userDirection: [locationSequenceDirection, text].filter(Boolean).join(" "),
             duration: normalizeStoryboardVideoSeconds(videoSeconds, 1),
             sourcePanelCount: STORYBOARD_REVIEW_PANEL_COUNT,
-            attachedReferenceCount: 0,
-            identityReferenceCount: 0,
+            attachedReferenceCount,
+            identityReferenceCount,
             aspectRatio,
             audioDirection,
             wholeStoryboardGrid: true,
@@ -5179,10 +5209,12 @@ function buildWholeStoryboardI2VPrompt(prompt: string, videoSeconds = "15", aspe
     const assemblePrompt = (userDirection: string) =>
         [
             STORYBOARD_DIRECTED_VIDEO_MARKER,
-            locationSequenceDirection,
+            referenceDirection,
             audioDirection,
+            presenterSpeechDirection,
+            locationSequenceDirection,
             `User direction: ${userDirection}`,
-            `The source 12-panel storyboard has been compiled into the ordered direction above. Follow those beats as clean full-frame ${aspectRatio} shots; no image reference is attached.`,
+            `The source 12-panel storyboard has been compiled into the ordered direction above. Follow those beats as clean full-frame ${aspectRatio} shots with direct editorial cuts.`,
             modeDirection,
             "Use decisive cuts, varied wide, medium, and detail framing, and believable motion supported by the ordered beats.",
             `Create exactly ${normalizeStoryboardVideoSeconds(videoSeconds, 1)} seconds with one consistent subject, wardrobe, product, and visual world. No collage, captions, morphing, duplication, stretching, or substitutions.`,

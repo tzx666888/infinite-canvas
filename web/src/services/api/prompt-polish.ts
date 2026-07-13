@@ -145,6 +145,7 @@ const VIDEO_STORYBOARD_SYSTEM = `角色
 10. plannedLocations 必须列出计划实际使用的英文地点。若用户点名多个地点，必须包含每个地点的准确英文语义，并在 beats 中按用户顺序覆盖全部地点；禁止把 beach、poolside、resort lounger、tropical waterfall 等不同地点概括成一个 shoreline 或同一背景。
 11. 电商视频默认需要可听见的口播，只有用户明确要求无声、纯音乐或环境音时才使用 ambient-only。口播必须只说素材可见信息和用户提供的事实，不得编造功效、价格、折扣、认证、销量或品牌文字。
 12. audioPlan.script 是整片可直接演绎的简短口播稿：6s 约 10-14 个英文词，10s 约 18-24 个英文词，15s 约 26-34 个英文词，其他语言使用等价口播节奏。每个 beat 可写 spokenLine；看得见人物说话的 beat 必须给出短句并要求自然对口型，旁白 beat 不得让画面人物假装说话。
+13. apparel / subject 中只要可见成年人物承担带货口播，且用户没有明确要求画外旁白，audioPlan.mode 必须使用 on-camera。每个 spokenLine 对应的 description 必须写明同一人物面向镜头开口说话，整句期间保持清晰正脸和自然口型。纯商品特写、局部材质、背身和无脸动作镜头的 spokenLine 必须为空，并安排在台词间的无声空隙。
 
 CommerceVideoPlan JSON 要求
 第一段必须输出 markdown JSON 代码块，语言名为 json。JSON 结构必须兼容 CanvasCommerceVideoPlan：
