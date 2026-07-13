@@ -1,6 +1,16 @@
 import axios from "axios";
 
-import { isGrok1080pVideoModel, isGrokVideoModel, normalizeReferenceVideoSeconds, preferredGrokVideoModel, selectGrokReferenceVideoImages, supportsGrokVideoReferenceCount, videoAspectRatioForSize } from "@/lib/video-model-settings";
+import {
+    fixedGrokVideoResolution,
+    grokVideoReferenceImageLimit,
+    isGrok1080pVideoModel,
+    isGrokVideoModel,
+    normalizeReferenceVideoSeconds,
+    preferredGrokVideoModel,
+    selectGrokReferenceVideoImages,
+    supportsGrokVideoReferenceCount,
+    videoAspectRatioForSize,
+} from "@/lib/video-model-settings";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
@@ -90,10 +100,14 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const modelName = modelOptionName(model);
-    const requestReferences = selectGrokReferenceVideoImages(references, modelName);
-    if (!supportsGrokVideoReferenceCount(modelName, requestReferences.length)) {
+    if (!supportsGrokVideoReferenceCount(modelName, references.length)) {
+        const limit = grokVideoReferenceImageLimit(modelName);
+        if (references.length > limit) {
+            throw new Error(`${modelDisplayNameForError(modelName)}最多支持 ${limit} 张参考图，请移除多余图片后重试`);
+        }
         throw new Error(`${modelDisplayNameForError(modelName)} 需要连接 1 张参考图后再生成视频`);
     }
+    const requestReferences = selectGrokReferenceVideoImages(references, modelName);
     const seconds = normalizeReferenceVideoSeconds(config.videoSeconds, modelName, requestReferences.length);
     if (!prompt.trim() && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
     const referenceMode = grokVideoReferenceMode(modelName, requestReferences.length);
@@ -149,31 +163,18 @@ function selectGrokVideoModel(config: AiConfig, referenceImageCount: number) {
     const explicitModel = [config.videoModel, config.model].map((model) => model.trim()).find(isGrokVideoModel);
     if (explicitModel) return explicitModel;
 
-    const candidates = [
-        ...config.videoModels,
-        ...config.models,
-        preferredGrokVideoModel(),
-        "tokaxis::grok-imagine-video-1.5-fast",
-        "grok-imagine-video-1.5-fast",
-    ];
+    const candidates = [...config.videoModels, ...config.models, preferredGrokVideoModel(), "tokaxis::grok-imagine-video-1.5-fast", "grok-imagine-video-1.5-fast"];
     return candidates.map((model) => model.trim()).find((model) => isGrokVideoModel(model) && supportsGrokVideoReferenceCount(model, referenceImageCount)) || "";
 }
 
 function modelDisplayNameForError(model: string) {
-    if (model === "grok-imagine-video-1.5-preview") return "Grok 多参考图视频";
-    if (model === "grok-imagine-video-1.5-1080p") return "Grok 1080P 高清视频";
-    if (model === "grok-imagine-video-1.5-fast") return "Grok 视频 1.5";
+    if (model === "grok-imagine-video-1.5-preview") return "Grok Preview 视频";
+    if (model === "grok-imagine-video-1.5-1080p") return "Grok 1080p 视频";
+    if (model === "grok-imagine-video-1.5-fast") return "Grok Fast 视频";
     return "当前 Grok 视频模型";
 }
 
-function buildReferenceVideoPrompt(
-    prompt: string,
-    originalReferenceCount: number,
-    requestReferenceCount: number,
-    seconds: string,
-    productScaleMode = "auto",
-    referenceMode: GrokVideoReferenceMode = requestReferenceCount ? "i2v" : "t2v",
-) {
+function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: number, requestReferenceCount: number, seconds: string, productScaleMode = "auto", referenceMode: GrokVideoReferenceMode = requestReferenceCount ? "i2v" : "t2v") {
     const rawPrompt = prompt.trim();
     const explicitProductScalePrompt = productScaleMode !== "auto" ? buildVideoProductScalePrompt(productScaleMode) : "";
     if (!requestReferenceCount) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
@@ -189,13 +190,16 @@ function buildReferenceVideoPrompt(
             explicitProductScalePrompt,
             "Use off-screen voiceover by default. Animate visible speech only when the direction explicitly says the presenter speaks on camera.",
             `Direction: ${limitInlinePrompt(direction || "Animate the source naturally while preserving visual identity.", 2200)}`,
-        ].filter(Boolean).join("\n");
+        ]
+            .filter(Boolean)
+            .join("\n");
     }
     const marketGuidance = buildLocalMarketVideoGuidance(direction);
     const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration);
-    const referenceCountLine = originalReferenceCount > requestReferenceCount
-        ? `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references selected from ${originalReferenceCount} source images.`
-        : `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references.`;
+    const referenceCountLine =
+        originalReferenceCount > requestReferenceCount
+            ? `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references selected from ${originalReferenceCount} source images.`
+            : `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references.`;
     const roleGuidance = buildReferenceRoleGuidance(direction, requestReferenceCount);
     return [
         `Create a ${duration}-second vertical ecommerce video using all attached images in Grok reference-to-video mode.`,
@@ -211,7 +215,9 @@ function buildReferenceVideoPrompt(
         "Visible speech rule: when a visible presenter is speaking, animate natural synchronized lips, jaw, cheeks, and facial micro-expressions. Never add spoken dialogue over a frozen mouth or static smile. If using off-screen voiceover, keep the presenter looking/listening naturally instead of pretending to speak.",
         "No storyboard artifacts: remove panel numbers, grid borders, badges, captions, arrows, labels, and sheet layout.",
         `Direction: ${limitInlinePrompt(direction || "Animate the references naturally while preserving visual identity and scene continuity.", 2200)}`,
-    ].filter(Boolean).join("\n");
+    ]
+        .filter(Boolean)
+        .join("\n");
 }
 
 function normalizeDurationNumber(value: string) {
@@ -235,9 +241,7 @@ function buildReferenceLabelMap(requestReferenceCount: number) {
 
 function buildReferenceRoleGuidance(direction: string, requestReferenceCount: number) {
     const pair = inferDirectedReferencePair(direction, requestReferenceCount);
-    const lines = [
-        "Reference-role discipline: follow the user's explicit image-number roles instead of treating references as generic inspiration.",
-    ];
+    const lines = ["Reference-role discipline: follow the user's explicit image-number roles instead of treating references as generic inspiration."];
     if (pair) {
         lines.push(
             `- <IMAGE_${pair.base}> is the primary scene, presenter, mood, camera angle, lighting, and opening-frame foundation.`,
@@ -245,10 +249,7 @@ function buildReferenceRoleGuidance(direction: string, requestReferenceCount: nu
             `- Combine <IMAGE_${pair.base}> and <IMAGE_${pair.reference}> across the video sequence, not by welding both references into every single frame.`,
         );
     } else {
-        lines.push(
-            "- If one reference is a person/scene and another is a product/object, combine them in the same commercial story.",
-            "- Any product/object reference must appear as a recognizable hero element, not as a loose color/style hint.",
-        );
+        lines.push("- If one reference is a person/scene and another is a product/object, combine them in the same commercial story.", "- Any product/object reference must appear as a recognizable hero element, not as a loose color/style hint.");
     }
     lines.push(
         "- Do not turn the product/object reference into a cup, food, clothing, fingernails, body part, decoration, or oversized random prop.",
@@ -276,10 +277,14 @@ function buildLocalMarketVideoGuidance(direction: string) {
     const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
     const lines: string[] = [];
     if (wantsIndonesia) {
-        lines.push("Local market: make the video feel like an Indonesian social-commerce ad. If voice or on-screen text is generated, use natural Bahasa Indonesia and Southeast Asian ecommerce rhythm unless the product branding itself uses another language.");
+        lines.push(
+            "Local market: make the video feel like an Indonesian social-commerce ad. If voice or on-screen text is generated, use natural Bahasa Indonesia and Southeast Asian ecommerce rhythm unless the product branding itself uses another language.",
+        );
     }
     if (wantsCommerce) {
-        lines.push("Commerce structure: strong hook in the first 1-2 seconds, immediate product visibility, quick benefit/demo moment, believable use case, final product hero and soft call-to-action. Do not invent unsafe claims, fake prices, or fake platform badges.");
+        lines.push(
+            "Commerce structure: strong hook in the first 1-2 seconds, immediate product visibility, quick benefit/demo moment, believable use case, final product hero and soft call-to-action. Do not invent unsafe claims, fake prices, or fake platform badges.",
+        );
     }
     return lines.join("\n");
 }
@@ -457,6 +462,8 @@ function assertVideoConfig(config: AiConfig, model: string) {
 }
 
 function normalizeVideoResolution(value: string, model = "") {
+    const fixedResolution = fixedGrokVideoResolution(model);
+    if (fixedResolution) return `${fixedResolution}p`;
     if (value === "low") return "480p";
     if (value === "auto" || value === "high" || value === "medium") return "720p";
     const resolution = value.replace(/p$/i, "") || "720";
@@ -545,13 +552,7 @@ function statusMessage(status: number | undefined, fallback: string) {
 function normalizeVideoProviderError(message: string, fallback: string) {
     const text = message.trim();
     const lower = text.toLowerCase();
-    if (
-        lower.includes("grok_video_channel_unavailable") ||
-        lower.includes("model_cooldown") ||
-        lower.includes("resource-exhausted") ||
-        lower.includes("requests per minute") ||
-        lower.includes("当前分组上游负载已饱和")
-    ) {
+    if (lower.includes("grok_video_channel_unavailable") || lower.includes("model_cooldown") || lower.includes("resource-exhausted") || lower.includes("requests per minute") || lower.includes("当前分组上游负载已饱和")) {
         return "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
     }
     if (lower.includes("not_found") || lower.includes("generation_not_found") || lower.includes("not found")) {

@@ -1,7 +1,7 @@
 const GROK_DURATION_OPTIONS = [6, 10, 15] as const;
 const GROK_VIDEO_MODEL_IDS = new Set(["grok-imagine-video-1.5-fast", "grok-imagine-video-1.5-preview", "grok-imagine-video-1.5-1080p"]);
 const GROK_IMAGE_REQUIRED_VIDEO_MODEL_IDS = new Set(["grok-imagine-video-1.5-preview", "grok-imagine-video-1.5-1080p"]);
-const GROK_MULTI_REFERENCE_VIDEO_MODEL_IDS = new Set(["grok-imagine-video-1.5-preview"]);
+const GROK_MULTI_REFERENCE_VIDEO_MODEL_IDS = new Set(["grok-imagine-video-1.5-fast", "grok-imagine-video-1.5-preview"]);
 export const GROK_REFERENCE_VIDEO_MAX_IMAGES = 7;
 export const GROK_REFERENCE_VIDEO_MAX_SECONDS = 10;
 export type VideoAspectRatio = "9:16" | "16:9" | "1:1";
@@ -32,6 +32,11 @@ export function isGrokVideoModel(model: string) {
 
 export function isGrok1080pVideoModel(model: string) {
     return normalizeVideoModelId(model) === "grok-imagine-video-1.5-1080p";
+}
+
+export function fixedGrokVideoResolution(model: string): "720" | "1080" | null {
+    if (!isGrokVideoModel(model)) return null;
+    return isGrok1080pVideoModel(model) ? "1080" : "720";
 }
 
 export function preferredGrokVideoModel() {
@@ -79,8 +84,10 @@ export function selectGrokReferenceVideoImagesWithPriority<T>(priorityItems: T[]
     const combined = [...priorityItems, ...timelineItems];
     const limit = grokVideoReferenceImageLimit(model);
     if (!isGrokVideoModel(model) || combined.length <= limit) return combined;
-    if (!timelineItems.length) return selectGrokReferenceVideoImages(priorityItems, model);
-    // Fast/1080P have one image slot. Preserve an upstream identity/product
+    // Preserve direct user references so the request layer can report an
+    // over-limit error. Only storyboard timeline anchors are sampled.
+    if (!timelineItems.length) return priorityItems;
+    // 1080P has one image slot. Preserve an upstream identity/product
     // image when one exists; otherwise start from the first storyboard frame.
     // Picking the midpoint used to send panel 7 of a 12-panel sheet and made
     // the generated video begin halfway through the story.

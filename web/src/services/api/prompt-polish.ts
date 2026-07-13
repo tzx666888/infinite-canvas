@@ -143,6 +143,8 @@ const VIDEO_STORYBOARD_SYSTEM = `角色
 8. 4s 输出 2 个 beat；8s 输出 3 个 beat；12s 输出 4 个 beat；15s 输出 5-7 个 beat。用户未说明时长时，默认按 15s 输出 5 个 beat。
 9. 每个 beat 必须按时间顺序推进。同一人物、服装和商品身份始终一致；环境可以按 beats 中明确规划的相关地点变化。相邻 beat 必须在动作、景别、机位或地点上有肉眼可见的推进，不得只做轻微换角度。
 10. plannedLocations 必须列出计划实际使用的英文地点。若用户点名多个地点，必须包含每个地点的准确英文语义，并在 beats 中按用户顺序覆盖全部地点；禁止把 beach、poolside、resort lounger、tropical waterfall 等不同地点概括成一个 shoreline 或同一背景。
+11. 电商视频默认需要可听见的口播，只有用户明确要求无声、纯音乐或环境音时才使用 ambient-only。口播必须只说素材可见信息和用户提供的事实，不得编造功效、价格、折扣、认证、销量或品牌文字。
+12. audioPlan.script 是整片可直接演绎的简短口播稿：6s 约 10-14 个英文词，10s 约 18-24 个英文词，15s 约 26-34 个英文词，其他语言使用等价口播节奏。每个 beat 可写 spokenLine；看得见人物说话的 beat 必须给出短句并要求自然对口型，旁白 beat 不得让画面人物假装说话。
 
 CommerceVideoPlan JSON 要求
 第一段必须输出 markdown JSON 代码块，语言名为 json。JSON 结构必须兼容 CanvasCommerceVideoPlan：
@@ -156,6 +158,12 @@ CommerceVideoPlan JSON 要求
   "forbiddenAdditions": ["English names of unrelated entities or actions that must never appear"],
   "selectedHookType": "contrast | pain-point | visual-shock | counter-intuitive | curiosity | number-impact | before-after",
   "hookDescription": "English hook description",
+  "audioPlan": {
+    "mode": "voiceover | on-camera | mixed | ambient-only",
+    "language": "Spoken language requested by the user, otherwise English",
+    "voice": "One concise consistent adult voice direction matching the visible lead when applicable",
+    "script": "Complete concise spoken script in the target spoken language, or an empty string only for ambient-only"
+  },
   "beats": [
     {
       "index": 0,
@@ -164,6 +172,7 @@ CommerceVideoPlan JSON 要求
       "shotType": "close-up | medium | wide | macro | overhead",
       "cameraMove": "static | slow push-in | handheld follow | orbit | tilt down",
       "description": "English visual beat description using only the referenced subject, action, scene and allowed objects",
+      "spokenLine": "Exact short line spoken during this beat in the target spoken language; use an empty string when this beat has no speech",
       "eightElements": {
         "subject": "English",
         "action": "English",
@@ -185,7 +194,7 @@ CommerceVideoPlan JSON 要求
 }
 
 语言硬约束
-- JSON 中所有描述字段必须使用英文。
+- JSON 中除 audioPlan.script 和 beats[].spokenLine 外的所有描述字段必须使用英文。这两个口播字段必须使用 audioPlan.language 指定的目标语言。
 - JSON 后面必须追加“中文分镜说明”，逐个 beat 解释镜头、运镜和身份约束。
 - 输出前逐项核对用户要求。用户点名 N 个地点时，plannedLocations 必须有 N 个对应地点且 beats 必须全部覆盖；不满足时先自行修正再输出。
 
@@ -706,6 +715,12 @@ export function formatCommerceVideoPlan(plan: CanvasCommerceVideoPlan): string {
     if (plan.visualIdentity) lines.push(`视觉身份：${plan.visualIdentity}`);
     if (plan.selectedHookType) lines.push(`钩子类型：${plan.selectedHookType}`);
     if (plan.hookDescription) lines.push(`钩子描述：${plan.hookDescription}`);
+    if (plan.audioPlan) {
+        lines.push(`声音方式：${plan.audioPlan.mode || "mixed"}`);
+        if (plan.audioPlan.language) lines.push(`口播语言：${plan.audioPlan.language}`);
+        if (plan.audioPlan.voice) lines.push(`声线：${plan.audioPlan.voice}`);
+        if (plan.audioPlan.script) lines.push(`整片口播：${plan.audioPlan.script}`);
+    }
     lines.push("");
     if (plan.beats?.length) {
         for (const beat of plan.beats) {
@@ -714,6 +729,7 @@ export function formatCommerceVideoPlan(plan: CanvasCommerceVideoPlan): string {
             if (beat.shotType) lines.push(`景别：${beat.shotType}`);
             if (beat.cameraMove) lines.push(`运镜：${beat.cameraMove}`);
             lines.push(`描述：${beat.description}`);
+            if (beat.spokenLine) lines.push(`台词：${beat.spokenLine}`);
             lines.push("");
         }
     }
@@ -851,7 +867,7 @@ export async function polishPrompt(config: AiConfig, userPrompt: string, mode: P
                                           ? `用户需求：${promptText}\n\n参考图片数量：${images.length}。只输出短版英文视频提示词正文；在内部读取素材，但不要在结果中提 reference、storyboard、grid 或 panel，也不要要求用户补充信息。`
                                           : template === "storyboard"
                                             ? `绑定导演要求（最高优先级，禁止缩写、改写或降级）：${promptText}\n\n参考图片数量：${images.length}。参考图用于锁定人物、服装、商品和可见实体；导演要求用于确定时长、地点、地点顺序、动作与禁用项。若导演要求点名多个地点，plannedLocations 和 beats 必须逐一覆盖所有地点，不得退回首张参考图的单一背景。请严格结合参考图片完成当前模板，不要要求用户补充信息。`
-                                          : `用户需求：${promptText}\n\n参考图片数量：${images.length}。请严格结合参考图片完成当前模板，不要要求用户补充信息。`,
+                                            : `用户需求：${promptText}\n\n参考图片数量：${images.length}。请严格结合参考图片完成当前模板，不要要求用户补充信息。`,
                               },
                               ...images,
                           ]

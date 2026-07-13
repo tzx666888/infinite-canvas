@@ -1,5 +1,5 @@
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
-import { grokVideoReferenceImageLimit, isGrokVideoModel, normalizeReferenceVideoSeconds, preferredGrokVideoModel, supportsGrokVideoReferenceCount } from "@/lib/video-model-settings";
+import { fixedGrokVideoResolution, grokVideoReferenceImageLimit, isGrokVideoModel, normalizeReferenceVideoSeconds, preferredGrokVideoModel, supportsGrokVideoReferenceCount } from "@/lib/video-model-settings";
 
 export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImageCount: number): AiConfig {
     const model = referenceImageCount ? selectReferenceImageVideoModel(config, referenceImageCount) : config.videoModel || config.model;
@@ -9,7 +9,7 @@ export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImag
     return {
         ...nextConfig,
         videoSeconds: normalizeReferenceVideoSeconds(nextConfig.videoSeconds, model || nextConfig.model, effectiveReferenceCount),
-        vquality: "720",
+        vquality: fixedGrokVideoResolution(model || nextConfig.model) || nextConfig.vquality,
     };
 }
 

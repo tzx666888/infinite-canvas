@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import type { CanvasCommerceVideoPlan } from "../src/app/(user)/canvas/types";
-import { compileVideoBeatPrompt, compileVideoPrompt } from "../src/app/(user)/canvas/utils/video-prompt-compiler";
+import { compileStoryboardAudioDirection, compileVideoBeatPrompt, compileVideoPrompt } from "../src/app/(user)/canvas/utils/video-prompt-compiler";
 import { buildStoryboardVideoConstraintPrompt, GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, STORYBOARD_DIRECTED_VIDEO_MARKER, unwrapStoryboardVideoUserDirection } from "../src/lib/storyboard-video-constraints";
 import { selectGrokReferenceVideoImagesWithPriority, supportsGrokVideoReferenceCount, videoAspectRatioForSize } from "../src/lib/video-model-settings";
 import { buildStoryboardReviewSheetPrompt, normalizeGeneratedVideoPrompt, VIDEO_PROMPT_SYSTEM } from "../src/services/api/prompt-polish";
@@ -18,8 +18,14 @@ const apparelPlan: CanvasCommerceVideoPlan = {
     forbiddenAdditions: ["cleaner bottle", "spray trigger", "packaging", "cleaning tools"],
     selectedHookType: "visual-shock",
     hookDescription: "A small wave reaches the adult model as the camera pushes toward the black bikini silhouette.",
+    audioPlan: {
+        mode: "mixed",
+        language: "English",
+        voice: "One natural energetic adult female voice",
+        script: "That wave surprised me, but this secure fit stays comfortable from the beach to the pool. Move freely and enjoy every resort moment.",
+    },
     beats: [
-        beat(0, "hook", "The adult woman reacts naturally to a small wave while wearing the same black string bikini.", "a sunny tropical beach"),
+        { ...beat(0, "hook", "The adult woman reacts naturally to a small wave while wearing the same black string bikini.", "a sunny tropical beach"), spokenLine: "That wave surprised me!" },
         beat(1, "pain", "She walks with a confident natural turn while keeping the same face, body proportions, and bikini design.", "the connected resort shoreline"),
         beat(2, "demo", "A closer angle shows the same bikini straps, triangular cups, material, and fit on the same adult model.", "a bright poolside terrace"),
         beat(3, "demo", "She moves naturally through falling water and the same black bikini remains unchanged.", "a tropical resort waterfall"),
@@ -92,6 +98,24 @@ assert.doesNotMatch(firstClipPrompt, /falling water/i);
 assert.match(waterfallClipPrompt, /falling water/i);
 assert.doesNotMatch(waterfallClipPrompt, /small wave/i);
 assert.match(waterfallClipPrompt, /do not replay/i);
+assert.match(firstClipPrompt, /generate clear audible speech/i);
+assert.match(firstClipPrompt, /That wave surprised me!/i);
+assert.match(firstClipPrompt, /synchronized lips/i);
+
+const wholeAudioDirection = compileStoryboardAudioDirection(apparelPlan, apparelPlan.directorBrief, 15);
+assert.match(wholeAudioDirection, /do not return a silent or music-only video/i);
+assert.match(wholeAudioDirection, /natural English/i);
+assert.match(wholeAudioDirection, /adult female voice/i);
+assert.match(wholeAudioDirection, /Perform this exact spoken script once/i);
+assert.match(wholeAudioDirection, /That wave surprised me, but this secure fit/i);
+
+const legacyAudioDirection = compileStoryboardAudioDirection({ ...apparelPlan, audioPlan: undefined }, apparelPlan.directorBrief, 15);
+assert.match(legacyAudioDirection, /generate clear audible commercial speech/i, "saved 3.0 plans without audioPlan must regain speech");
+assert.match(legacyAudioDirection, /26-34 English words/i);
+
+const silentAudioDirection = compileStoryboardAudioDirection({ ...apparelPlan, audioPlan: { mode: "ambient-only" } }, "music only", 15);
+assert.match(silentAudioDirection, /Generate no speech/i);
+assert.doesNotMatch(silentAudioDirection, /do not return a silent/i);
 
 const productPlan: CanvasCommerceVideoPlan = {
     productCategory: "cleaning",
@@ -147,8 +171,8 @@ assert.deepEqual(
         Array.from({ length: 12 }, (_, index) => `frame-${index + 1}`),
         "grok-imagine-video-1.5-fast",
     ),
-    ["frame-1"],
-    "Fast storyboard fallback must start from panel 1 instead of the middle of the story",
+    ["frame-1", "frame-3", "frame-5", "frame-7", "frame-8", "frame-10", "frame-12"],
+    "Fast storyboard sampling must preserve the full ordered arc and start from panel 1",
 );
 assert.deepEqual(
     selectGrokReferenceVideoImagesWithPriority(
@@ -156,8 +180,17 @@ assert.deepEqual(
         Array.from({ length: 12 }, (_, index) => `frame-${index + 1}`),
         "grok-imagine-video-1.5-fast",
     ),
-    ["identity"],
-    "Fast must preserve the upstream identity/product reference when one exists",
+    ["identity", "frame-1", "frame-3", "frame-5", "frame-8", "frame-10", "frame-12"],
+    "Fast must preserve the upstream identity/product reference and sample six ordered timeline anchors",
+);
+assert.deepEqual(
+    selectGrokReferenceVideoImagesWithPriority(
+        Array.from({ length: 8 }, (_, index) => `direct-${index + 1}`),
+        [],
+        "grok-imagine-video-1.5-fast",
+    ),
+    Array.from({ length: 8 }, (_, index) => `direct-${index + 1}`),
+    "direct user references must reach request validation instead of being silently truncated",
 );
 
 const identityOnlyPrompt = buildStoryboardVideoConstraintPrompt({
@@ -201,25 +234,14 @@ const hoverToolbarSource = readFileSync(new URL("../src/app/(user)/canvas/compon
 const configStoreSource = readFileSync(new URL("../src/stores/use-config-store.ts", import.meta.url), "utf8");
 const promptPanelSource = readFileSync(new URL("../src/app/(user)/canvas/components/canvas-node-prompt-panel.tsx", import.meta.url), "utf8");
 const videoServiceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
-assert.match(
-    canvasClientSource,
-    /storyboardReviewSheetWholeReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/,
-    "storyboard video generation must restore the selected whole grid as its I2V shot map",
-);
-assert.match(
-    canvasClientSource,
-    /usesWholeStoryboardSheet \? \[\] : mergeReferenceImages\(generationContext\.referenceImages, storyboardIdentityImages\)/,
-    "a connected whole grid must take priority over underlying identity-source fallbacks",
-);
-assert.match(
-    canvasClientSource,
-    /retriesWholeStoryboardSheet \? storyboardRetryWholeImages/,
-    "retry must keep the connected whole grid instead of a stored identity image",
-);
+assert.match(canvasClientSource, /storyboardReviewSheetWholeReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "storyboard video generation must restore the selected whole grid as its I2V shot map");
+assert.match(canvasClientSource, /usesWholeStoryboardSheet \? \[\] : mergeReferenceImages\(generationContext\.referenceImages, storyboardIdentityImages\)/, "a connected whole grid must take priority over underlying identity-source fallbacks");
+assert.match(canvasClientSource, /retriesWholeStoryboardSheet \? storyboardRetryWholeImages/, "retry must keep the connected whole grid instead of a stored identity image");
 assert.match(canvasClientSource, /buildWholeStoryboardI2VPrompt/, "whole-grid I2V must use the compact channel-28-style prompt path");
 assert.match(canvasClientSource, /ordered visual shot map, not as a visible opening frame/, "whole-grid prompt must not ask Grok to display the grid as the opening frame");
 assert.match(canvasClientSource, /MANDATORY LOCATION SEQUENCE/, "whole-grid prompt must preserve the structured location order outside the compacted plan text");
 assert.match(canvasClientSource, /Do not merge, substitute, omit, or revisit locations/, "whole-grid prompt must keep every planned location distinct");
+assert.match(canvasClientSource, /compileStoryboardAudioDirection\(plan, text, Number\(videoSeconds\) \|\| 15\)/, "whole-grid I2V must inject the audio lock before submission");
 assert.match(canvasClientSource, /compileVideoBeatPrompt\(plan, beat, videoPromptContext\)/, "Phase 6 must compile a distinct prompt for each beat");
 assert.match(hoverToolbarSource, /label: "生成整片"/, "review sheets must expose the full-video workflow");
 assert.match(hoverToolbarSource, /label: "生成分段"/, "plan nodes must distinguish clip generation from full-video generation");

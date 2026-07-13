@@ -41,7 +41,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { applyMaskedEditCropDataUrl, applyMaskedEditDataUrl, cropDataUrl, prepareMaskedEditCropDataUrls, splitDataUrl, upscaleDataUrl } from "../utils/canvas-image-data";
 import { extractVideoKeyFrames } from "../utils/video-frame-extraction";
-import { compileVideoBeatPrompt, compileVideoPrompt, extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
+import { compileStoryboardAudioDirection, compileVideoBeatPrompt, compileVideoPrompt, extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
 import { fitNodeSize, nodeSizeFromRatio } from "../utils/canvas-node-size";
 import { App, Button, Dropdown, Modal } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "../constants";
@@ -3507,7 +3507,15 @@ function InfiniteCanvasPage() {
                     }
                     const videoPrompt = usesWholeStoryboardSheet
                         ? buildWholeStoryboardI2VPrompt(videoPromptSource, videoGenerationConfig.videoSeconds, videoAspectRatioForSize(videoGenerationConfig.size), storyboardPlan)
-                        : buildStoryboardReviewSheetVideoPrompt(videoPromptSource, storyboardReferenceFrames.length, videoGenerationConfig.videoSeconds, videoReferenceImages.length, videoIdentityReferenceCount, videoAspectRatioForSize(videoGenerationConfig.size));
+                        : buildStoryboardReviewSheetVideoPrompt(
+                              videoPromptSource,
+                              storyboardReferenceFrames.length,
+                              videoGenerationConfig.videoSeconds,
+                              videoReferenceImages.length,
+                              videoIdentityReferenceCount,
+                              videoAspectRatioForSize(videoGenerationConfig.size),
+                              storyboardPlan,
+                          );
                     if (!videoPrompt && !videoReferenceImages.length && !generationContext.referenceVideos.length && !generationContext.referenceAudios.length) {
                         throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
                     }
@@ -3560,6 +3568,7 @@ function InfiniteCanvasPage() {
                                 requestVideoReferenceImages.length,
                                 0,
                                 videoAspectRatioForSize(videoGenerationConfig.size),
+                                storyboardPlan,
                             );
                             setNodes((prev) =>
                                 prev.map((node) =>
@@ -3775,7 +3784,12 @@ function InfiniteCanvasPage() {
             // the ordered I2V shot map on retry. Stored identity fallbacks are
             // only for legacy nodes whose grid can no longer be restored.
             const retryIdentityImages = retriesWholeStoryboardSheet ? [] : mergeReferenceImages(storyboardRetryIdentityImages, storedVideoReferenceImages, retrySourceImages, retryReferenceImages || []);
-            const retryImages = node.type === CanvasNodeType.Video ? (retriesWholeStoryboardSheet ? storyboardRetryWholeImages : mergeReferenceImages(retryIdentityImages, storyboardRetryImages)) : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
+            const retryImages =
+                node.type === CanvasNodeType.Video
+                    ? retriesWholeStoryboardSheet
+                        ? storyboardRetryWholeImages
+                        : mergeReferenceImages(retryIdentityImages, storyboardRetryImages)
+                    : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
             let retryVideoImages = retryImages;
             let retryVideoPromptSource = prompt;
             let retryDirectProductLock: ReturnType<typeof buildDirectProductLockVideoContext> = null;
@@ -3840,11 +3854,27 @@ function InfiniteCanvasPage() {
                     const retryIdentityReferenceCount = Math.min(retryIdentityImages.length, retryVideoImages.length);
                     let videoPrompt = retriesWholeStoryboardSheet
                         ? buildWholeStoryboardI2VPrompt(retryVideoPromptSource, generationConfig.videoSeconds, videoAspectRatioForSize(generationConfig.size), node.metadata?.commerceVideoPlan)
-                        : buildStoryboardReviewSheetVideoPrompt(retryVideoPromptSource, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, retryIdentityReferenceCount, videoAspectRatioForSize(generationConfig.size));
+                        : buildStoryboardReviewSheetVideoPrompt(
+                              retryVideoPromptSource,
+                              storyboardRetryImages.length,
+                              generationConfig.videoSeconds,
+                              retryVideoImages.length,
+                              retryIdentityReferenceCount,
+                              videoAspectRatioForSize(generationConfig.size),
+                              node.metadata?.commerceVideoPlan,
+                          );
                     if (retryDirectProductLock) {
                         const bridgeImage = await createDirectProductBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), retryDirectProductLock, generationConfig.size, controller.signal);
                         retryVideoImages = [bridgeImage];
-                        videoPrompt = buildStoryboardReviewSheetVideoPrompt(retryDirectProductLock.videoPrompt, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, 0, videoAspectRatioForSize(generationConfig.size));
+                        videoPrompt = buildStoryboardReviewSheetVideoPrompt(
+                            retryDirectProductLock.videoPrompt,
+                            storyboardRetryImages.length,
+                            generationConfig.videoSeconds,
+                            retryVideoImages.length,
+                            0,
+                            videoAspectRatioForSize(generationConfig.size),
+                            node.metadata?.commerceVideoPlan,
+                        );
                     }
                     const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryVideoImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
@@ -5118,12 +5148,7 @@ async function cropStoryboardVideoFrame(dataUrl: string) {
     }
 }
 
-function buildWholeStoryboardI2VPrompt(
-    prompt: string,
-    videoSeconds = "15",
-    aspectRatio: "9:16" | "16:9" | "1:1" = "9:16",
-    plan?: CanvasCommerceVideoPlan,
-) {
+function buildWholeStoryboardI2VPrompt(prompt: string, videoSeconds = "15", aspectRatio: "9:16" | "16:9" | "1:1" = "9:16", plan?: CanvasCommerceVideoPlan) {
     const unwrappedPrompt = unwrapStoryboardVideoUserDirection(prompt);
     const text = compactStoryboardVideoPrompt(normalizeVideoGenerationPrompt(unwrappedPrompt || (prompt.includes("STORYBOARD-DIRECTED VIDEO.") ? "" : prompt)), Number(videoSeconds) || 15);
     const mode = plan?.storyboardMode;
@@ -5140,9 +5165,11 @@ function buildWholeStoryboardI2VPrompt(
               : mode === "scene"
                 ? "Treat this as a scene-progression montage inside one coherent visual world, following the ordered environmental changes without importing unrelated entities."
                 : "Treat this as a product-led short video. Preserve the exact product geometry, colors, labels, component count, and scale while following only the ordered actions shown or described by the panels.";
+    const audioDirection = compileStoryboardAudioDirection(plan, text, Number(videoSeconds) || 15);
     return [
         STORYBOARD_DIRECTED_VIDEO_MARKER,
         locationSequenceDirection,
+        audioDirection,
         text,
         `Use the attached 12-panel storyboard grid as an ordered visual shot map, not as a visible opening frame. Follow its panels in reading order and recreate selected moments as clean full-frame ${aspectRatio} shots.`,
         modeDirection,
@@ -5154,7 +5181,15 @@ function buildWholeStoryboardI2VPrompt(
         .join("\n");
 }
 
-function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferenceCount: number, videoSeconds = "15", attachedReferenceCount = storyboardReferenceCount, identityReferenceCount = 0, aspectRatio: "9:16" | "16:9" | "1:1" = "9:16") {
+function buildStoryboardReviewSheetVideoPrompt(
+    prompt: string,
+    storyboardReferenceCount: number,
+    videoSeconds = "15",
+    attachedReferenceCount = storyboardReferenceCount,
+    identityReferenceCount = 0,
+    aspectRatio: "9:16" | "16:9" | "1:1" = "9:16",
+    plan?: CanvasCommerceVideoPlan,
+) {
     const unwrappedPrompt = unwrapStoryboardVideoUserDirection(prompt);
     const text = normalizeVideoGenerationPrompt(unwrappedPrompt || (prompt.includes("STORYBOARD-DIRECTED VIDEO.") ? "" : prompt));
     if (!storyboardReferenceCount) return text;
@@ -5166,20 +5201,8 @@ function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferen
         attachedReferenceCount,
         identityReferenceCount,
         aspectRatio,
-        audioDirection: storyboardAudioDirection(text),
+        audioDirection: compileStoryboardAudioDirection(plan, text, duration),
     });
-}
-
-function storyboardAudioDirection(prompt: string) {
-    const femaleLead = /\b(woman|women|female|girl|mother|mom|lady|wife|actress|presenter)\b|女性|女人|女孩|女主|妈妈|妻子|女演员|女主播/i.test(prompt);
-    const maleLead = /\b(man|men|male|boy|father|dad|husband|actor)\b|男性|男人|男孩|男主|爸爸|丈夫|男演员/i.test(prompt);
-    const voice = femaleLead
-        ? "Use one natural, energetic adult female voice throughout. Absolutely no male narration."
-        : maleLead
-          ? "Use one natural adult male voice matching the visible male presenter throughout."
-          : "Use one consistent adult voice matching the visible lead presenter; if the visible lead is a woman, the voice must be female. Never switch speaker or voice gender.";
-    const language = /[\u3400-\u9fff]/.test(prompt) ? "Speak natural Mandarin Chinese." : "Match the user's requested language; if the visible package or target market is Chinese, speak natural Mandarin Chinese rather than English.";
-    return `Audio lock: ${voice} ${language} Use crisp commercial voiceover, restrained sound effects, and low background music. No off-screen second narrator, dialogue swap, singing, or forced lip-sync.`;
 }
 
 function compactStoryboardVideoPrompt(prompt: string, duration = 15) {

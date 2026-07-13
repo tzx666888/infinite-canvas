@@ -11,8 +11,8 @@ export type VideoPromptContext = {
 
 type CommerceVideoBeat = NonNullable<CanvasCommerceVideoPlan["beats"]>[number];
 
-const DEFAULT_ENHANCEMENT_WORDS =
-    "4K ultra HD, cinematic quality, natural body proportions, smooth continuous motion, no frame skipping, consistent appearance throughout";
+const DEFAULT_ENHANCEMENT_WORDS = "4K ultra HD, cinematic quality, natural body proportions, smooth continuous motion, no frame skipping, consistent appearance throughout";
+const visiblePresenterPattern = /\b(?:adult|woman|women|female|lady|mother|mom|wife|man|men|male|father|dad|husband|presenter|host|model|actor|actress|person)\b|成年人|女性|女人|妈妈|妻子|女主播|男性|男人|爸爸|丈夫|男主播|主播|模特|演员/i;
 
 export function compileVideoPrompt(plan: CanvasCommerceVideoPlan, context: VideoPromptContext): string {
     const beats = selectBeatsForDuration(plan.beats, context.duration) || [];
@@ -33,6 +33,7 @@ export function compileVideoBeatPrompt(plan: CanvasCommerceVideoPlan, beat: Comm
         "Animate only the action in this beat. Do not replay the opening, demonstration, ending, or any other beat from the full storyboard.",
         previousBeat ? "Begin with identity, wardrobe, product, lighting, and motion continuity from the preceding beat without repeating its action." : "Make the opening action immediately readable from the attached keyframe.",
         nextBeat ? "End on a stable action or camera position that can cut cleanly into the next beat; do not perform the next beat yet." : "Finish this beat on one clean resolving pose or product position.",
+        compileStoryboardBeatAudioDirection(plan, beat, context.duration),
         identityConstraint(plan, mode),
         locationConstraint(plan, mode, true),
         referenceConstraint(context.referenceMode, plan, mode),
@@ -40,7 +41,64 @@ export function compileVideoBeatPrompt(plan: CanvasCommerceVideoPlan, beat: Comm
     ]
         .filter(Boolean)
         .join(" ");
-    return normalizeSpaces(limitWords(prompt, 125));
+    return normalizeSpaces(limitWords(prompt, 180));
+}
+
+export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | undefined, sourcePrompt = "", duration = 15): string {
+    const audioPlan = plan?.audioPlan;
+    const userDirection = [sourcePrompt, plan?.directorBrief || ""].join(" ");
+    if (audioPlan?.mode === "ambient-only" || requestsAmbientOnly(userDirection)) {
+        return "Audio lock: use only natural location sound, restrained sound effects, and low background music. Generate no speech, dialogue, narration, singing, captions, or subtitles.";
+    }
+
+    const evidence = [userDirection, plan?.visualIdentity || "", ...(plan?.beats || []).map((beat) => beat.description || "")].join(" ");
+    const hasVisiblePresenter = plan?.storyboardMode === "apparel" || plan?.storyboardMode === "subject" || visiblePresenterPattern.test(evidence);
+    const mode = audioPlan?.mode || (hasVisiblePresenter ? "mixed" : "voiceover");
+    const voice = compactSpeechText(audioPlan?.voice || "", 180) || inferredVoiceDirection(evidence);
+    const language = compactSpeechText(audioPlan?.language || "", 80) || (/[㐀-鿿]/.test(userDirection) ? "Mandarin Chinese" : "English");
+    const script = compactSpeechText(audioPlan?.script || "", 520);
+    const performance =
+        mode === "on-camera"
+            ? "The visible adult presenter delivers the spoken script on camera with natural synchronized lips, jaw, cheeks, breath, and facial micro-expressions."
+            : mode === "mixed"
+              ? "When the visible adult presenter is in frame, open with one short naturally lip-synced presenter line, then continue with off-screen voiceover; never animate a frozen or mismatched mouth."
+              : "Use off-screen voiceover. Do not animate a visible mouth unless an explicit beat line is assigned to that presenter.";
+    const scriptDirection = script
+        ? `Perform this exact spoken script once, naturally, without paraphrasing or reading production instructions: "${script}"`
+        : `Write and perform one concise, evidence-safe commercial script of about ${speechWordBudget(duration)} English words or equivalent cadence, using only visible facts and the requested actions.`;
+
+    return [
+        "Audio and speech lock: generate clear audible commercial speech in the final audio track; do not return a silent or music-only video.",
+        voice,
+        `Speak natural ${language} throughout and never change language or speaker.`,
+        performance,
+        scriptDirection,
+        "Keep music below the voice. Do not invent prices, discounts, certifications, medical or beauty claims, testimonials, brand wording, or unsupported benefits. Do not render the spoken words as captions or subtitles.",
+    ].join(" ");
+}
+
+function compileStoryboardBeatAudioDirection(plan: CanvasCommerceVideoPlan, beat: CommerceVideoBeat, duration: number) {
+    const audioPlan = plan.audioPlan;
+    const userDirection = plan.directorBrief || "";
+    if (audioPlan?.mode === "ambient-only" || requestsAmbientOnly(userDirection)) {
+        return "Use only natural location sound and low background music; generate no speech or narration for this beat.";
+    }
+
+    const evidence = [plan.visualIdentity || "", beat.description || ""].join(" ");
+    const language = compactSpeechText(audioPlan?.language || "", 80) || (/[㐀-鿿]/.test(userDirection) ? "Mandarin Chinese" : "English");
+    const voice = compactSpeechText(audioPlan?.voice || "", 180) || inferredVoiceDirection(evidence);
+    const spokenLine = compactSpeechText(beat.spokenLine || "", 220);
+    const fullScript = compactSpeechText(audioPlan?.script || "", 420);
+    const speech = spokenLine
+        ? `Say exactly this line once: "${spokenLine}"`
+        : fullScript
+          ? `Perform only one short phrase from this full narration that directly matches this beat, without repeating the whole script: "${fullScript}"`
+          : `Create and perform one evidence-safe line of at most ${Math.max(6, Math.min(14, Math.round(duration * 1.8)))} words describing only this beat's visible action.`;
+    const delivery =
+        audioPlan?.mode === "on-camera" || (audioPlan?.mode !== "voiceover" && visiblePresenterPattern.test(evidence))
+            ? "The visible adult presenter speaks with natural synchronized lips and facial motion."
+            : "Use off-screen voiceover and do not make a visible presenter fake the narration.";
+    return `Generate clear audible speech for this clip in natural ${language}. ${voice} ${speech} ${delivery} Keep music below the voice; no captions, unsupported claims, or spoken production instructions.`;
 }
 
 export function selectBeatsForDuration(beats: CanvasCommerceVideoPlan["beats"], duration: number): CanvasCommerceVideoPlan["beats"] {
@@ -86,9 +144,7 @@ function compileGrokPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBe
         .map((beat) => describeBeat(beat, plan))
         .filter(Boolean)
         .map((text) => limitWords(text, beatWordBudget));
-    const actionChain = beatText.length
-        ? beatText.map((text, index) => (index === 0 ? text : `then ${text}`)).join(", ")
-        : fallbackActionChain(plan, mode, category);
+    const actionChain = beatText.length ? beatText.map((text, index) => (index === 0 ? text : `then ${text}`)).join(", ") : fallbackActionChain(plan, mode, category);
     const prompt = [
         videoOpening(mode, context, category),
         videoRhythm(mode),
@@ -130,7 +186,7 @@ function compileVeoPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBea
             "Negative prompt: no unrelated products, no invented bottles, no invented packaging, no category substitution, no imported props, no fabricated certifications, no fake discounts, no exaggerated medical or beauty claims, no visible storyboard labels, no arrows, no grid panels, no watermarks.",
         ]
             .filter(Boolean)
-            .join("\n")
+            .join("\n"),
     );
 }
 
@@ -180,7 +236,8 @@ function resolveLocationStrategy(plan: CanvasCommerceVideoPlan, mode = resolveSt
 }
 
 function fallbackActionChain(plan: CanvasCommerceVideoPlan, mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>, category: string) {
-    if (mode === "apparel") return `open on the referenced adult model and ${category}, progress through natural garment movement, fit details, and clean cuts across related lifestyle locations, then finish with the same model and garment in a strong closing frame`;
+    if (mode === "apparel")
+        return `open on the referenced adult model and ${category}, progress through natural garment movement, fit details, and clean cuts across related lifestyle locations, then finish with the same model and garment in a strong closing frame`;
     if (mode === "subject") return "open on the referenced subject, progress through physically plausible actions and clean cuts across related planned locations, then finish with a coherent resolving frame";
     if (mode === "scene") return "establish the referenced visual world, progress through one visible event across its related zones, then finish on a coherent resolving view";
     return `open with a reference-supported hook for ${category}, show only its real visible use or details, then finish with the same referenced product`;
@@ -195,26 +252,27 @@ function videoOpening(mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"
 }
 
 function videoRhythm(mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>) {
-    if (mode === "apparel") return "Use an energetic lifestyle-montage rhythm: a strong face, silhouette, or motion hook; varied full-body, tracking, and material-detail shots; clean editorial cuts through the related locations in the ordered beats; then a confident apparel hero finish.";
-    if (mode === "subject") return "Use an energetic cinematic-subject rhythm: strong first image, varied camera distance, clear physical progression, related-location cuts, and a memorable visual payoff. Do not force a commercial problem, rescue product, demonstration, or purchase cue.";
+    if (mode === "apparel")
+        return "Use an energetic lifestyle-montage rhythm: a strong face, silhouette, or motion hook; varied full-body, tracking, and material-detail shots; clean editorial cuts through the related locations in the ordered beats; then a confident apparel hero finish.";
+    if (mode === "subject")
+        return "Use an energetic cinematic-subject rhythm: strong first image, varied camera distance, clear physical progression, related-location cuts, and a memorable visual payoff. Do not force a commercial problem, rescue product, demonstration, or purchase cue.";
     if (mode === "scene") return "Use a high-retention scene-progression rhythm: strong establishing image, visible event and spatial progression, varied scale and camera direction, then a coherent environmental payoff.";
     return "Use a high-retention product rhythm by percentage: 0-20% reference-supported hook; 20-70% real use, construction, or visible detail from the ordered beats; 70-100% clear result or product finish. Do not invent mess, rescue, cleaning, or before/after actions.";
 }
 
 function identityConstraint(plan: CanvasCommerceVideoPlan, mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>) {
     const lock = readableText(plan.visualIdentity, "");
-    const forbidden = (plan.forbiddenAdditions || []).map((item) => readableText(item, "")).filter(Boolean).join(", ");
+    const forbidden = (plan.forbiddenAdditions || [])
+        .map((item) => readableText(item, ""))
+        .filter(Boolean)
+        .join(", ");
     const modeRule =
         mode === "apparel"
             ? "The worn garment is the product; never add a bottle, package, cleaner, tool, foam, wiping action, or unrelated prop."
             : mode === "subject" || mode === "scene"
               ? "No product is required; never invent packaging, brands, bottles, tools, or purchase gestures."
               : "Use only the exact referenced product and never replace it with another category.";
-    return [
-        lock ? `Identity lock: ${lock}.` : "Maintain exact visual identity across all shots.",
-        modeRule,
-        forbidden ? `Forbidden additions: ${forbidden}.` : "",
-    ].filter(Boolean).join(" ");
+    return [lock ? `Identity lock: ${lock}.` : "Maintain exact visual identity across all shots.", modeRule, forbidden ? `Forbidden additions: ${forbidden}.` : ""].filter(Boolean).join(" ");
 }
 
 function locationConstraint(plan: CanvasCommerceVideoPlan, mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>, singleBeat: boolean) {
@@ -239,7 +297,8 @@ function aspectText(aspectRatio: VideoPromptContext["aspectRatio"]) {
 function referenceConstraint(referenceMode: VideoPromptContext["referenceMode"], plan: CanvasCommerceVideoPlan, mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>) {
     const identity = readableText(plan.visualIdentity, "");
     if (referenceMode === "i2v") {
-        const environmentRule = resolveLocationStrategy(plan, mode) === "single-location" ? "preserve the reference environment" : "use the reference for opening identity and composition, then follow only the related locations explicitly planned in the beats";
+        const environmentRule =
+            resolveLocationStrategy(plan, mode) === "single-location" ? "preserve the reference environment" : "use the reference for opening identity and composition, then follow only the related locations explicitly planned in the beats";
         return `Maintain visual continuity with the reference image: preserve subject appearance, wardrobe or product structure, color palette, and opening composition; ${environmentRule}.${identity ? ` Preserve this identity exactly: ${identity}.` : ""}`;
     }
     if (referenceMode === "r2v") return "Use the reference video as motion and rhythm guidance. Preserve the subject and key visual elements from the reference frames.";
@@ -298,6 +357,35 @@ function readableText(value: string | undefined, fallback: string) {
     return /[\u3400-\u9fff]/.test(trimmed) ? fallback : trimmed;
 }
 
+function requestsAmbientOnly(value: string) {
+    return /\b(?:silent|no (?:speech|dialogue|dialog|voice|voiceover|narration)|without (?:speech|dialogue|voice|narration)|ambient(?: sound)? only|music only)\b|无声|不要说话|不需要说话|无口播|不要口播|纯音乐|只要环境音/i.test(value);
+}
+
+function inferredVoiceDirection(value: string) {
+    const femaleLead = /\b(?:woman|women|female|lady|mother|mom|wife|actress)\b|女性|女人|妈妈|妻子|女演员|女主播/i.test(value);
+    const maleLead = /\b(?:man|men|male|father|dad|husband|actor)\b|男性|男人|爸爸|丈夫|男演员|男主播/i.test(value);
+    if (femaleLead) return "Use one natural, energetic adult female voice throughout; never switch to male narration.";
+    if (maleLead) return "Use one natural adult male voice matching the visible adult male lead throughout.";
+    return "Use one consistent natural adult commercial voice throughout, matching the visible adult lead when one exists.";
+}
+
+function speechWordBudget(duration: number) {
+    if (duration <= 6) return "10-14";
+    if (duration <= 10) return "18-24";
+    if (duration <= 15) return "26-34";
+    return `${Math.max(26, Math.round(duration * 1.8))}-${Math.max(34, Math.round(duration * 2.2))}`;
+}
+
+function compactSpeechText(value: string, maxChars: number) {
+    const compact = value
+        .replace(/[\r\n]+/g, " ")
+        .replace(/[\"\u201c\u201d]/g, "'")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (compact.length <= maxChars) return compact;
+    return `${compact.slice(0, Math.max(1, maxChars - 3)).trim()}...`;
+}
+
 function parsePlan(value: string): CanvasCommerceVideoPlan | null {
     try {
         const parsed = JSON.parse(value) as unknown;
@@ -318,11 +406,11 @@ function extractJsonObjects(value: string) {
         const char = value[index];
         if (inString) {
             escaped = char === "\\" && !escaped;
-            if (char === "\"" && !escaped) inString = false;
+            if (char === '"' && !escaped) inString = false;
             if (char !== "\\") escaped = false;
             continue;
         }
-        if (char === "\"") {
+        if (char === '"') {
             inString = true;
             continue;
         }

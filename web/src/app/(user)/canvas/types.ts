@@ -58,6 +58,12 @@ export type CanvasCommerceVideoPlan = {
     forbiddenAdditions?: string[];
     selectedHookType?: string;
     hookDescription?: string;
+    audioPlan?: {
+        mode?: "voiceover" | "on-camera" | "mixed" | "ambient-only";
+        language?: string;
+        voice?: string;
+        script?: string;
+    };
     beats?: Array<{
         index: number;
         phase: "hook" | "pain" | "demo" | "cta" | string;
@@ -65,6 +71,7 @@ export type CanvasCommerceVideoPlan = {
         shotType?: string;
         cameraMove?: string;
         description: string;
+        spokenLine?: string;
         eightElements?: {
             subject?: string;
             action?: string;
