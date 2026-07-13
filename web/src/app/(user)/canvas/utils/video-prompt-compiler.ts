@@ -55,25 +55,30 @@ export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | 
     const hasVisiblePresenter = plan?.storyboardMode === "apparel" || plan?.storyboardMode === "subject" || visiblePresenterPattern.test(evidence);
     const mode = audioPlan?.mode || (hasVisiblePresenter ? "mixed" : "voiceover");
     const voice = compactSpeechText(audioPlan?.voice || "", 180) || inferredVoiceDirection(evidence);
-    const language = compactSpeechText(audioPlan?.language || "", 80) || (/[㐀-鿿]/.test(userDirection) ? "Mandarin Chinese" : "English");
     const script = compactSpeechText(audioPlan?.script || "", 520);
+    const fallbackLanguage = script ? audioPlan?.language : resolveFallbackSpeechLanguage(plan, userDirection);
+    const languageDirection = storyboardLanguageDirection(fallbackLanguage, userDirection);
+    const timingDirection = compileWholeVideoSpeechTiming(plan, duration, Boolean(script), userDirection);
     const performance =
         mode === "on-camera"
             ? "The visible adult presenter delivers the spoken script on camera with natural synchronized lips, jaw, cheeks, breath, and facial micro-expressions."
             : mode === "mixed"
-              ? "When the visible adult presenter is in frame, open with one short naturally lip-synced presenter line, then continue with off-screen voiceover; never animate a frozen or mismatched mouth."
+              ? "Lip-sync only a cue whose shot clearly shows the adult presenter addressing the camera; use off-screen voiceover for demos and detail shots. Never force mouth movement in a non-speaking shot."
               : "Use off-screen voiceover. Do not animate a visible mouth unless an explicit beat line is assigned to that presenter.";
     const scriptDirection = script
-        ? `Perform this exact spoken script once, naturally, without paraphrasing or reading production instructions: "${script}"`
-        : `Write and perform one concise, evidence-safe commercial script of about ${speechWordBudget(duration)} English words or equivalent cadence, using only visible facts and the requested actions.`;
+        ? `Perform this exact spoken script once, naturally, without paraphrasing or reading production instructions: "${script}" Distribute its clauses across the matching cue ranges in order.`
+        : timingDirection
+          ? "Perform each exact cue line once with natural conversational emphasis; do not paraphrase it or read any production instruction aloud."
+          : `Write and perform one concise, evidence-safe commercial script of about ${speechWordBudget(duration)} English words or equivalent cadence, using only visible facts and the requested actions.`;
 
     return [
         "Audio and speech lock: generate clear audible commercial speech in the final audio track; do not return a silent or music-only video.",
         voice,
-        `Speak natural ${language} throughout and never change language or speaker.`,
+        languageDirection,
+        timingDirection,
         performance,
         scriptDirection,
-        "Keep music below the voice. Do not invent prices, discounts, certifications, medical or beauty claims, testimonials, brand wording, or unsupported benefits. Do not render the spoken words as captions or subtitles.",
+        "Keep music below the voice. No captions, subtitles, invented prices, discounts, certifications, brand wording, testimonials, medical claims, or unsupported benefits.",
     ].join(" ");
 }
 
@@ -85,7 +90,7 @@ function compileStoryboardBeatAudioDirection(plan: CanvasCommerceVideoPlan, beat
     }
 
     const evidence = [plan.visualIdentity || "", beat.description || ""].join(" ");
-    const language = compactSpeechText(audioPlan?.language || "", 80) || (/[㐀-鿿]/.test(userDirection) ? "Mandarin Chinese" : "English");
+    const languageDirection = storyboardLanguageDirection(audioPlan?.language, userDirection);
     const voice = compactSpeechText(audioPlan?.voice || "", 180) || inferredVoiceDirection(evidence);
     const spokenLine = compactSpeechText(beat.spokenLine || "", 220);
     const fullScript = compactSpeechText(audioPlan?.script || "", 420);
@@ -98,7 +103,7 @@ function compileStoryboardBeatAudioDirection(plan: CanvasCommerceVideoPlan, beat
         audioPlan?.mode === "on-camera" || (audioPlan?.mode !== "voiceover" && visiblePresenterPattern.test(evidence))
             ? "The visible adult presenter speaks with natural synchronized lips and facial motion."
             : "Use off-screen voiceover and do not make a visible presenter fake the narration.";
-    return `Generate clear audible speech for this clip in natural ${language}. ${voice} ${speech} ${delivery} Keep music below the voice; no captions, unsupported claims, or spoken production instructions.`;
+    return `Generate clear audible speech for this clip. ${languageDirection} ${voice} ${speech} ${delivery} Keep music below the voice; no captions, unsupported claims, or spoken production instructions.`;
 }
 
 export function selectBeatsForDuration(beats: CanvasCommerceVideoPlan["beats"], duration: number): CanvasCommerceVideoPlan["beats"] {
@@ -139,7 +144,7 @@ export function extractCommerceVideoPlan(rawText: string): CanvasCommerceVideoPl
 function compileGrokPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBeat[], context: VideoPromptContext) {
     const mode = resolveStoryboardMode(plan);
     const category = readableText(plan.productCategory, mode === "product" ? "the referenced product" : "the referenced subject");
-    const beatWordBudget = Math.max(14, Math.floor(90 / Math.max(1, beats.length)));
+    const beatWordBudget = Math.max(10, Math.floor(65 / Math.max(1, beats.length)));
     const beatText = beats
         .map((beat) => describeBeat(beat, plan))
         .filter(Boolean)
@@ -147,10 +152,10 @@ function compileGrokPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBe
     const actionChain = beatText.length ? beatText.map((text, index) => (index === 0 ? text : `then ${text}`)).join(", ") : fallbackActionChain(plan, mode, category);
     const prompt = [
         videoOpening(mode, context, category),
-        videoRhythm(mode),
-        identityConstraint(plan, mode),
-        locationConstraint(plan, mode, false),
         `Use one continuous visual storyline: ${actionChain}.`,
+        locationConstraint(plan, mode, false),
+        identityConstraint(plan, mode),
+        videoRhythm(mode),
         `Make the opening immediately readable using only actions, people, garments, products, props, and scenery that exist in the reference or ordered beats. Keep faces, hands, fingers, clothing, rigid objects, and body proportions anatomically stable; use clean cuts and never morph between people and objects.`,
         endingConstraint(mode),
         referenceConstraint(context.referenceMode, plan, mode),
@@ -219,7 +224,7 @@ function fallbackBeatDescription(beat: CommerceVideoBeat, plan: CanvasCommerceVi
     return "show a clear visual beat that advances the ordered reference-led story";
 }
 
-function resolveStoryboardMode(plan: CanvasCommerceVideoPlan): NonNullable<CanvasCommerceVideoPlan["storyboardMode"]> {
+export function resolveStoryboardMode(plan: CanvasCommerceVideoPlan): NonNullable<CanvasCommerceVideoPlan["storyboardMode"]> {
     if (plan.storyboardMode === "product" || plan.storyboardMode === "apparel" || plan.storyboardMode === "subject" || plan.storyboardMode === "scene") {
         return plan.storyboardMode;
     }
@@ -367,6 +372,169 @@ function inferredVoiceDirection(value: string) {
     if (femaleLead) return "Use one natural, energetic adult female voice throughout; never switch to male narration.";
     if (maleLead) return "Use one natural adult male voice matching the visible adult male lead throughout.";
     return "Use one consistent natural adult commercial voice throughout, matching the visible adult lead when one exists.";
+}
+
+function storyboardLanguageDirection(explicitLanguage: string | undefined, userDirection: string) {
+    const language = compactSpeechText(explicitLanguage || "", 80);
+    if (language) return `Speak natural ${language} throughout and never change language or speaker.`;
+    if (/[㐀-鿿]/.test(userDirection)) return "Speak natural Mandarin Chinese throughout and never change language or speaker.";
+    return "Use the user's requested language. If the package or market is Chinese, speak natural Mandarin Chinese even when production directions are English. Keep one language and speaker.";
+}
+
+function compileWholeVideoSpeechTiming(plan: CanvasCommerceVideoPlan | undefined, duration: number, hasExactScript: boolean, userDirection: string) {
+    const beats = orderBeats(plan?.beats);
+    if (!beats.length) return "";
+    const selectedBeats = beats.length <= 6 ? beats : pickEvenly(beats, 6);
+    const usesLegacyFallback = !hasExactScript && selectedBeats.every((beat) => !compactSpeechText(beat.spokenLine || "", 110));
+    const beatGroups = usesLegacyFallback ? groupLegacySpeechBeats(selectedBeats) : selectedBeats.map((beat) => [beat]);
+    const fallbackRanges = timelineRanges(beatGroups.length, duration);
+    const parsedRanges = beatGroups.map((group) => {
+        const first = parseSpeechTimeRange(group[0].timeRange);
+        const last = parseSpeechTimeRange(group[group.length - 1].timeRange);
+        return first && last ? { start: first.start, end: last.end } : null;
+    });
+    const plannedEnd = Math.max(0, ...parsedRanges.map((range) => range?.end || 0));
+    const timeScale = plannedEnd > 0 && Math.abs(plannedEnd - duration) > 0.25 ? duration / plannedEnd : 1;
+    const cues = beatGroups.map((group, index) => {
+        const beat = group[0];
+        const parsedRange = parsedRanges[index];
+        const range = parsedRange ? `${formatCueSecond(parsedRange.start * timeScale)}-${formatCueSecond(parsedRange.end * timeScale)}s` : fallbackRanges[index];
+        const spokenLine = compactSpeechText(beat.spokenLine || "", 110);
+        if (spokenLine) return `${range} say '${spokenLine}'`;
+        if (!hasExactScript) {
+            const originalIndex = selectedBeats.indexOf(beat);
+            return `${range} say '${legacyFallbackSpokenLine(plan || {}, beat, originalIndex, selectedBeats, userDirection, group.length > 1)}'`;
+        }
+        const phase = compactSpeechText(beat.phase || "beat", 24);
+        const cueMeaning = compactSpeechText(limitWords(beat.description || fallbackBeatDescription(beat, plan || {}), 12).replace(/[,:;.!?]+$/, "."), 100);
+        return `${range} ${phase}: one brief target-language phrase conveying '${cueMeaning}'`;
+    });
+    const scriptRule = hasExactScript ? "Place each script clause in its matching cue." : "Say each quoted cue line exactly once in its assigned range. Never replace it with director notes or production terminology.";
+    const closingRule = beatGroups.some((group) => group.length > 1) ? "Keep the final combined demonstration-and-CTA sentence intact, then leave a brief music-backed visual hold." : "Do not front-load or finish before the penultimate cue.";
+    return `Narration timing lock: ${cues.join("; ")}. ${scriptRule} Keep every phrase inside its shot and pause naturally at each cut. ${closingRule}`;
+}
+
+function groupLegacySpeechBeats(beats: CommerceVideoBeat[]) {
+    if (beats.length < 5) return beats.map((beat) => [beat]);
+    const penultimate = beats[beats.length - 2];
+    const last = beats[beats.length - 1];
+    if ((penultimate.phase || "").toLowerCase() !== "demo" || (last.phase || "").toLowerCase() !== "cta") return beats.map((beat) => [beat]);
+    return [...beats.slice(0, -2).map((beat) => [beat]), [penultimate, last]];
+}
+
+function resolveFallbackSpeechLanguage(plan: CanvasCommerceVideoPlan | undefined, userDirection: string) {
+    const explicit = compactSpeechText(plan?.audioPlan?.language || "", 80);
+    if (explicit) return explicit;
+    const spokenLines = (plan?.beats || [])
+        .map((beat) => beat.spokenLine || "")
+        .join(" ")
+        .trim();
+    if (spokenLines) return /[\u3400-\u9fff]/.test(spokenLines) ? "Mandarin Chinese" : "English";
+    if (/[\u3400-\u9fff]/.test(userDirection)) return "Mandarin Chinese";
+    // Saved 3.0 plans predate audioPlan. The product currently targets a
+    // Chinese UI/market, so make their generated fallback script deterministic.
+    return "Mandarin Chinese";
+}
+
+function legacyFallbackSpokenLine(plan: CanvasCommerceVideoPlan, beat: CommerceVideoBeat, index: number, selectedBeats: CommerceVideoBeat[], userDirection: string, combinesCta = false) {
+    const language = resolveFallbackSpeechLanguage(plan, userDirection).toLowerCase();
+    const usesMandarin = /mandarin|chinese|中文|普通话|汉语/.test(language);
+    const mode = resolveStoryboardMode(plan);
+    const phase = (beat.phase || "").toLowerCase();
+    const demoIndex = selectedBeats.slice(0, index + 1).filter((item) => (item.phase || "").toLowerCase() === "demo").length - 1;
+    const lines = usesMandarin ? legacyMandarinLines(mode) : legacyEnglishLines(mode);
+    if (combinesCta && phase === "demo") return lines.demoCta;
+    if (phase === "hook") return lines.hook;
+    if (phase === "pain") return lines.pain;
+    if (phase === "cta") return lines.cta;
+    return lines.demo[Math.max(0, demoIndex) % lines.demo.length];
+}
+
+function legacyMandarinLines(mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>) {
+    if (mode === "apparel") {
+        return {
+            hook: "看，这套一上身就很亮眼。",
+            pain: "选衣服，款式和细节都要看清。",
+            demo: ["近一点看，做工细节都很清楚。", "正面侧面都看一遍，整体更直观。"],
+            cta: "喜欢这套造型，就选它吧。",
+            demoCta: "正面侧面都看一遍，整体更直观，喜欢这套就选它吧。",
+        };
+    }
+    if (mode === "subject") {
+        return {
+            hook: "先看这个瞬间，氛围一下就来了。",
+            pain: "换个角度，人物状态更清楚。",
+            demo: ["动作自然展开，画面更有层次。", "从近景到全身，节奏连贯又舒服。"],
+            cta: "喜欢这种风格，就继续看下去吧。",
+            demoCta: "从近景到全身，节奏连贯又舒服，喜欢这种感觉就继续看吧。",
+        };
+    }
+    if (mode === "scene") {
+        return {
+            hook: "第一眼，这个空间就很有感觉。",
+            pain: "顺着动线走，空间层次慢慢展开。",
+            demo: ["细节和光线，让氛围更加完整。", "换个角度，整个场景看得更清楚。"],
+            cta: "喜欢这样的环境，就来看看吧。",
+            demoCta: "换个角度，整个场景看得更清楚，喜欢这里就来看看吧。",
+        };
+    }
+    return {
+        hook: "这个日常小麻烦，你也遇到过吗？",
+        pain: "别急，解决方法就在这里。",
+        demo: ["跟着画面操作，每一步都很清楚。", "前后变化，现在看得很清楚。"],
+        cta: "需要的话，现在就去看看吧。",
+        demoCta: "前后变化，现在看得很清楚，需要的话就去看看吧。",
+    };
+}
+
+function legacyEnglishLines(mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>) {
+    if (mode === "apparel") {
+        return {
+            hook: "Look, this outfit stands out instantly.",
+            pain: "Fit and design details really matter.",
+            demo: ["See the cut and design up close.", "Check the complete look from every angle."],
+            cta: "Love this style? Make it yours.",
+            demoCta: "Check the complete look from every angle, and make it yours if you love it.",
+        };
+    }
+    if (mode === "subject") {
+        return {
+            hook: "Watch this moment come to life.",
+            pain: "A new angle reveals more character.",
+            demo: ["Natural movement gives every shot more depth.", "The sequence flows smoothly from close to wide."],
+            cta: "Love this style? Keep watching.",
+            demoCta: "The sequence flows smoothly from close to wide, so keep watching if you love this style.",
+        };
+    }
+    if (mode === "scene") {
+        return {
+            hook: "This space makes an instant impression.",
+            pain: "Follow the path as each layer opens up.",
+            demo: ["Light and detail complete the atmosphere.", "A new angle reveals the whole setting."],
+            cta: "Like this setting? Come take a closer look.",
+            demoCta: "A new angle reveals the whole setting, so come take a closer look if you like it.",
+        };
+    }
+    return {
+        hook: "Do you deal with this everyday problem too?",
+        pain: "Here is a clear way to handle it.",
+        demo: ["Follow the steps shown right here.", "Now the visible change is easy to see."],
+        cta: "Need one? Take a closer look today.",
+        demoCta: "Now the visible change is easy to see, so take a closer look if you need one.",
+    };
+}
+
+function parseSpeechTimeRange(value: string) {
+    const match = value.match(/(\d+(?:\.\d+)?)\s*s?\s*[-–—]\s*(\d+(?:\.\d+)?)\s*s?/i);
+    if (!match) return null;
+    const start = Number(match[1]);
+    const end = Number(match[2]);
+    return Number.isFinite(start) && Number.isFinite(end) && end > start ? { start, end } : null;
+}
+
+function formatCueSecond(value: number) {
+    const rounded = Math.round(value * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
 function speechWordBudget(duration: number) {

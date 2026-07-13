@@ -1,4 +1,4 @@
-export const GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION = "channel-28-v3-creative-montage";
+export const GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION = "commerce-v7-four-cue-voice";
 export const STORYBOARD_DIRECTED_VIDEO_MARKER = "STORYBOARD-DIRECTED VIDEO.";
 
 type StoryboardVideoConstraintInput = {
@@ -9,6 +9,7 @@ type StoryboardVideoConstraintInput = {
     identityReferenceCount: number;
     aspectRatio: "9:16" | "16:9" | "1:1";
     audioDirection: string;
+    wholeStoryboardGrid?: boolean;
 };
 
 /**
@@ -22,14 +23,47 @@ export function buildStoryboardVideoConstraintPrompt(input: StoryboardVideoConst
     const storyboardAnchorCount = Math.max(0, attachedReferenceCount - identityReferenceCount);
     const timelineStart = identityReferenceCount + 1;
     const timelineEnd = identityReferenceCount + storyboardAnchorCount;
-    const referenceRoles =
-        identityReferenceCount > 0 && storyboardAnchorCount > 0
-            ? `<IMAGE_1> is the exact product/source identity lock and is not a timeline shot. <IMAGE_${timelineStart}> through <IMAGE_${timelineEnd}> are ordered timeline anchors sampled from the original ${input.sourcePanelCount}-panel storyboard.`
-            : identityReferenceCount > 0
-              ? `<IMAGE_1> is the exact product/source identity lock. No storyboard timeline image is attached; never invent an IMAGE_2.`
-              : storyboardAnchorCount > 0
-                ? `<IMAGE_1> through <IMAGE_${storyboardAnchorCount}> are ordered timeline anchors sampled from the original ${input.sourcePanelCount}-panel storyboard.`
-                : "No storyboard timeline image is attached; use only the written direction and do not invent image references.";
+    const usesWholeStoryboardGrid = Boolean(input.wholeStoryboardGrid);
+    const referenceRoles = usesWholeStoryboardGrid
+        ? attachedReferenceCount > 0
+            ? `<IMAGE_1> is the complete ordered ${input.sourcePanelCount}-panel storyboard grid and is not a visible opening shot. Decode its panels left-to-right, top-to-bottom as timeline anchors.`
+            : `The source ${input.sourcePanelCount}-panel storyboard has already been compiled into the ordered user direction; no image reference is attached.`
+        : identityReferenceCount > 0 && storyboardAnchorCount > 0
+          ? `<IMAGE_1> is the exact product/source identity lock and is not a timeline shot. <IMAGE_${timelineStart}> through <IMAGE_${timelineEnd}> are ordered timeline anchors sampled from the original ${input.sourcePanelCount}-panel storyboard.`
+          : identityReferenceCount > 0
+            ? `<IMAGE_1> is the exact product/source identity lock. No storyboard timeline image is attached; never invent an IMAGE_2.`
+            : storyboardAnchorCount > 0
+              ? `<IMAGE_1> through <IMAGE_${storyboardAnchorCount}> are ordered timeline anchors sampled from the original ${input.sourcePanelCount}-panel storyboard.`
+              : "No storyboard timeline image is attached; use only the written direction and do not invent image references.";
+
+    if (usesWholeStoryboardGrid) {
+        const storyboardGuidance =
+            attachedReferenceCount > 0
+                ? "Treat the attached storyboard grid as mandatory shot-order guidance, not loose inspiration."
+                : "Treat the compiled ordered storyboard direction as mandatory shot-order guidance, not loose inspiration; no image is attached.";
+        const productIdentitySource = attachedReferenceCount > 0 ? "the grid" : "the written direction";
+        const assemblePrompt = (userDirection: string) =>
+            [
+                STORYBOARD_DIRECTED_VIDEO_MARKER,
+                storyboardGuidance,
+                `Create exactly ${input.duration} seconds of polished ${input.aspectRatio} direct-response ecommerce footage with clean edited cuts.`,
+                `Reference role: ${referenceRoles}`,
+                input.audioDirection,
+                `User direction: ${userDirection}`,
+                "Timeline: 0-18% problem/reaction hook; 18-32% product rescue; 32-68% application and visible proof; 68-86% clean result; 86-100% label-readable product hero.",
+                `Product lock: preserve the exact package shape, closure, colors, label layout, scale, and object count from ${productIdentitySource}. Never rename, translate, recolor, rebrand, or replace it.`,
+                "Shot lock: follow the panels in order with direct cuts and one readable action per shot. No morphs, dissolves, repeated opening, unrelated footage, or duplicate actions.",
+                `Human lock: keep one consistent presenter with natural anatomy and proportions; never stretch a person to fill ${input.aspectRatio} or fuse a person with the product.`,
+                "Commerce rhythm: show the product in the opening third, demonstration, and final hero; visibly resolve the opening problem.",
+                "Output clean full-frame footage only: never show the grid, panels, numbers, captions, subtitles, watermark, fake offer, certification, or impossible result.",
+            ]
+                .filter(Boolean)
+                .join("\n");
+        const fullPrompt = assemblePrompt(input.userDirection);
+        if (fullPrompt.length <= 3600) return fullPrompt;
+        const availableDirectionChars = Math.max(0, 3600 - assemblePrompt("").length);
+        return assemblePrompt(truncateAtWord(input.userDirection, availableDirectionChars)).slice(0, 3600).trimEnd();
+    }
 
     if (storyboardAnchorCount === 0) {
         return [
@@ -53,8 +87,9 @@ export function buildStoryboardVideoConstraintPrompt(input: StoryboardVideoConst
         "Treat every attached image as a mandatory reference, not loose inspiration.",
         `Create exactly ${input.duration} seconds of polished ${input.aspectRatio} direct-response ecommerce footage with clean edited cuts.`,
         `Reference roles: ${referenceRoles}`,
+        usesWholeStoryboardGrid ? "Grid lock: read the storyboard in order, recreate its selected moments as clean full-frame shots, and never show the grid, panel borders, labels, or a collage in the generated video." : "",
         "Timeline: 0-18% exaggerated but believable problem/reaction hook; 18-32% product rescue reveal; 32-68% application plus visible proof; 68-86% clean result contrast; 86-100% label-readable product hero with the improved result behind it.",
-        "Product lock: preserve the exact package silhouette, nozzle/closure geometry, dominant colors, logo position, label blocks, printed layout, scale, and object count visible in the attached identity/product references. Never rename, translate, recolor, rebrand, simplify, or replace the package. Preserve uncertain label marks instead of inventing words.",
+        "Product lock: preserve the exact package silhouette, nozzle/closure geometry, dominant colors, logo position, label blocks, printed layout, scale, and object count visible in the attached grid or identity/product references. Never rename, translate, recolor, rebrand, simplify, or replace the package. Preserve uncertain label marks instead of inventing words.",
         "Shot lock: follow timeline references in order and infer only the omitted in-between beats. Use one stable subject and local physical motion per shot. No morphs, cross-dissolves, repeated opening, unrelated footage, or more than two near-identical action shots.",
         `Human lock: use one consistent presenter face, hair, clothing, age, and body. Keep reaction shots chest-up and brief. Preserve natural head, neck, shoulders, torso, arms, hands, and finger count; never stretch a person to fill ${input.aspectRatio} or fuse a person with the product.`,
         "Commerce rhythm: the product appears in the opening third, demonstration, and final hero. The proof must be believable, and the ending must visibly resolve the original problem.",
@@ -64,6 +99,15 @@ export function buildStoryboardVideoConstraintPrompt(input: StoryboardVideoConst
     ]
         .filter(Boolean)
         .join("\n");
+}
+
+function truncateAtWord(value: string, maxChars: number) {
+    const compact = value.replace(/\s+/g, " ").trim();
+    if (compact.length <= maxChars) return compact;
+    if (maxChars <= 3) return compact.slice(0, maxChars);
+    const candidate = compact.slice(0, maxChars - 3).trimEnd();
+    const lastSpace = candidate.lastIndexOf(" ");
+    return `${lastSpace > maxChars * 0.65 ? candidate.slice(0, lastSpace) : candidate}...`;
 }
 
 export function unwrapStoryboardVideoUserDirection(prompt: string) {

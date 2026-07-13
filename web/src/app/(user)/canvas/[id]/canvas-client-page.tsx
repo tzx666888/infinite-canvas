@@ -41,7 +41,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { applyMaskedEditCropDataUrl, applyMaskedEditDataUrl, cropDataUrl, prepareMaskedEditCropDataUrls, splitDataUrl, upscaleDataUrl } from "../utils/canvas-image-data";
 import { extractVideoKeyFrames } from "../utils/video-frame-extraction";
-import { compileStoryboardAudioDirection, compileVideoBeatPrompt, compileVideoPrompt, extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
+import { compileStoryboardAudioDirection, compileVideoBeatPrompt, compileVideoPrompt, extractCommerceVideoPlan, resolveStoryboardMode } from "../utils/video-prompt-compiler";
 import { fitNodeSize, nodeSizeFromRatio } from "../utils/canvas-node-size";
 import { App, Button, Dropdown, Modal } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "../constants";
@@ -3480,11 +3480,11 @@ function InfiniteCanvasPage() {
                     const usesWholeStoryboardSheet = storyboardReviewSheetImages.length > 0;
                     const storyboardReferenceFrames = usesWholeStoryboardSheet ? [] : await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current);
                     const storyboardIdentityImages = usesWholeStoryboardSheet ? [] : await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current);
-                    // Channel 28's successful workflow sent the selected grid
-                    // itself through Fast I2V. Keep that wire contract, while
-                    // treating the grid as an ordered shot map in the prompt.
+                    // The proven channel-28 workflow compiled the selected grid
+                    // into a 15-second T2V prompt. Sending the collage itself as
+                    // I2V forces Fast down to 10 seconds and weakens the edit.
                     const videoIdentityImages = usesWholeStoryboardSheet ? [] : mergeReferenceImages(generationContext.referenceImages, storyboardIdentityImages);
-                    const storyboardVideoImages = usesWholeStoryboardSheet ? storyboardReviewSheetImages : storyboardReferenceFrames;
+                    const storyboardVideoImages = usesWholeStoryboardSheet ? [] : storyboardReferenceFrames;
                     const allVideoReferenceImages = mergeReferenceImages(videoIdentityImages, storyboardVideoImages);
                     const baseVideoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, allVideoReferenceImages.length);
                     let videoReferenceImages = selectGrokReferenceVideoImagesWithPriority(videoIdentityImages, storyboardVideoImages, baseVideoGenerationConfig.model);
@@ -3502,7 +3502,7 @@ function InfiniteCanvasPage() {
                             model: "grok",
                             duration: Number(videoGenerationConfig.videoSeconds),
                             aspectRatio: videoAspectRatioForSize(videoGenerationConfig.size),
-                            referenceMode: "i2v",
+                            referenceMode: "t2v",
                         });
                     }
                     const videoPrompt = usesWholeStoryboardSheet
@@ -3526,7 +3526,7 @@ function InfiniteCanvasPage() {
                     const videoNode: CanvasNodeData = {
                         id: videoId,
                         type: CanvasNodeType.Video,
-                        title: effectivePrompt.slice(0, 32) || (storyboardVideoImages.length ? "Storyboard Video" : "Generated Video"),
+                        title: effectivePrompt.slice(0, 32) || (usesWholeStoryboardSheet || storyboardVideoImages.length ? "Storyboard Video" : "Generated Video"),
                         position: isEmptyVideoNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y },
                         width: isEmptyVideoNode ? sourceNode.width : spec.width,
                         height: isEmptyVideoNode ? sourceNode.height : spec.height,
@@ -3541,7 +3541,7 @@ function InfiniteCanvasPage() {
                             generateAudio: videoGenerationConfig.videoGenerateAudio,
                             watermark: videoGenerationConfig.videoWatermark,
                             videoSourcePrompt: videoPromptSource,
-                            videoConstraintVersion: storyboardVideoImages.length ? GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION : undefined,
+                            videoConstraintVersion: usesWholeStoryboardSheet || storyboardVideoImages.length ? GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION : undefined,
                             videoReferenceImages: generationImageReferenceUrls(videoReferenceImages),
                             commerceVideoPlan: usesWholeStoryboardSheet ? storyboardPlan : undefined,
                             references: generationReferenceUrls({ ...generationContext, referenceImages: videoReferenceImages }),
@@ -3761,11 +3761,12 @@ function InfiniteCanvasPage() {
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
             const storyboardRetryWholeImages = node.type === CanvasNodeType.Video ? storyboardReviewSheetWholeReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const retriesWholeStoryboardSheet = storyboardRetryWholeImages.length > 0;
-            const storyboardRetryImages = node.type === CanvasNodeType.Video ? (retriesWholeStoryboardSheet ? storyboardRetryWholeImages : await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current)) : [];
+            const storyboardRetryImages = node.type === CanvasNodeType.Video && !retriesWholeStoryboardSheet ? await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const storyboardRetryIdentityImages = node.type === CanvasNodeType.Video && !retriesWholeStoryboardSheet ? await storyboardReviewSheetIdentityReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const storedVideoReferenceImages = node.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(node.metadata) : [];
             const hasVideoReferences =
-                node.type === CanvasNodeType.Video && Boolean(storedVideoReferenceImages.length || storyboardRetryImages.length || context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
+                node.type === CanvasNodeType.Video &&
+                Boolean(storyboardRetryWholeImages.length || storedVideoReferenceImages.length || storyboardRetryImages.length || context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
             if (!prompt && !hasVideoReferences) {
                 message.warning("找不到提示词，无法重试");
                 return;
@@ -3780,16 +3781,12 @@ function InfiniteCanvasPage() {
                 return;
             }
             const retrySourceImages = hasSavedImageMetadata ? [] : sourceNodeReferenceImages(sourceNode);
-            // When a selected storyboard grid is still connected, keep it as
-            // the ordered I2V shot map on retry. Stored identity fallbacks are
-            // only for legacy nodes whose grid can no longer be restored.
+            // A connected whole storyboard keeps the proven compiled T2V path
+            // on retry. Stored identity fallbacks remain for legacy nodes whose
+            // clean keyframe references can no longer be restored.
             const retryIdentityImages = retriesWholeStoryboardSheet ? [] : mergeReferenceImages(storyboardRetryIdentityImages, storedVideoReferenceImages, retrySourceImages, retryReferenceImages || []);
             const retryImages =
-                node.type === CanvasNodeType.Video
-                    ? retriesWholeStoryboardSheet
-                        ? storyboardRetryWholeImages
-                        : mergeReferenceImages(retryIdentityImages, storyboardRetryImages)
-                    : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
+                node.type === CanvasNodeType.Video ? (retriesWholeStoryboardSheet ? [] : mergeReferenceImages(retryIdentityImages, storyboardRetryImages)) : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
             let retryVideoImages = retryImages;
             let retryVideoPromptSource = prompt;
             let retryDirectProductLock: ReturnType<typeof buildDirectProductLockVideoContext> = null;
@@ -4997,7 +4994,8 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
     const defaultModel = mode === "image" ? config.imageModel : mode === "video" ? config.videoModel : mode === "audio" ? config.audioModel : config.textModel;
     const configuredModel = node?.metadata?.model;
     const resolvedModel = configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : config.model || defaultConfig.model);
-    const resolvedVideoSeconds = node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds;
+    const nodeOwnsVideoTiming = node?.type === CanvasNodeType.Video || node?.type === CanvasNodeType.Config;
+    const resolvedVideoSeconds = (nodeOwnsVideoTiming ? node?.metadata?.seconds : undefined) || config.videoSeconds || defaultConfig.videoSeconds;
     return {
         ...config,
         model: resolvedModel,
@@ -5150,8 +5148,8 @@ async function cropStoryboardVideoFrame(dataUrl: string) {
 
 function buildWholeStoryboardI2VPrompt(prompt: string, videoSeconds = "15", aspectRatio: "9:16" | "16:9" | "1:1" = "9:16", plan?: CanvasCommerceVideoPlan) {
     const unwrappedPrompt = unwrapStoryboardVideoUserDirection(prompt);
-    const text = compactStoryboardVideoPrompt(normalizeVideoGenerationPrompt(unwrappedPrompt || (prompt.includes("STORYBOARD-DIRECTED VIDEO.") ? "" : prompt)), Number(videoSeconds) || 15);
-    const mode = plan?.storyboardMode;
+    const text = compactStoryboardVideoPrompt(normalizeVideoGenerationPrompt(unwrappedPrompt || (prompt.includes("STORYBOARD-DIRECTED VIDEO.") ? "" : prompt)), Number(videoSeconds) || 15, 1800);
+    const mode = plan ? resolveStoryboardMode(plan) : "product";
     const plannedLocations = (plan?.plannedLocations || []).map((location) => location.trim()).filter(Boolean);
     const locationSequenceDirection =
         plan?.locationStrategy === "related-location-montage" && plannedLocations.length
@@ -5159,26 +5157,42 @@ function buildWholeStoryboardI2VPrompt(prompt: string, videoSeconds = "15", aspe
             : "";
     const modeDirection =
         mode === "apparel"
-            ? "Treat this as an energetic lifestyle-fashion montage. Preserve the exact adult face, hair, body proportions, garment design, colors, material, and coverage while allowing clean cuts across the related locations shown or described by the ordered panels."
+            ? "Treat this as an energetic lifestyle-fashion montage. Preserve the same adult face, hair, body proportions, garment design, colors, material, and coverage across the ordered beats."
             : mode === "subject"
-              ? "Treat this as an energetic cinematic-subject montage. Preserve the exact subject identity and wardrobe while allowing clean cuts across the related locations shown or described by the ordered panels."
+              ? "Treat this as an energetic cinematic-subject montage. Preserve the same subject identity and wardrobe across the ordered beats."
               : mode === "scene"
                 ? "Treat this as a scene-progression montage inside one coherent visual world, following the ordered environmental changes without importing unrelated entities."
-                : "Treat this as a product-led short video. Preserve the exact product geometry, colors, labels, component count, and scale while following only the ordered actions shown or described by the panels.";
+                : "Treat this as a product-led short video. Preserve the exact product geometry, colors, labels, component count, and scale while following only the compiled ordered actions.";
     const audioDirection = compileStoryboardAudioDirection(plan, text, Number(videoSeconds) || 15);
-    return [
-        STORYBOARD_DIRECTED_VIDEO_MARKER,
-        locationSequenceDirection,
-        audioDirection,
-        text,
-        `Use the attached 12-panel storyboard grid as an ordered visual shot map, not as a visible opening frame. Follow its panels in reading order and recreate selected moments as clean full-frame ${aspectRatio} shots.`,
-        modeDirection,
-        "Use decisive editorial cuts, visibly varied wide, medium, and detail framing, and believable subject, garment, object, hair, fabric, water, wind, and camera motion only when supported by the panels.",
-        `Create exactly ${normalizeStoryboardVideoSeconds(videoSeconds, 1)} seconds with the same subject, wardrobe, products, and environments shown in the grid.`,
-        "Never display the grid, panel borders, numbers, labels, captions, or a collage; never morph, duplicate, stretch, or replace the subject or product between shots.",
-    ]
-        .filter(Boolean)
-        .join("\n");
+    if (mode === "product") {
+        return buildStoryboardVideoConstraintPrompt({
+            userDirection: [locationSequenceDirection, text].filter(Boolean).join(" "),
+            duration: normalizeStoryboardVideoSeconds(videoSeconds, 1),
+            sourcePanelCount: STORYBOARD_REVIEW_PANEL_COUNT,
+            attachedReferenceCount: 0,
+            identityReferenceCount: 0,
+            aspectRatio,
+            audioDirection,
+            wholeStoryboardGrid: true,
+        });
+    }
+    const assemblePrompt = (userDirection: string) =>
+        [
+            STORYBOARD_DIRECTED_VIDEO_MARKER,
+            locationSequenceDirection,
+            audioDirection,
+            `User direction: ${userDirection}`,
+            `The source 12-panel storyboard has been compiled into the ordered direction above. Follow those beats as clean full-frame ${aspectRatio} shots; no image reference is attached.`,
+            modeDirection,
+            "Use decisive cuts, varied wide, medium, and detail framing, and believable motion supported by the ordered beats.",
+            `Create exactly ${normalizeStoryboardVideoSeconds(videoSeconds, 1)} seconds with one consistent subject, wardrobe, product, and visual world. No collage, captions, morphing, duplication, stretching, or substitutions.`,
+        ]
+            .filter(Boolean)
+            .join("\n");
+    const fullPrompt = assemblePrompt(text);
+    if (fullPrompt.length <= 3600) return fullPrompt;
+    const availableDirectionChars = Math.max(0, 3600 - assemblePrompt("").length);
+    return assemblePrompt(limitInlinePrompt(text, availableDirectionChars)).slice(0, 3600).trimEnd();
 }
 
 function buildStoryboardReviewSheetVideoPrompt(
@@ -5205,10 +5219,10 @@ function buildStoryboardReviewSheetVideoPrompt(
     });
 }
 
-function compactStoryboardVideoPrompt(prompt: string, duration = 15) {
+function compactStoryboardVideoPrompt(prompt: string, duration = 15, maxChars = 900) {
     const normalized = prompt.replace(/\s+/g, " ").trim();
     if (!normalized) return `Create a ${duration}-second reference-led video using only the supplied subject, scene, and ordered actions.`;
-    return limitInlinePrompt(normalized, 900);
+    return limitInlinePrompt(normalized, maxChars);
 }
 
 function normalizeStoryboardVideoSeconds(value: string, referenceCount: number) {
@@ -5275,6 +5289,8 @@ function limitVideoPromptLength(prompt: string) {
 
 function limitInlinePrompt(value: string, maxChars: number) {
     if (value.length <= maxChars) return value;
+    if (maxChars <= 3) return value.slice(0, Math.max(0, maxChars));
+    if (maxChars <= 32) return `${value.slice(0, maxChars - 3).trim()}...`;
     return `${value.slice(0, maxChars - 32).trim()}...`;
 }
 
