@@ -146,7 +146,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             if (!text && !referenceImages.length) throw new Error("没有读取到可用的参考图");
             if (template === "product") {
                 setSceneExpansionPlan(null);
-                const plan = await analyzeProductBreakdown(config, text, defaultConfig.textModel || "default::gpt-5.5", referenceImages);
+                const plan = await analyzeProductBreakdown(config, text, defaultConfig.textModel || "tokaxis::gpt-5.6-sol", referenceImages);
                 setProductBreakdownPlan(null);
                 updatePrompt(buildProductCollagePrompt(plan));
                 message.success("产品拆解组合图 prompt 已回填，选择尺寸和数量后点击生成");
@@ -155,7 +155,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             if (template === "scene") {
                 if (mode !== "image") throw new Error("场景扩展请在图片节点上使用");
                 setProductBreakdownPlan(null);
-                const plan = await analyzeSceneExpansion(config, text, 10, defaultConfig.textModel || "default::gpt-5.5", referenceImages);
+                const plan = await analyzeSceneExpansion(config, text, 10, defaultConfig.textModel || "tokaxis::gpt-5.6-sol", referenceImages);
                 setSceneExpansionPlan(null);
                 updatePrompt(buildSceneCollagePrompt(plan));
                 message.success("场景扩展组合图 prompt 已回填，选择尺寸和数量后点击生成");
@@ -166,8 +166,14 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             setCommerceVideoPlan(null);
             if (template === "storyboard") {
                 const polishMode: PolishMode = "video";
-                const result = await polishPrompt(config, text, polishMode, template, defaultConfig.textModel || "default::gpt-5.5", referenceImages);
-                const plan = extractCommerceVideoPlan(result);
+                const result = await polishPrompt(config, text, polishMode, template, defaultConfig.textModel || "tokaxis::gpt-5.6-sol", referenceImages);
+                const parsedPlan = extractCommerceVideoPlan(result);
+                const plan = parsedPlan
+                    ? {
+                          ...parsedPlan,
+                          directorBrief: text.trim() || parsedPlan.directorBrief,
+                      }
+                    : null;
                 setCommerceVideoPlan(plan);
                 if (plan) {
                     onConfigChange(node.id, {
@@ -180,7 +186,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 return;
             }
             const polishMode: PolishMode = mode === "video" || template === "videoprompt" ? "video" : "image";
-            const result = await polishPrompt(config, text, polishMode, template, defaultConfig.textModel || "default::gpt-5.5", referenceImages);
+            const result = await polishPrompt(config, text, polishMode, template, defaultConfig.textModel || "tokaxis::gpt-5.6-sol", referenceImages);
             const promptModel = mode === "video" && template === "videoprompt" ? selectReferenceImageVideoModel(config, referenceImages.length) : config.model;
             if (mode === "video" && template === "videoprompt" && promptModel && promptModel !== config.model) onConfigChange(node.id, { model: promptModel });
             const finalPrompt = mode === "video" && template === "videoprompt" ? selectVideoPromptForModel(result) : result;
@@ -354,10 +360,12 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
     return {
         ...globalConfig,
         model: configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : globalConfig.model || defaultConfig.model),
+        videoModel: mode === "video" ? (configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || globalConfig.videoModel || defaultConfig.videoModel) : globalConfig.videoModel,
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
         size: node.metadata?.size || globalConfig.size || defaultConfig.size,
         videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
         vquality: node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality,
+        videoProductScaleMode: node.metadata?.productScaleMode || globalConfig.videoProductScaleMode || defaultConfig.videoProductScaleMode,
         videoGenerateAudio: node.metadata?.generateAudio || globalConfig.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node.metadata?.watermark || globalConfig.videoWatermark || defaultConfig.videoWatermark,
         audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultConfig.audioVoice,
@@ -377,6 +385,7 @@ function promptPlaceholder(mode: CanvasNodeGenerationMode, hasImageContent: bool
 
 function videoConfigPatch(key: keyof AiConfig, value: string) {
     if (key === "videoSeconds") return { seconds: value };
+    if (key === "videoProductScaleMode") return { productScaleMode: value };
     if (key === "videoGenerateAudio") return { generateAudio: value };
     if (key === "videoWatermark") return { watermark: value };
     return { [key]: value };

@@ -4,9 +4,11 @@ import { buildApiUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/
 import type { CanvasFusionPlacementPlan } from "@/app/(user)/canvas/types";
 import type { ReferenceImage } from "@/types/image";
 
-const DEFAULT_FUSION_PLANNER_MODEL = "default::gpt-5.5";
+const DEFAULT_FUSION_PLANNER_MODEL = "tokaxis::gpt-5.6-sol";
 
-export async function requestFusionPlacementPlan(config: AiConfig, sceneImage: ReferenceImage, productImages: ReferenceImage[], options?: { signal?: AbortSignal }) {
+type FusionPlacementRequestOptions = { signal?: AbortSignal; userPrompt?: string };
+
+export async function requestFusionPlacementPlan(config: AiConfig, sceneImage: ReferenceImage, productImages: ReferenceImage[], options?: FusionPlacementRequestOptions) {
     if (!productImages.length) throw new Error("融图规划至少需要一张产品图");
     const plannerModel = config.textModel || DEFAULT_FUSION_PLANNER_MODEL;
     const requestConfig = resolveModelRequestConfig(config, plannerModel);
@@ -26,13 +28,13 @@ export async function requestFusionPlacementPlan(config: AiConfig, sceneImage: R
     throw new Error(lastError instanceof Error ? lastError.message : "融图摆放规划失败");
 }
 
-async function requestFusionPlacementPlanOnce(config: AiConfig, sceneImage: ReferenceImage, productImages: ReferenceImage[], useResponseFormat: boolean, options?: { signal?: AbortSignal }) {
+async function requestFusionPlacementPlanOnce(config: AiConfig, sceneImage: ReferenceImage, productImages: ReferenceImage[], useResponseFormat: boolean, options?: FusionPlacementRequestOptions) {
     const response = await fetch(aiApiUrl(config, "/chat/completions"), {
         method: "POST",
         headers: aiHeaders(config),
         body: JSON.stringify({
             model: config.model,
-            messages: buildFusionPlannerMessages(sceneImage, productImages),
+            messages: buildFusionPlannerMessages(sceneImage, productImages, options?.userPrompt),
             stream: true,
             max_tokens: 2400,
             temperature: 0.12,
@@ -109,7 +111,10 @@ function downscaleForPlanner(dataUrl: string): Promise<string> {
             canvas.width = tw;
             canvas.height = th;
             const ctx = canvas.getContext("2d");
-            if (!ctx) { resolve(dataUrl); return; }
+            if (!ctx) {
+                resolve(dataUrl);
+                return;
+            }
             ctx.drawImage(img, 0, 0, tw, th);
             resolve(canvas.toDataURL("image/jpeg", 0.8));
         };
@@ -127,15 +132,17 @@ function parseFusionPlacementPlan(content: string, expectedProductCount: number)
     if (!Array.isArray(plan.placements)) throw new Error("融图规划缺少 placements");
     if (plan.products.length !== expectedProductCount) throw new Error(`融图规划产品数量不一致：期望 ${expectedProductCount}，实际 ${plan.products.length}`);
     if (plan.placements.length !== expectedProductCount) throw new Error(`融图规划摆放数量不一致：期望 ${expectedProductCount}，实际 ${plan.placements.length}`);
+    assertExactImageIndexes(plan.products, expectedProductCount, "产品身份");
+    assertExactImageIndexes(plan.placements, expectedProductCount, "产品摆放");
     return plan as CanvasFusionPlacementPlan;
 }
 
 function normalizeFusionPlacementPlan(plan: CanvasFusionPlacementPlan, plannerModel: string, expectedProductCount: number): CanvasFusionPlacementPlan {
     const products = Array.from({ length: expectedProductCount }, (_, index) => {
         const fallbackImageIndex = index + 2;
-        const product = plan.products[index] || {};
+        const product = plan.products.find((item) => item.imageIndex === fallbackImageIndex)!;
         return {
-            imageIndex: numberOr(product.imageIndex, fallbackImageIndex),
+            imageIndex: fallbackImageIndex,
             identity: stringOr(product.identity, `Product ${index + 1} from Image ${fallbackImageIndex}`),
             colors: stringArrayOr(product.colors),
             materials: stringArrayOr(product.materials),
@@ -146,9 +153,9 @@ function normalizeFusionPlacementPlan(plan: CanvasFusionPlacementPlan, plannerMo
     });
     const placements = Array.from({ length: expectedProductCount }, (_, index) => {
         const fallbackImageIndex = products[index]?.imageIndex || index + 2;
-        const placement = plan.placements[index] || {};
+        const placement = plan.placements.find((item) => item.imageIndex === fallbackImageIndex)!;
         return {
-            imageIndex: numberOr(placement.imageIndex, fallbackImageIndex),
+            imageIndex: fallbackImageIndex,
             position: stringOr(placement.position, "a natural available surface in the target scene"),
             reason: stringOr(placement.reason, "fits the real scene surface and does not block key content"),
             scale: stringOr(placement.scale, "Use realistic scale relative to nearby scene objects."),
@@ -222,8 +229,13 @@ function stringOr(value: unknown, fallback: string) {
     return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
-function numberOr(value: unknown, fallback: number) {
-    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+function assertExactImageIndexes(items: Array<{ imageIndex?: unknown }>, expectedProductCount: number, label: string) {
+    const expected = Array.from({ length: expectedProductCount }, (_, index) => index + 2);
+    const actual = items.map((item) => item.imageIndex).filter((value): value is number => typeof value === "number" && Number.isInteger(value));
+    const unique = new Set(actual);
+    if (actual.length !== expected.length || unique.size !== expected.length || expected.some((value) => !unique.has(value))) {
+        throw new Error(`融图规划${label}的图片编号错乱`);
+    }
 }
 
 function stringArrayOr(value: unknown) {

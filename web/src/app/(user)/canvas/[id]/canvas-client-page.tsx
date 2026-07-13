@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { AlertCircle, BookOpen, Bot, CheckCircle2, Home, ImageIcon, Images, List, Loader2, Menu, Music2, Plus, Redo2, RotateCcw, Settings2, Trash2, Undo2, Upload, Video, XCircle } from "lucide-react";
+import { AlertCircle, BookOpen, Bot, CheckCircle2, Clapperboard, Home, ImageIcon, Images, List, Loader2, Menu, Music2, Plus, Redo2, RotateCcw, Settings2, Trash2, Undo2, Upload, Video, XCircle } from "lucide-react";
 import { saveAs } from "file-saver";
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
@@ -29,16 +29,19 @@ import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { buildSceneAwareImageEditPrompt } from "@/lib/fusion-plan-prompt";
+import { resolveFusionReferenceRoles } from "@/lib/fusion-reference-roles";
 import { buildIdentityPreservingImageEditPrompt } from "@/lib/image-reference-prompt";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
-import { normalizeModelVideoSeconds, normalizeReferenceVideoSeconds, selectGrokReferenceVideoImagesWithPriority } from "@/lib/video-model-settings";
+import { buildVideoProductScalePrompt } from "@/lib/video-product-scale";
+import { isGrokVideoModel, normalizeModelVideoSeconds, selectGrokReferenceVideoImagesWithPriority, videoAspectRatioForSize } from "@/lib/video-model-settings";
+import { buildStoryboardVideoConstraintPrompt, GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, STORYBOARD_DIRECTED_VIDEO_MARKER, unwrapStoryboardVideoUserDirection } from "@/lib/storyboard-video-constraints";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { BrandMark } from "@/components/brand/brand-mark";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { applyMaskedEditCropDataUrl, applyMaskedEditDataUrl, cropDataUrl, prepareMaskedEditCropDataUrls, splitDataUrl, upscaleDataUrl } from "../utils/canvas-image-data";
 import { extractVideoKeyFrames } from "../utils/video-frame-extraction";
-import { compileVideoPrompt, extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
+import { compileVideoBeatPrompt, compileVideoPrompt, extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
 import { fitNodeSize, nodeSizeFromRatio } from "../utils/canvas-node-size";
 import { App, Button, Dropdown, Modal } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "../constants";
@@ -61,6 +64,9 @@ import { CanvasNodePromptPanel, type CanvasNodeGenerationMode } from "../compone
 import { CanvasToolbar } from "../components/canvas-toolbar";
 import { AssetPickerModal, type InsertAssetPayload } from "../components/asset-picker-modal";
 import { CanvasZoomControls } from "../components/canvas-zoom-controls";
+import { CanvasDirectorNode, CanvasDirectorPanel } from "../components/director/canvas-director-node";
+import { DirectorStudioDialog } from "../components/director/director-studio-dialog";
+import type { DirectorSnapshotPayload } from "../components/director/director-types";
 import { useCanvasStore } from "../stores/use-canvas-store";
 import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
 import { buildCanvasResourceReferences, buildInputMentionReferences, buildNodeMentionReferences, getGenerationResourceNodes } from "../utils/canvas-resource-references";
@@ -281,7 +287,7 @@ function ConnectionCreateMenu({
 }: {
     pending: PendingConnectionCreate;
     hasVideo: boolean;
-    onCreate: (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Config | CanvasNodeType.Video | CanvasNodeType.Audio) => void;
+    onCreate: (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Config | CanvasNodeType.Director | CanvasNodeType.Video | CanvasNodeType.Audio) => void;
     onClose: () => void;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -304,6 +310,7 @@ function ConnectionCreateMenu({
             <div className="grid gap-1">
                 <ConnectionCreateOption theme={theme} icon={<List className="size-5" />} title="文本生成" description="脚本、广告词、品牌文案" onClick={() => onCreate(CanvasNodeType.Text)} />
                 <ConnectionCreateOption theme={theme} icon={<ImageIcon className="size-5" />} title="图片生成" onClick={() => onCreate(CanvasNodeType.Image)} />
+                <ConnectionCreateOption theme={theme} icon={<Clapperboard className="size-5" />} title="导演台" description="机位、构图和参考帧" onClick={() => onCreate(CanvasNodeType.Director)} />
                 {hasVideo ? <ConnectionCreateOption theme={theme} icon={<Video className="size-5" />} title="视频生成" description="镜头、动作和成片" onClick={() => onCreate(CanvasNodeType.Video)} /> : null}
                 <ConnectionCreateOption theme={theme} icon={<Music2 className="size-5" />} title="音频参考" onClick={() => onCreate(CanvasNodeType.Audio)} />
                 <ConnectionCreateOption theme={theme} icon={<Settings2 className="size-5" />} title="配置节点" description="模型、尺寸、数量和输入顺序" onClick={() => onCreate(CanvasNodeType.Config)} />
@@ -422,6 +429,7 @@ function InfiniteCanvasPage() {
     const [upscaleNodeId, setUpscaleNodeId] = useState<string | null>(null);
     const [superResolveNodeId, setSuperResolveNodeId] = useState<string | null>(null);
     const [angleNodeId, setAngleNodeId] = useState<string | null>(null);
+    const [directorStudioNodeId, setDirectorStudioNodeId] = useState<string | null>(null);
     const [previewNodeId, setPreviewNodeId] = useState<string | null>(null);
     const [assistantCollapsed, setAssistantCollapsed] = useState(true);
     const [assistantMounted, setAssistantMounted] = useState(false);
@@ -757,7 +765,7 @@ function InfiniteCanvasPage() {
     );
 
     const createConnectedNode = useCallback(
-        (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Config | CanvasNodeType.Video | CanvasNodeType.Audio, pending: PendingConnectionCreate) => {
+        (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Config | CanvasNodeType.Director | CanvasNodeType.Video | CanvasNodeType.Audio, pending: PendingConnectionCreate) => {
             const metadata = type === CanvasNodeType.Config ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) } : undefined;
             const newNode = createCanvasNode(type, pending.position, metadata);
             const connection = normalizeConnection(pending.connection.nodeId, newNode.id, [...nodesRef.current, newNode], pending.connection.handleType);
@@ -769,7 +777,8 @@ function InfiniteCanvasPage() {
             setConnections((prev) => [...prev, { id: nanoid(), ...connection }]);
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
-            if (type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
+            if (type === CanvasNodeType.Director) setDirectorStudioNodeId(newNode.id);
+            else if (type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
             setPendingConnectionCreate(null);
             setConnecting(null);
         },
@@ -848,6 +857,7 @@ function InfiniteCanvasPage() {
     const upscaleNode = upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null;
     const superResolveNode = superResolveNodeId ? nodeById.get(superResolveNodeId) || null : null;
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
+    const directorStudioNode = directorStudioNodeId ? nodeById.get(directorStudioNodeId) || null : null;
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
     const hasMultipleSelectedNodes = selectedNodeIds.size > 1;
     const activeNodeId = hasMultipleSelectedNodes ? null : hoveredNodeId || (selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null);
@@ -987,7 +997,10 @@ function InfiniteCanvasPage() {
             setNodes((prev) => [...prev, newNode]);
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
-            if (type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
+            if (type === CanvasNodeType.Director) {
+                setDirectorStudioNodeId(newNode.id);
+                setDialogNodeId(null);
+            } else if (type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
         },
         [createTextNodeAt, effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
     );
@@ -1091,6 +1104,7 @@ function InfiniteCanvasPage() {
             setCropNodeId((current) => (current && allIds.has(current) ? null : current));
             setMaskEditNodeId((current) => (current && allIds.has(current) ? null : current));
             setAngleNodeId((current) => (current && allIds.has(current) ? null : current));
+            setDirectorStudioNodeId((current) => (current && allIds.has(current) ? null : current));
             setPreviewNodeId((current) => (current && allIds.has(current) ? null : current));
             setRunningNodeId((current) => (current && allIds.has(current) ? null : current));
             setContextMenu((current) => (current?.type === "node" && allIds.has(current.nodeId) ? null : current));
@@ -1120,6 +1134,7 @@ function InfiniteCanvasPage() {
         setToolbarNodeId(null);
         setDialogNodeId(null);
         setEditingNodeId(null);
+        setDirectorStudioNodeId(null);
     }, [cancelPendingConnectionCreate]);
 
     const clearCanvas = useCallback(() => {
@@ -1136,6 +1151,7 @@ function InfiniteCanvasPage() {
         setCropNodeId(null);
         setMaskEditNodeId(null);
         setAngleNodeId(null);
+        setDirectorStudioNodeId(null);
         setPreviewNodeId(null);
         setRunningNodeId(null);
         deselectCanvas();
@@ -1549,6 +1565,84 @@ function InfiniteCanvasPage() {
         setSelectedConnectionId(null);
         setDialogNodeId(id);
     }, []);
+
+    const createDirectorSnapshotNodes = useCallback(
+        async (directorNode: CanvasNodeData, payload: DirectorSnapshotPayload) => {
+            const uploaded = await uploadImage(payload.dataUrl);
+            const imageSize = fitNodeSize(uploaded.width, uploaded.height, 360, 360);
+            const gap = 86;
+            const centerY = directorNode.position.y + directorNode.height / 2;
+            const imageId = `image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+            const imageNode: CanvasNodeData = {
+                id: imageId,
+                type: CanvasNodeType.Image,
+                title: `导演参考帧 · ${payload.presetLabel}`,
+                position: {
+                    x: directorNode.position.x + directorNode.width + gap,
+                    y: centerY - imageSize.height / 2,
+                },
+                width: imageSize.width,
+                height: imageSize.height,
+                metadata: {
+                    ...imageMetadata(uploaded),
+                    prompt: payload.prompt,
+                    directorReference: true,
+                },
+            };
+            const configSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Config];
+            const configNode = createCanvasNode(
+                CanvasNodeType.Config,
+                {
+                    x: imageNode.position.x + imageNode.width + gap + configSpec.width / 2,
+                    y: centerY,
+                },
+                {
+                    model: effectiveConfig.imageModel || effectiveConfig.model,
+                    size: effectiveConfig.size,
+                    count: 1,
+                    generationMode: "image",
+                    prompt: payload.prompt,
+                    composerContent: payload.prompt,
+                    inputOrder: [imageNode.id],
+                    status: NODE_STATUS_IDLE,
+                },
+            );
+            const nextConnections: CanvasConnection[] = [
+                { id: nanoid(), fromNodeId: directorNode.id, toNodeId: imageNode.id },
+                { id: nanoid(), fromNodeId: imageNode.id, toNodeId: configNode.id },
+            ];
+
+            setNodes((prev) => [
+                ...prev.map((node) =>
+                    node.id === directorNode.id
+                        ? {
+                              ...node,
+                              metadata: {
+                                  ...node.metadata,
+                                  directorLastSnapshot: uploaded.url,
+                                  directorLastSnapshotStorageKey: uploaded.storageKey,
+                                  directorSnapshotNodeId: imageNode.id,
+                                  directorConfigNodeId: configNode.id,
+                                  directorPrompt: payload.prompt,
+                                  directorPresetId: payload.presetId,
+                                  directorMode: payload.mode,
+                              },
+                          }
+                        : node,
+                ),
+                imageNode,
+                configNode,
+            ]);
+            setConnections((prev) => [...prev, ...nextConnections]);
+            setSelectedNodeIds(new Set([configNode.id]));
+            setSelectedConnectionId(null);
+            setDialogNodeId(configNode.id);
+            setDirectorStudioNodeId(null);
+            window.setTimeout(() => focusNodesInViewport([directorNode, imageNode, configNode]), 60);
+            message.success("导演参考帧已创建，并已连接到生图配置");
+        },
+        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, focusNodesInViewport, message],
+    );
 
     const createVideoFileNode = useCallback(async (file: File, position: Position) => {
         const video = await uploadMediaFile(file, "video");
@@ -2945,6 +3039,10 @@ function InfiniteCanvasPage() {
 
     const handleGenerateVideoClips = useCallback(
         async (planNode: CanvasNodeData) => {
+            if (generationRequestsRef.current.has(planNode.id)) {
+                message.warning("视频片段正在生成，请勿重复提交");
+                return;
+            }
             const plan = planNode.metadata?.commerceVideoPlan;
             if (!plan?.beats?.length) throw new Error("找不到分镜规划数据");
             const planId = planNode.metadata?.storyboardPlanId;
@@ -2969,18 +3067,18 @@ function InfiniteCanvasPage() {
             const gap = 96;
             setRunningNodeId(planNode.id);
             const controller = startGenerationRequest(planNode.id, planNode.id, planNode.id);
-            const videoModel = generationConfig.model || generationConfig.videoModel || effectiveConfig.videoModel || effectiveConfig.model;
+            const videoModel = generationConfig.videoModel || generationConfig.model || effectiveConfig.videoModel || effectiveConfig.model;
             const videoSeconds = normalizeModelVideoSeconds(generationConfig.videoSeconds, videoModel);
-
-            const compiledPrompt = compileVideoPrompt(plan, {
+            const videoPromptContext = {
                 model: "grok",
                 duration: Number(videoSeconds),
-                aspectRatio: generationConfig.size === "16:9" ? "16:9" : generationConfig.size === "1:1" ? "1:1" : "9:16",
+                aspectRatio: videoAspectRatioForSize(generationConfig.size),
                 referenceMode: "i2v",
-            });
+            } as const;
 
             const videoEntries = keyframeNodes.map((kfNode, index) => {
                 const beat = plan.beats![index] || plan.beats![plan.beats!.length - 1];
+                const clipPrompt = compileVideoBeatPrompt(plan, beat, videoPromptContext);
                 const videoId = nanoid();
                 const videoNode: CanvasNodeData = {
                     id: videoId,
@@ -2990,19 +3088,20 @@ function InfiniteCanvasPage() {
                     width: videoSpec.width,
                     height: videoSpec.height,
                     metadata: {
-                        prompt: compiledPrompt,
+                        prompt: clipPrompt,
                         status: NODE_STATUS_LOADING,
                         model: videoModel,
                         size: generationConfig.size,
                         seconds: videoSeconds,
                         vquality: generationConfig.vquality,
+                        productScaleMode: generationConfig.videoProductScaleMode,
                         generateAudio: generationConfig.videoGenerateAudio,
                         watermark: generationConfig.videoWatermark,
                         storyboardPlanId: planId,
                         storyboardBeatIndex: beat.index,
                     },
                 };
-                return { kfNode, beat, videoId, videoNode };
+                return { kfNode, beat, clipPrompt, videoId, videoNode };
             });
 
             const videoIds = videoEntries.map((entry) => entry.videoId);
@@ -3022,7 +3121,7 @@ function InfiniteCanvasPage() {
                     const entry = videoEntries[index];
                     const referenceImages = sourceNodeReferenceImages(entry.kfNode);
                     try {
-                        const video = await storeGeneratedVideo(await requestVideoGeneration({ ...generationConfig, model: videoModel, videoSeconds }, compiledPrompt, referenceImages, [], [], { signal: controller.signal }));
+                        const video = await storeGeneratedVideo(await requestVideoGeneration({ ...generationConfig, model: videoModel, videoModel, videoSeconds }, entry.clipPrompt, referenceImages, [], [], { signal: controller.signal }));
                         const videoSize = fitNodeSize(video.width || videoSpec.width, video.height || videoSpec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                         setNodes((prev) =>
                             prev.map((node) => {
@@ -3035,7 +3134,7 @@ function InfiniteCanvasPage() {
                                         x: node.position.x + node.width / 2 - videoSize.width / 2,
                                         y: node.position.y + node.height / 2 - videoSize.height / 2,
                                     },
-                                    metadata: { ...node.metadata, ...videoMetadata(video), prompt: compiledPrompt },
+                                    metadata: { ...node.metadata, ...videoMetadata(video), prompt: entry.clipPrompt },
                                 };
                             }),
                         );
@@ -3104,10 +3203,21 @@ function InfiniteCanvasPage() {
                     const isEmptyImageNode = isImageNode && !sourceNode?.metadata?.content;
                     const sourceReference = sourceNodeReferenceImages(sourceNode || null);
                     const referenceImages = mergeReferenceImages(sourceReference, generationContext.referenceImages);
-                    let requestPrompt = buildIdentityPreservingImageEditPrompt(effectivePrompt, sourceReference.length > 0, referenceImages);
+                    const hasDirectorBlueprintReference = referenceImages.some((image) => nodesRef.current.find((node) => node.id === image.id)?.metadata?.directorReference);
+                    const fusionReferenceRoles = hasDirectorBlueprintReference
+                        ? null
+                        : resolveFusionReferenceRoles({
+                              prompt: effectivePrompt,
+                              references: referenceImages,
+                              explicitSceneImageId: sourceReference[0]?.id,
+                              force: sourceReference.length > 0 && referenceImages.length > sourceReference.length,
+                          });
+                    const requestReferenceImages = fusionReferenceRoles?.orderedImages || referenceImages;
+                    const persistedImagePrompt = fusionReferenceRoles?.prompt || effectivePrompt;
+                    let requestPrompt = hasDirectorBlueprintReference ? buildDirectorBlueprintImageEditPrompt(effectivePrompt) : buildIdentityPreservingImageEditPrompt(effectivePrompt, sourceReference.length > 0, requestReferenceImages);
                     let fusionPlacementPlan: CanvasFusionPlacementPlan | undefined;
-                    const generationType = referenceImages.length ? ("edit" as const) : ("generation" as const);
-                    const generationMetadata = buildImageGenerationMetadata(generationType, generationConfig, count, referenceImages);
+                    const generationType = requestReferenceImages.length ? ("edit" as const) : ("generation" as const);
+                    const generationMetadata = buildImageGenerationMetadata(generationType, generationConfig, count, requestReferenceImages);
                     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
                     const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
                     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
@@ -3116,8 +3226,8 @@ function InfiniteCanvasPage() {
                     const rootId = isEmptyImageNode ? nodeId : nanoid();
                     const childIds = count > 1 ? Array.from({ length: count }, () => nanoid()) : [];
                     const targetIds = count > 1 ? childIds : [rootId];
-                    const canUseFusionPlacementPlanner = sourceReference.length > 0 && referenceImages.length > sourceReference.length;
-                    const initialImageStatusMessage = referenceImages.length ? (canUseFusionPlacementPlanner ? "分析场景..." : "融合产品...") : undefined;
+                    const canUseFusionPlacementPlanner = Boolean(fusionReferenceRoles);
+                    const initialImageStatusMessage = requestReferenceImages.length ? (canUseFusionPlacementPlanner ? "分析场景..." : "处理参考图...") : undefined;
                     pendingChildIds = isEmptyImageNode ? childIds : [rootId, ...childIds];
                     const rootNode: CanvasNodeData = {
                         id: rootId,
@@ -3130,7 +3240,7 @@ function InfiniteCanvasPage() {
                         width: isEmptyImageNode ? sourceNode?.width || imageConfig.width : imageConfig.width,
                         height: isEmptyImageNode ? sourceNode?.height || imageConfig.height : imageConfig.height,
                         metadata: {
-                            prompt: effectivePrompt,
+                            prompt: persistedImagePrompt,
                             status: NODE_STATUS_LOADING,
                             statusMessage: initialImageStatusMessage,
                             isBatchRoot: count > 1,
@@ -3150,7 +3260,7 @@ function InfiniteCanvasPage() {
                         },
                         width: imageConfig.width,
                         height: imageConfig.height,
-                        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, statusMessage: initialImageStatusMessage, batchRootId: count > 1 ? rootId : undefined, ...generationMetadata },
+                        metadata: { prompt: persistedImagePrompt, status: NODE_STATUS_LOADING, statusMessage: initialImageStatusMessage, batchRootId: count > 1 ? rootId : undefined, ...generationMetadata },
                     }));
                     const batchConnections = [...(isEmptyImageNode ? [] : [{ id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]), ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: rootId, toNodeId: childId }))];
 
@@ -3201,12 +3311,15 @@ function InfiniteCanvasPage() {
                     const updateImageGenerationStage = (statusMessage: string) => {
                         setNodes((prev) => prev.map((node) => (stageNodeIds.has(node.id) ? { ...node, metadata: { ...node.metadata, statusMessage } } : node)));
                     };
-                    if (referenceImages.length) {
+                    if (requestReferenceImages.length) {
                         if (canUseFusionPlacementPlanner) {
                             try {
                                 updateImageGenerationStage("分析场景...");
-                                const productReferenceImages = referenceImages.slice(sourceReference.length);
-                                const plan = await requestFusionPlacementPlan(generationConfig, sourceReference[0], productReferenceImages, { signal: controller.signal });
+                                const productReferenceImages = fusionReferenceRoles!.productImages;
+                                const plan = await requestFusionPlacementPlan(generationConfig, fusionReferenceRoles!.sceneImage, productReferenceImages, {
+                                    signal: controller.signal,
+                                    userPrompt: fusionReferenceRoles!.prompt,
+                                });
                                 if (controller.signal.aborted) throw new Error("请求已取消");
                                 updateImageGenerationStage("规划摆放...");
                                 const approved = await confirmFusionPlacementPlan(plan);
@@ -3258,7 +3371,7 @@ function InfiniteCanvasPage() {
                                         };
                                     }),
                                 );
-                                requestPrompt = buildSceneAwareImageEditPrompt(plan, effectivePrompt);
+                                requestPrompt = buildSceneAwareImageEditPrompt(plan, fusionReferenceRoles!.prompt);
                                 updateImageGenerationStage("融合产品...");
                             } catch (error) {
                                 if (controller.signal.aborted) throw new Error("请求已取消");
@@ -3296,8 +3409,8 @@ function InfiniteCanvasPage() {
                     await Promise.all(
                         targetIds.map(async (targetId) => {
                             try {
-                                const image = referenceImages.length
-                                    ? await requestEdit({ ...generationConfig, count: "1" }, requestPrompt, referenceImages, undefined, { signal: controller.signal }).then((items) => items[0])
+                                const image = requestReferenceImages.length
+                                    ? await requestEdit({ ...generationConfig, count: "1" }, requestPrompt, requestReferenceImages, undefined, { signal: controller.signal }).then((items) => items[0])
                                     : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: controller.signal }).then((items) => items[0]);
                                 const uploaded = await uploadImage(image.dataUrl);
                                 const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
@@ -3363,21 +3476,38 @@ function InfiniteCanvasPage() {
 
                 if (mode === "video") {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
-                    const storyboardReferenceFrames = await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current);
-                    const storyboardIdentityImages = await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current);
-                    const videoIdentityImages = mergeReferenceImages(generationContext.referenceImages, storyboardIdentityImages);
-                    const allVideoReferenceImages = mergeReferenceImages(videoIdentityImages, storyboardReferenceFrames);
+                    const storyboardReviewSheetImages = storyboardReviewSheetWholeReferences(nodeId, nodesRef.current, connectionsRef.current);
+                    const usesWholeStoryboardSheet = storyboardReviewSheetImages.length > 0;
+                    const storyboardReferenceFrames = usesWholeStoryboardSheet ? [] : await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current);
+                    const storyboardIdentityImages = usesWholeStoryboardSheet ? [] : await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current);
+                    // Channel 28's successful workflow sent the selected grid
+                    // itself through Fast I2V. Keep that wire contract, while
+                    // treating the grid as an ordered shot map in the prompt.
+                    const videoIdentityImages = usesWholeStoryboardSheet ? [] : mergeReferenceImages(generationContext.referenceImages, storyboardIdentityImages);
+                    const storyboardVideoImages = usesWholeStoryboardSheet ? storyboardReviewSheetImages : storyboardReferenceFrames;
+                    const allVideoReferenceImages = mergeReferenceImages(videoIdentityImages, storyboardVideoImages);
                     const baseVideoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, allVideoReferenceImages.length);
-                    let videoReferenceImages = selectGrokReferenceVideoImagesWithPriority(videoIdentityImages, storyboardReferenceFrames, baseVideoGenerationConfig.model);
+                    let videoReferenceImages = selectGrokReferenceVideoImagesWithPriority(videoIdentityImages, storyboardVideoImages, baseVideoGenerationConfig.model);
                     let videoPromptSource = effectivePrompt;
-                    const directProductLock = buildDirectProductLockVideoContext(videoPromptSource, videoReferenceImages, storyboardReferenceFrames.length, baseVideoGenerationConfig.model);
+                    const directProductLock = buildDirectProductLockVideoContext(videoPromptSource, videoReferenceImages, storyboardVideoImages.length, baseVideoGenerationConfig.model, baseVideoGenerationConfig.videoProductScaleMode);
                     if (directProductLock) {
                         videoReferenceImages = directProductLock.referenceImages;
                         videoPromptSource = directProductLock.prompt;
                     }
                     const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, directProductLock ? 1 : videoReferenceImages.length);
                     const videoIdentityReferenceCount = Math.min(videoIdentityImages.length, videoReferenceImages.length);
-                    const videoPrompt = buildStoryboardReviewSheetVideoPrompt(videoPromptSource, storyboardReferenceFrames.length, videoGenerationConfig.videoSeconds, videoReferenceImages.length, videoIdentityReferenceCount);
+                    const storyboardPlan = sourceNode?.metadata?.commerceVideoPlan;
+                    if (usesWholeStoryboardSheet && storyboardPlan?.beats?.length) {
+                        videoPromptSource = compileVideoPrompt(storyboardPlan, {
+                            model: "grok",
+                            duration: Number(videoGenerationConfig.videoSeconds),
+                            aspectRatio: videoAspectRatioForSize(videoGenerationConfig.size),
+                            referenceMode: "i2v",
+                        });
+                    }
+                    const videoPrompt = usesWholeStoryboardSheet
+                        ? buildWholeStoryboardI2VPrompt(videoPromptSource, videoGenerationConfig.videoSeconds, videoAspectRatioForSize(videoGenerationConfig.size), storyboardPlan)
+                        : buildStoryboardReviewSheetVideoPrompt(videoPromptSource, storyboardReferenceFrames.length, videoGenerationConfig.videoSeconds, videoReferenceImages.length, videoIdentityReferenceCount, videoAspectRatioForSize(videoGenerationConfig.size));
                     if (!videoPrompt && !videoReferenceImages.length && !generationContext.referenceVideos.length && !generationContext.referenceAudios.length) {
                         throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
                     }
@@ -3388,7 +3518,7 @@ function InfiniteCanvasPage() {
                     const videoNode: CanvasNodeData = {
                         id: videoId,
                         type: CanvasNodeType.Video,
-                        title: effectivePrompt.slice(0, 32) || (storyboardReferenceFrames.length ? "Storyboard Video" : "Generated Video"),
+                        title: effectivePrompt.slice(0, 32) || (storyboardVideoImages.length ? "Storyboard Video" : "Generated Video"),
                         position: isEmptyVideoNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y },
                         width: isEmptyVideoNode ? sourceNode.width : spec.width,
                         height: isEmptyVideoNode ? sourceNode.height : spec.height,
@@ -3399,8 +3529,13 @@ function InfiniteCanvasPage() {
                             size: videoGenerationConfig.size,
                             seconds: videoGenerationConfig.videoSeconds,
                             vquality: videoGenerationConfig.vquality,
+                            productScaleMode: videoGenerationConfig.videoProductScaleMode,
                             generateAudio: videoGenerationConfig.videoGenerateAudio,
                             watermark: videoGenerationConfig.videoWatermark,
+                            videoSourcePrompt: videoPromptSource,
+                            videoConstraintVersion: storyboardVideoImages.length ? GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION : undefined,
+                            videoReferenceImages: generationImageReferenceUrls(videoReferenceImages),
+                            commerceVideoPlan: usesWholeStoryboardSheet ? storyboardPlan : undefined,
                             references: generationReferenceUrls({ ...generationContext, referenceImages: videoReferenceImages }),
                         },
                     };
@@ -3418,7 +3553,14 @@ function InfiniteCanvasPage() {
                         if (directProductLock) {
                             const bridgeImage = await createDirectProductBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), directProductLock, videoGenerationConfig.size, controller.signal);
                             requestVideoReferenceImages = [bridgeImage];
-                            requestVideoPrompt = buildStoryboardReviewSheetVideoPrompt(directProductLock.videoPrompt, storyboardReferenceFrames.length, videoGenerationConfig.videoSeconds, requestVideoReferenceImages.length, 0);
+                            requestVideoPrompt = buildStoryboardReviewSheetVideoPrompt(
+                                directProductLock.videoPrompt,
+                                storyboardReferenceFrames.length,
+                                videoGenerationConfig.videoSeconds,
+                                requestVideoReferenceImages.length,
+                                0,
+                                videoAspectRatioForSize(videoGenerationConfig.size),
+                            );
                             setNodes((prev) =>
                                 prev.map((node) =>
                                     node.id === videoId
@@ -3427,6 +3569,7 @@ function InfiniteCanvasPage() {
                                               metadata: {
                                                   ...node.metadata,
                                                   prompt: requestVideoPrompt,
+                                                  videoReferenceImages: generationImageReferenceUrls(requestVideoReferenceImages),
                                                   references: generationReferenceUrls({ ...generationContext, referenceImages: requestVideoReferenceImages }),
                                               },
                                           }
@@ -3434,7 +3577,9 @@ function InfiniteCanvasPage() {
                                 ),
                             );
                         }
-                        const video = await storeGeneratedVideo(await requestVideoGeneration(videoGenerationConfig, requestVideoPrompt, requestVideoReferenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal }));
+                        const video = await storeGeneratedVideo(
+                            await requestVideoGeneration(videoGenerationConfig, requestVideoPrompt, requestVideoReferenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal }),
+                        );
                         const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                         setNodes((prev) =>
                             prev.map((node) =>
@@ -3452,8 +3597,10 @@ function InfiniteCanvasPage() {
                                               size: videoGenerationConfig.size,
                                               seconds: videoGenerationConfig.videoSeconds,
                                               vquality: videoGenerationConfig.vquality,
+                                              productScaleMode: videoGenerationConfig.videoProductScaleMode,
                                               generateAudio: videoGenerationConfig.videoGenerateAudio,
                                               watermark: videoGenerationConfig.videoWatermark,
+                                              videoReferenceImages: generationImageReferenceUrls(requestVideoReferenceImages),
                                               references: generationReferenceUrls({ ...generationContext, referenceImages: requestVideoReferenceImages }),
                                           },
                                       }
@@ -3576,6 +3723,10 @@ function InfiniteCanvasPage() {
 
     const handleRetryNode = useCallback(
         async (node: CanvasNodeData) => {
+            if (generationRequestsRef.current.has(node.id)) {
+                message.warning("该任务正在重试，请勿重复提交");
+                return;
+            }
             const sourceNode = findRetrySourceNode(node.id, nodesRef.current, connectionsRef.current) || node;
             const batchRoot = node.metadata?.batchRootId ? nodesRef.current.find((item) => item.id === node.metadata?.batchRootId) : null;
             const savedImageMetadata = node.type === CanvasNodeType.Image ? { ...batchRoot?.metadata, ...node.metadata } : undefined;
@@ -3595,12 +3746,17 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            const retryBasePrompt = node.type === CanvasNodeType.Video ? node.metadata?.prompt || sourceNode.metadata?.prompt || "" : sourceNode.metadata?.prompt || node.metadata?.prompt || "";
+            const savedVideoDirection = node.type === CanvasNodeType.Video ? unwrapStoryboardVideoUserDirection(node.metadata?.prompt || "") || node.metadata?.videoSourcePrompt || "" : "";
+            const retryBasePrompt = node.type === CanvasNodeType.Video ? savedVideoDirection || sourceNode.metadata?.prompt || "" : sourceNode.metadata?.prompt || node.metadata?.prompt || "";
             const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, retryBasePrompt));
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
-            const storyboardRetryImages = node.type === CanvasNodeType.Video ? await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
-            const storyboardRetryIdentityImages = node.type === CanvasNodeType.Video ? await storyboardReviewSheetIdentityReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
-            const hasVideoReferences = node.type === CanvasNodeType.Video && Boolean(storyboardRetryImages.length || context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
+            const storyboardRetryWholeImages = node.type === CanvasNodeType.Video ? storyboardReviewSheetWholeReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
+            const retriesWholeStoryboardSheet = storyboardRetryWholeImages.length > 0;
+            const storyboardRetryImages = node.type === CanvasNodeType.Video ? (retriesWholeStoryboardSheet ? storyboardRetryWholeImages : await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current)) : [];
+            const storyboardRetryIdentityImages = node.type === CanvasNodeType.Video && !retriesWholeStoryboardSheet ? await storyboardReviewSheetIdentityReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
+            const storedVideoReferenceImages = node.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(node.metadata) : [];
+            const hasVideoReferences =
+                node.type === CanvasNodeType.Video && Boolean(storedVideoReferenceImages.length || storyboardRetryImages.length || context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
             if (!prompt && !hasVideoReferences) {
                 message.warning("找不到提示词，无法重试");
                 return;
@@ -3615,8 +3771,11 @@ function InfiniteCanvasPage() {
                 return;
             }
             const retrySourceImages = hasSavedImageMetadata ? [] : sourceNodeReferenceImages(sourceNode);
-            const retryIdentityImages = mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryIdentityImages);
-            const retryImages = node.type === CanvasNodeType.Video ? mergeReferenceImages(retryIdentityImages, storyboardRetryImages) : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
+            // When a selected storyboard grid is still connected, keep it as
+            // the ordered I2V shot map on retry. Stored identity fallbacks are
+            // only for legacy nodes whose grid can no longer be restored.
+            const retryIdentityImages = retriesWholeStoryboardSheet ? [] : mergeReferenceImages(storyboardRetryIdentityImages, storedVideoReferenceImages, retrySourceImages, retryReferenceImages || []);
+            const retryImages = node.type === CanvasNodeType.Video ? (retriesWholeStoryboardSheet ? storyboardRetryWholeImages : mergeReferenceImages(retryIdentityImages, storyboardRetryImages)) : mergeReferenceImages(retrySourceImages, retryReferenceImages || [], storyboardRetryImages);
             let retryVideoImages = retryImages;
             let retryVideoPromptSource = prompt;
             let retryDirectProductLock: ReturnType<typeof buildDirectProductLockVideoContext> = null;
@@ -3624,14 +3783,18 @@ function InfiniteCanvasPage() {
                 const retryOriginalGenerationConfig = generationConfig;
                 generationConfig = resolveReferenceImageVideoConfig(retryOriginalGenerationConfig, retryImages.length);
                 retryVideoImages = selectGrokReferenceVideoImagesWithPriority(retryIdentityImages, storyboardRetryImages, generationConfig.model);
-                retryDirectProductLock = buildDirectProductLockVideoContext(retryVideoPromptSource, retryVideoImages, storyboardRetryImages.length, generationConfig.model);
+                retryDirectProductLock = buildDirectProductLockVideoContext(retryVideoPromptSource, retryVideoImages, storyboardRetryImages.length, generationConfig.model, generationConfig.videoProductScaleMode);
                 if (retryDirectProductLock) {
                     retryVideoImages = retryDirectProductLock.referenceImages;
                     retryVideoPromptSource = retryDirectProductLock.prompt;
                 }
                 generationConfig = resolveReferenceImageVideoConfig(retryOriginalGenerationConfig, retryDirectProductLock ? 1 : retryVideoImages.length);
             }
-            const retryPrompt = savedImageMetadata?.productDetailShot ? prompt : buildIdentityPreservingImageEditPrompt(prompt, retrySourceImages.length > 0 || Boolean(hasSavedImageMetadata && retryImages.length), retryImages);
+            const retryPrompt = savedImageMetadata?.productDetailShot
+                ? prompt
+                : savedImageMetadata?.fusionPlacementPlanV1
+                  ? buildSceneAwareImageEditPrompt(savedImageMetadata.fusionPlacementPlanV1, prompt)
+                  : buildIdentityPreservingImageEditPrompt(prompt, retrySourceImages.length > 0 || Boolean(hasSavedImageMetadata && retryImages.length), retryImages);
             const retryMask = savedImageMetadata?.editMask ? await resolveMetadataEditMask(savedImageMetadata.editMask) : undefined;
             if (savedImageMetadata?.editMask && !retryMask) {
                 message.error("局部修改蒙版已丢失，无法继续重试");
@@ -3675,11 +3838,13 @@ function InfiniteCanvasPage() {
                 if (node.type === CanvasNodeType.Video) {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
                     const retryIdentityReferenceCount = Math.min(retryIdentityImages.length, retryVideoImages.length);
-                    let videoPrompt = buildStoryboardReviewSheetVideoPrompt(retryVideoPromptSource, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, retryIdentityReferenceCount);
+                    let videoPrompt = retriesWholeStoryboardSheet
+                        ? buildWholeStoryboardI2VPrompt(retryVideoPromptSource, generationConfig.videoSeconds, videoAspectRatioForSize(generationConfig.size), node.metadata?.commerceVideoPlan)
+                        : buildStoryboardReviewSheetVideoPrompt(retryVideoPromptSource, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, retryIdentityReferenceCount, videoAspectRatioForSize(generationConfig.size));
                     if (retryDirectProductLock) {
                         const bridgeImage = await createDirectProductBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), retryDirectProductLock, generationConfig.size, controller.signal);
                         retryVideoImages = [bridgeImage];
-                        videoPrompt = buildStoryboardReviewSheetVideoPrompt(retryDirectProductLock.videoPrompt, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, 0);
+                        videoPrompt = buildStoryboardReviewSheetVideoPrompt(retryDirectProductLock.videoPrompt, storyboardRetryImages.length, generationConfig.videoSeconds, retryVideoImages.length, 0, videoAspectRatioForSize(generationConfig.size));
                     }
                     const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryVideoImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
@@ -3699,8 +3864,12 @@ function InfiniteCanvasPage() {
                                           size: generationConfig.size,
                                           seconds: generationConfig.videoSeconds,
                                           vquality: generationConfig.vquality,
+                                          productScaleMode: generationConfig.videoProductScaleMode,
                                           generateAudio: generationConfig.videoGenerateAudio,
                                           watermark: generationConfig.videoWatermark,
+                                          videoSourcePrompt: retryVideoPromptSource,
+                                          videoConstraintVersion: storyboardRetryImages.length ? GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION : undefined,
+                                          videoReferenceImages: generationImageReferenceUrls(retryVideoImages).length ? generationImageReferenceUrls(retryVideoImages) : item.metadata?.videoReferenceImages,
                                           references: generationReferenceUrls({ referenceImages: retryVideoImages, referenceVideos: context?.referenceVideos || [], referenceAudios: context?.referenceAudios || [] }),
                                       },
                                   }
@@ -4035,6 +4204,8 @@ function InfiniteCanvasPage() {
                                         onChange={(composerContent) => handleConfigNodeChange(panelNode.id, { composerContent })}
                                         onClose={() => setDialogNodeId(null)}
                                     />
+                                ) : panelNode.type === CanvasNodeType.Director ? (
+                                    <CanvasDirectorPanel node={panelNode} onOpen={(targetNode) => setDirectorStudioNodeId(targetNode.id)} />
                                 ) : (
                                     <CanvasNodePromptPanel
                                         node={panelNode}
@@ -4054,20 +4225,24 @@ function InfiniteCanvasPage() {
                                     />
                                 )
                             }
-                            renderNodeContent={(contentNode) => (
-                                <CanvasConfigNodePanel
-                                    node={contentNode}
-                                    isRunning={runningNodeId === contentNode.id}
-                                    inputSummary={getInputSummary(configInputsById.get(contentNode.id) || [])}
-                                    onConfigChange={handleConfigNodeChange}
-                                    onComposerToggle={() => setDialogNodeId((current) => (current === contentNode.id ? null : contentNode.id))}
-                                    onStop={confirmStopGeneration}
-                                    onGenerate={(nodeId) => {
-                                        const target = nodesRef.current.find((item) => item.id === nodeId);
-                                        void handleGenerateNode(nodeId, target?.metadata?.generationMode || "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
-                                    }}
-                                />
-                            )}
+                            renderNodeContent={(contentNode) =>
+                                contentNode.type === CanvasNodeType.Director ? (
+                                    <CanvasDirectorNode node={contentNode} onOpen={(targetNode) => setDirectorStudioNodeId(targetNode.id)} />
+                                ) : contentNode.type === CanvasNodeType.Config ? (
+                                    <CanvasConfigNodePanel
+                                        node={contentNode}
+                                        isRunning={runningNodeId === contentNode.id}
+                                        inputSummary={getInputSummary(configInputsById.get(contentNode.id) || [])}
+                                        onConfigChange={handleConfigNodeChange}
+                                        onComposerToggle={() => setDialogNodeId((current) => (current === contentNode.id ? null : contentNode.id))}
+                                        onStop={confirmStopGeneration}
+                                        onGenerate={(nodeId) => {
+                                            const target = nodesRef.current.find((item) => item.id === nodeId);
+                                            void handleGenerateNode(nodeId, target?.metadata?.generationMode || "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
+                                        }}
+                                    />
+                                ) : null
+                            }
                             onMouseDown={handleNodeMouseDown}
                             onHoverStart={(nodeId) => {
                                 if (nodeDraggingRef.current) return;
@@ -4139,6 +4314,7 @@ function InfiniteCanvasPage() {
                     onToggleDialog={(node) => setDialogNodeId((current) => (current === node.id ? null : node.id))}
                     onGenerateImage={generateImageFromTextNode}
                     onGenerateStoryboardKeyframes={(node) => void handleGenerateStoryboardKeyframes(node)}
+                    onGenerateFullVideo={(node) => void handleGenerateNode(node.id, "video", node.metadata?.prompt || "")}
                     onGenerateVideoClips={(node) => void handleGenerateVideoClips(node)}
                     onUpload={(node) => handleUploadRequest(node.id)}
                     onDownload={downloadNodeImage}
@@ -4169,6 +4345,7 @@ function InfiniteCanvasPage() {
                     onAddAudio={() => createNode(CanvasNodeType.Audio)}
                     onAddText={() => createNode(CanvasNodeType.Text)}
                     onAddConfig={() => createNode(CanvasNodeType.Config)}
+                    onAddDirector={() => createNode(CanvasNodeType.Director)}
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
                     onUpload={() => handleUploadRequest()}
@@ -4227,6 +4404,8 @@ function InfiniteCanvasPage() {
                 </Modal>
 
                 {angleNode?.metadata?.content ? <CanvasNodeAngleDialog dataUrl={angleNode.metadata.content} open={Boolean(angleNode)} onClose={() => setAngleNodeId(null)} onConfirm={(params) => void generateAngleNode(angleNode!, params)} /> : null}
+
+                {directorStudioNode ? <DirectorStudioDialog open={Boolean(directorStudioNode)} onClose={() => setDirectorStudioNodeId(null)} onSnapshot={(payload) => createDirectorSnapshotNodes(directorStudioNode, payload)} /> : null}
 
                 <Modal
                     title="图片详情"
@@ -4606,12 +4785,36 @@ function referenceFingerprint(image: ReferenceImage) {
     return image.storageKey || image.url || image.id || referenceUrl(image) || image.dataUrl.slice(0, 96);
 }
 
+function generationImageReferenceUrls(images: ReferenceImage[]) {
+    return images.map(referenceUrl).filter((url): url is string => Boolean(url));
+}
+
 function generationReferenceUrls(context: { referenceImages: ReferenceImage[]; referenceVideos: Array<{ storageKey?: string; url?: string }>; referenceAudios?: Array<{ storageKey?: string; url?: string }> }) {
     return [
         ...context.referenceImages.map(referenceUrl).filter((url): url is string => Boolean(url)),
         ...context.referenceVideos.map((video) => video.storageKey || video.url).filter((url): url is string => Boolean(url)),
         ...(context.referenceAudios || []).map((audio) => audio.storageKey || audio.url).filter((url): url is string => Boolean(url)),
     ];
+}
+
+async function resolveStoredVideoImageReferences(metadata?: CanvasNodeMetadata): Promise<ReferenceImage[]> {
+    const explicitUrls = metadata?.videoReferenceImages || [];
+    const urls = explicitUrls.length ? explicitUrls : (metadata?.references || []).filter((url) => url.startsWith("image:"));
+    const references = await Promise.all(
+        urls.map(async (url, index): Promise<ReferenceImage | null> => {
+            const dataUrl = url.startsWith("image:") ? await resolveImageUrl(url, "") : url;
+            return dataUrl
+                ? {
+                      id: `saved-video-reference-${index}`,
+                      name: `saved-video-reference-${index + 1}.png`,
+                      type: "image/png",
+                      dataUrl,
+                      storageKey: url.startsWith("image:") ? url : undefined,
+                  }
+                : null;
+        }),
+    );
+    return references.filter((reference): reference is ReferenceImage => Boolean(reference));
 }
 
 async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
@@ -4647,7 +4850,21 @@ function canvasNodeTypeLabel(type: CanvasNodeType) {
     if (type === CanvasNodeType.Video) return "视频";
     if (type === CanvasNodeType.Audio) return "音频";
     if (type === CanvasNodeType.Text) return "文本";
+    if (type === CanvasNodeType.Director) return "导演台";
     return "配置";
+}
+
+function buildDirectorBlueprintImageEditPrompt(prompt: string) {
+    return [
+        "Create a new finished image using Image 1 only as a director layout blueprint.",
+        "Image 1 controls camera angle, subject placement, pose direction, staging depth, prop/table placement, and lighting direction.",
+        "Do not preserve Image 1 as locked pixels. Replace all low-poly placeholder geometry, blank face, gray studio, grid floor, UI traces, and simple 3D materials with a polished final image.",
+        "Keep the same camera geometry and spatial relationship, but render natural people, real objects, realistic surfaces, and the visual style requested below.",
+        "Return only the final generated image.",
+        "",
+        "USER CREATIVE REQUEST:",
+        prompt.trim(),
+    ].join("\n");
 }
 
 async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
@@ -4655,6 +4872,14 @@ async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
         nodes.map(async (node) => {
             const content = node.metadata?.content;
             if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveMediaUrl(node.metadata.storageKey, content) } };
+            if (node.type === CanvasNodeType.Director && node.metadata?.directorLastSnapshotStorageKey)
+                return {
+                    ...node,
+                    metadata: {
+                        ...node.metadata,
+                        directorLastSnapshot: await resolveImageUrl(node.metadata.directorLastSnapshotStorageKey, node.metadata.directorLastSnapshot),
+                    },
+                };
             if (node.type !== CanvasNodeType.Image || !content) return node;
             if (node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveImageUrl(node.metadata.storageKey, content) } };
             if (!content.startsWith("data:image/")) return node;
@@ -4746,10 +4971,12 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
     return {
         ...config,
         model: resolvedModel,
+        videoModel: mode === "video" ? resolvedModel : config.videoModel,
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
         size: node?.metadata?.size || config.size || defaultConfig.size,
         videoSeconds: resolvedVideoSeconds,
         vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
+        videoProductScaleMode: node?.metadata?.productScaleMode || config.videoProductScaleMode || defaultConfig.videoProductScaleMode,
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
         audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,
@@ -4820,15 +5047,33 @@ function findRetrySourceNode(nodeId: string, nodes: CanvasNodeData[], connection
 }
 
 async function storyboardReviewSheetReferenceFrames(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    const node = nodes.find((item) => item.id === nodeId);
-    const reviewSheets = [...(node && isStoryboardReviewSheetNode(node) ? [node] : []), ...getGenerationResourceNodes(nodeId, nodes, connections).filter(isStoryboardReviewSheetNode)];
+    const reviewSheets = storyboardReviewSheetNodes(nodeId, nodes, connections);
     const frameGroups = await Promise.all(reviewSheets.map((item) => splitStoryboardReviewSheetNode(item)));
     return mergeReferenceImages(...frameGroups);
 }
 
-async function storyboardReviewSheetIdentityReferences(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+function storyboardReviewSheetWholeReferences(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    return mergeReferenceImages(...storyboardReviewSheetNodes(nodeId, nodes, connections).map(sourceNodeReferenceImages));
+}
+
+function storyboardReviewSheetNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const node = nodes.find((item) => item.id === nodeId);
-    const reviewSheets = [...(node && isStoryboardReviewSheetNode(node) ? [node] : []), ...getGenerationResourceNodes(nodeId, nodes, connections).filter(isStoryboardReviewSheetNode)];
+    return [...(node && isStoryboardReviewSheetNode(node) ? [node] : []), ...getGenerationResourceNodes(nodeId, nodes, connections).filter(isStoryboardReviewSheetNode)];
+}
+
+async function storyboardReviewSheetIdentityReferences(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const reviewSheets = storyboardReviewSheetNodes(nodeId, nodes, connections);
+    // Review sheets persist the exact full-size source references used to
+    // create them. Restore those first: older canvases may not have a usable
+    // storyboardSourceNodeId, while the persisted generation metadata is still
+    // intact. Without this fallback Fast receives a small split panel and the
+    // presenter/product identity drifts across the generated video.
+    const persistedGroups = await Promise.all(
+        reviewSheets.map(async (item) => {
+            const references = await resolveMetadataReferences(item.metadata || {});
+            return references || [];
+        }),
+    );
     const sourceIds = [...new Set(reviewSheets.map((item) => item.metadata?.storyboardSourceNodeId).filter((id): id is string => Boolean(id)))];
     const sourceGroups = await Promise.all(
         sourceIds.map(async (sourceId) => {
@@ -4838,7 +5083,7 @@ async function storyboardReviewSheetIdentityReferences(nodeId: string, nodes: Ca
             return mergeReferenceImages(sourceNodeReferenceImages(sourceNode), sourceContext.referenceImages);
         }),
     );
-    return mergeReferenceImages(...sourceGroups);
+    return mergeReferenceImages(...persistedGroups, ...sourceGroups);
 }
 
 function isStoryboardReviewSheetNode(node: CanvasNodeData) {
@@ -4873,31 +5118,56 @@ async function cropStoryboardVideoFrame(dataUrl: string) {
     }
 }
 
-function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferenceCount: number, videoSeconds = "15", attachedReferenceCount = storyboardReferenceCount, identityReferenceCount = 0) {
-    const text = normalizeVideoGenerationPrompt(prompt);
-    if (!storyboardReferenceCount) return text;
-    const duration = normalizeStoryboardVideoSeconds(videoSeconds, Math.max(1, attachedReferenceCount));
-    const storyboardAnchorCount = Math.max(0, attachedReferenceCount - identityReferenceCount);
-    const timelineStart = identityReferenceCount + 1;
-    const timelineEnd = Math.max(timelineStart, identityReferenceCount + storyboardAnchorCount);
-    const referenceRoles = identityReferenceCount
-        ? `<IMAGE_1> is the exact product/source identity lock and is not a timeline shot. <IMAGE_${timelineStart}> through <IMAGE_${timelineEnd}> are ordered timeline anchors sampled from the original ${STORYBOARD_REVIEW_PANEL_COUNT}-panel storyboard.`
-        : `<IMAGE_1> through <IMAGE_${Math.max(1, storyboardAnchorCount)}> are ordered timeline anchors sampled from the original ${STORYBOARD_REVIEW_PANEL_COUNT}-panel storyboard.`;
+function buildWholeStoryboardI2VPrompt(
+    prompt: string,
+    videoSeconds = "15",
+    aspectRatio: "9:16" | "16:9" | "1:1" = "9:16",
+    plan?: CanvasCommerceVideoPlan,
+) {
+    const unwrappedPrompt = unwrapStoryboardVideoUserDirection(prompt);
+    const text = compactStoryboardVideoPrompt(normalizeVideoGenerationPrompt(unwrappedPrompt || (prompt.includes("STORYBOARD-DIRECTED VIDEO.") ? "" : prompt)), Number(videoSeconds) || 15);
+    const mode = plan?.storyboardMode;
+    const plannedLocations = (plan?.plannedLocations || []).map((location) => location.trim()).filter(Boolean);
+    const locationSequenceDirection =
+        plan?.locationStrategy === "related-location-montage" && plannedLocations.length
+            ? `MANDATORY LOCATION SEQUENCE: ${plannedLocations.join(" -> ")}. Show at least one clean full-frame shot in every location, in exactly this order. Do not merge, substitute, omit, or revisit locations; use hard cuts rather than crossfades, dissolves, or morphing.`
+            : "";
+    const modeDirection =
+        mode === "apparel"
+            ? "Treat this as an energetic lifestyle-fashion montage. Preserve the exact adult face, hair, body proportions, garment design, colors, material, and coverage while allowing clean cuts across the related locations shown or described by the ordered panels."
+            : mode === "subject"
+              ? "Treat this as an energetic cinematic-subject montage. Preserve the exact subject identity and wardrobe while allowing clean cuts across the related locations shown or described by the ordered panels."
+              : mode === "scene"
+                ? "Treat this as a scene-progression montage inside one coherent visual world, following the ordered environmental changes without importing unrelated entities."
+                : "Treat this as a product-led short video. Preserve the exact product geometry, colors, labels, component count, and scale while following only the ordered actions shown or described by the panels.";
     return [
-        "STORYBOARD-DIRECTED VIDEO. Treat every attached image as a mandatory reference, not loose inspiration.",
-        `Create exactly ${duration} seconds of polished 9:16 direct-response ecommerce footage with clean edited cuts.`,
-        `Reference roles: ${referenceRoles}`,
-        "Timeline: 0-18% exaggerated but believable problem/reaction hook; 18-32% product rescue reveal; 32-68% application plus visible proof; 68-86% clean result contrast; 86-100% label-readable product hero with the improved result behind it.",
-        "Product lock: preserve the exact package silhouette, nozzle/closure geometry, dominant colors, logo position, label blocks, printed layout, scale, and object count from <IMAGE_1> when it is an identity lock. Never rename, translate, recolor, rebrand, simplify, or replace the package. Preserve uncertain label marks instead of inventing English words.",
-        "Shot lock: follow timeline references in order and infer only the omitted in-between beats. Use one stable subject and local physical motion per shot. No morphs, cross-dissolves, repeated opening, unrelated footage, or more than two near-identical action shots.",
-        "Human lock: use one consistent presenter face, hair, clothing, age, and body. Keep reaction shots chest-up and brief. Preserve natural head, neck, shoulders, torso, arms, hands, and finger count; never vertically stretch a person to fill 9:16 or fuse a person with the product.",
-        "Commerce rhythm: the product appears in the opening third, demonstration, and final hero. The proof must be believable, and the ending must visibly resolve the original problem.",
-        storyboardAudioDirection(text),
-        "Output only clean full-frame footage: no grid, panels, numbers, badges, captions, subtitles, arrows, watermark, fake price, fake discount, certification, medical claim, or impossible result.",
-        `User direction: ${compactStoryboardVideoPrompt(text, duration)}`,
+        STORYBOARD_DIRECTED_VIDEO_MARKER,
+        locationSequenceDirection,
+        text,
+        `Use the attached 12-panel storyboard grid as an ordered visual shot map, not as a visible opening frame. Follow its panels in reading order and recreate selected moments as clean full-frame ${aspectRatio} shots.`,
+        modeDirection,
+        "Use decisive editorial cuts, visibly varied wide, medium, and detail framing, and believable subject, garment, object, hair, fabric, water, wind, and camera motion only when supported by the panels.",
+        `Create exactly ${normalizeStoryboardVideoSeconds(videoSeconds, 1)} seconds with the same subject, wardrobe, products, and environments shown in the grid.`,
+        "Never display the grid, panel borders, numbers, labels, captions, or a collage; never morph, duplicate, stretch, or replace the subject or product between shots.",
     ]
         .filter(Boolean)
         .join("\n");
+}
+
+function buildStoryboardReviewSheetVideoPrompt(prompt: string, storyboardReferenceCount: number, videoSeconds = "15", attachedReferenceCount = storyboardReferenceCount, identityReferenceCount = 0, aspectRatio: "9:16" | "16:9" | "1:1" = "9:16") {
+    const unwrappedPrompt = unwrapStoryboardVideoUserDirection(prompt);
+    const text = normalizeVideoGenerationPrompt(unwrappedPrompt || (prompt.includes("STORYBOARD-DIRECTED VIDEO.") ? "" : prompt));
+    if (!storyboardReferenceCount) return text;
+    const duration = normalizeStoryboardVideoSeconds(videoSeconds, Math.max(1, attachedReferenceCount));
+    return buildStoryboardVideoConstraintPrompt({
+        userDirection: compactStoryboardVideoPrompt(text, duration),
+        duration,
+        sourcePanelCount: STORYBOARD_REVIEW_PANEL_COUNT,
+        attachedReferenceCount,
+        identityReferenceCount,
+        aspectRatio,
+        audioDirection: storyboardAudioDirection(text),
+    });
 }
 
 function storyboardAudioDirection(prompt: string) {
@@ -4914,12 +5184,12 @@ function storyboardAudioDirection(prompt: string) {
 
 function compactStoryboardVideoPrompt(prompt: string, duration = 15) {
     const normalized = prompt.replace(/\s+/g, " ").trim();
-    if (!normalized) return `Follow the supplied ${STORYBOARD_REVIEW_PANEL_COUNT}-panel storyboard logic for a ${duration}-second vertical product video.`;
+    if (!normalized) return `Create a ${duration}-second reference-led video using only the supplied subject, scene, and ordered actions.`;
     return limitInlinePrompt(normalized, 900);
 }
 
 function normalizeStoryboardVideoSeconds(value: string, referenceCount: number) {
-    return Math.max(1, Math.floor(Number(normalizeReferenceVideoSeconds(value || "15", "grok-imagine-video", Math.max(1, referenceCount))) || 15));
+    return Math.max(1, Math.floor(Number(value) || 15));
 }
 
 function normalizeVideoGenerationPrompt(prompt: string) {
@@ -4985,7 +5255,7 @@ function limitInlinePrompt(value: string, maxChars: number) {
     return `${value.slice(0, maxChars - 32).trim()}...`;
 }
 
-function buildDirectProductLockVideoContext(prompt: string, referenceImages: ReferenceImage[], storyboardReferenceCount: number, model: string) {
+function buildDirectProductLockVideoContext(prompt: string, referenceImages: ReferenceImage[], storyboardReferenceCount: number, model: string, productScaleMode = "auto") {
     if (storyboardReferenceCount > 0 || referenceImages.length < 2 || !isGrokCanvasVideoModel(model)) return null;
     const pair = inferDirectReferencePair(prompt, referenceImages.length);
     if (!pair) return null;
@@ -4993,6 +5263,7 @@ function buildDirectProductLockVideoContext(prompt: string, referenceImages: Ref
     const productReference = referenceImages[pair.reference - 1];
     if (!baseReference || !productReference) return null;
     const cleanedIntent = stripImageMentionRoles(prompt);
+    const productScalePrompt = buildVideoProductScalePrompt(productScaleMode);
     return {
         referenceImages: [productReference],
         bridgeReferences: [baseReference, productReference],
@@ -5002,6 +5273,7 @@ function buildDirectProductLockVideoContext(prompt: string, referenceImages: Ref
             "Image 2 is the exact product/object identity reference. Reproduce this product as a separate physical object with the same silhouette, proportions, transparent/solid material, red/white pattern, part count, and part placement.",
             "Place the product naturally in the scene as a believable product reveal or product hero moment. If full person-product interaction risks product deformation, prefer a clean tabletop/hand-held product hero keyframe.",
             "Do not stretch, elongate, melt, simplify, duplicate, remove, rotate into a new design, or reimagine any product/object part.",
+            productScalePrompt,
             "No captions, no UI, no panel grid, no badges, no fake platform labels. Output a single polished keyframe only.",
             `User intent: ${limitInlinePrompt(cleanedIntent || "Create a short commerce video around the locked product reference.", 900)}`,
         ].join("\n"),
@@ -5042,7 +5314,7 @@ async function createDirectProductBridgeReference(config: AiConfig, context: Non
 }
 
 function isGrokCanvasVideoModel(model: string) {
-    return (model.trim().toLowerCase().split("::").at(-1) || "") === "grok-imagine-video";
+    return isGrokVideoModel(model);
 }
 
 function inferDirectReferencePair(prompt: string, referenceCount: number) {
@@ -5062,8 +5334,14 @@ function inferDirectReferencePair(prompt: string, referenceCount: number) {
 
 function stripImageMentionRoles(prompt: string) {
     return prompt
-        .replace(/(?:让|用|以)?\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using|with)\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*/gi, "根据锁定产品参考图")
-        .replace(/(?:让|用|以)?\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*\s*(?:带|带着|拿|拿着|手持|展示|使用|融入|融合|加入|植入|结合|搭配|with|featuring|holding|using|showing|including|include|add(?:ing)?)\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*(?:\s*(?:产品|商品|物品|道具|object|product|item))?/gi, "根据锁定产品参考图")
+        .replace(
+            /(?:让|用|以)?\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using|with)\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*/gi,
+            "根据锁定产品参考图",
+        )
+        .replace(
+            /(?:让|用|以)?\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*\s*(?:带|带着|拿|拿着|手持|展示|使用|融入|融合|加入|植入|结合|搭配|with|featuring|holding|using|showing|including|include|add(?:ing)?)\s*(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*(?:\s*(?:产品|商品|物品|道具|object|product|item))?/gi,
+            "根据锁定产品参考图",
+        )
         .replace(/@?\s*(?:图片|图像|图|image|img|photo|picture)\s*[1-9]\d*/gi, "参考素材")
         .replace(/\s+/g, " ")
         .trim();

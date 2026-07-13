@@ -20,6 +20,7 @@ const FORWARDED_PATHS = [
     /^v1\/models$/,
 ];
 const STRIPPED_REQUEST_HEADERS = [
+    "accept-encoding",
     "authorization",
     "x-tokaxis-api-key",
     "cookie",
@@ -34,8 +35,7 @@ const STRIPPED_REQUEST_HEADERS = [
     "transfer-encoding",
     "upgrade",
 ];
-const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "transfer-encoding"];
-const VIDEO_CREATE_RETRY_DELAYS_MS = [1200, 2500, 4500];
+const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "content-length", "transfer-encoding", "x-oneapi-request-id", "x-oneapi-node", "x-oneapi-version"];
 const GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE = "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
 const legacyGrokVideoTaskIds = new Set<string>();
 
@@ -73,12 +73,13 @@ async function proxyTokaxis(request: NextRequest, context: RouteContext) {
     const headers = new Headers(request.headers);
     STRIPPED_REQUEST_HEADERS.forEach((name) => headers.delete(name));
     headers.set("Authorization", authorization);
+    headers.set("Accept-Encoding", "identity");
 
     if (request.method === "POST" && path === "v1/videos/generations") {
         return proxyLegacyGrokVideoGeneration(request, authorization);
     }
     const legacyVideoTaskId = request.method === "GET" ? /^v1\/videos\/([^/]+)$/.exec(path)?.[1] : undefined;
-    if (legacyVideoTaskId && legacyGrokVideoTaskIds.has(legacyVideoTaskId)) {
+    if (legacyVideoTaskId && (legacyGrokVideoTaskIds.has(legacyVideoTaskId) || legacyVideoTaskId.startsWith("task_"))) {
         return proxyLegacyGrokVideoPoll(upstreamUrl, authorization, legacyVideoTaskId);
     }
 
@@ -120,79 +121,93 @@ async function proxyTokaxis(request: NextRequest, context: RouteContext) {
 async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorization: string) {
     try {
         const payload = (await request.json()) as LegacyGrokVideoPayload;
-        const references = Array.isArray(payload.reference_images) ? payload.reference_images.slice(0, 7) : [];
-        const referenceImages = references.map((reference) => ({ url: stringValue(reference?.url) })).filter((reference) => reference.url);
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("视频请求必须是 JSON 对象");
+        const inputImage = payload.image === undefined ? null : legacyVideoImage(payload.image, "image");
+        const rawReferences = payload.reference_images ?? payload.images;
+        if (rawReferences !== undefined && !Array.isArray(rawReferences)) throw new Error("reference_images 必须是图片数组");
+        if (Array.isArray(rawReferences) && rawReferences.length > 7) throw new Error("参考图最多支持 7 张");
+        const referenceImages = (rawReferences || []).map((reference, index) => legacyVideoImage(reference, `reference_images[${index}]`));
+        if (inputImage && referenceImages.length) throw new Error("image 与 reference_images 不能同时使用");
+        const videoMode: LegacyGrokVideoMode = inputImage ? "i2v" : referenceImages.length ? "r2v" : "t2v";
+        const model = stringValue(payload.model) || "grok-imagine-video-1.5-fast";
+        const seconds = legacyGrokVideoSeconds(payload.duration ?? payload.seconds, videoMode, model);
+        const resolution = legacyVideoResolution(payload.resolution, model);
+        const storageOptions = legacyVideoStorageOptions(payload.storage_options);
         const body = {
-            model: stringValue(payload.model) || "grok-imagine-video",
+            model,
             prompt: stringValue(payload.prompt),
-            seconds: legacyGrokVideoSeconds(payload.duration ?? payload.seconds, referenceImages.length),
-            duration: Number(legacyGrokVideoSeconds(payload.duration ?? payload.seconds, referenceImages.length)),
+            seconds,
+            duration: Number(seconds),
             size: legacyVideoSize(payload.aspect_ratio),
             aspect_ratio: stringValue(payload.aspect_ratio) || "9:16",
-            resolution: legacyVideoResolution(payload.resolution),
-            resolution_name: legacyVideoResolution(payload.resolution),
+            resolution,
+            resolution_name: resolution,
             preset: "normal",
-            ...(referenceImages.length ? { images: referenceImages.map((reference) => reference.url), reference_images: referenceImages } : {}),
+            // ai.tokaxis.com's legacy /v1/videos DTO declares `image` as a
+            // string.  Channel 32 then normalizes that string back to xAI's
+            // `{ url }` shape.  Forwarding the object here is rejected by the
+            // gateway before the channel adapter ever sees the request.
+            ...(videoMode === "i2v" ? { image: legacyVideoImageUrl(inputImage) } : videoMode === "r2v" ? { reference_images: referenceImages } : {}),
+            ...(storageOptions ? { storage_options: storageOptions } : {}),
         };
 
-        const { upstreamResponse, responseText, attempt } = await postLegacyGrokVideoJson(body, authorization);
-        if (!upstreamResponse.ok) {
-            console.error("[tokaxis-proxy] legacy video upstream failed", {
-                status: upstreamResponse.status,
-                statusText: upstreamResponse.statusText,
-                attempts: attempt,
+        try {
+            const { upstreamResponse, responseText, attempt } = await postLegacyGrokVideoJson(body, authorization);
+            if (!upstreamResponse.ok) {
+                console.error("[tokaxis-proxy] legacy video upstream failed", {
+                    status: upstreamResponse.status,
+                    statusText: upstreamResponse.statusText,
+                    attempts: attempt,
+                    referenceCount: referenceImages.length,
+                    videoMode,
+                    body: responseText.slice(0, 1000),
+                });
+            }
+            const normalizedFailureText = normalizeLegacyVideoCreateFailureText(responseText);
+            const submissionUnknown =
+                !normalizedFailureText &&
+                (upstreamResponse.status === 408 || upstreamResponse.status === 409 || upstreamResponse.status === 425 || upstreamResponse.status >= 500);
+            if (submissionUnknown) return videoSubmissionUnknownResponse(upstreamResponse.status);
+            const normalizedResponseText = normalizedFailureText || responseText;
+            const taskId = readVideoTaskId(normalizedResponseText);
+            if (taskId) legacyGrokVideoTaskIds.add(taskId);
+            return new Response(normalizedResponseText, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: jsonResponseHeaders(upstreamResponse.headers) });
+        } catch (error) {
+            console.error("[tokaxis-proxy] video submission result unknown", {
+                message: error instanceof Error ? error.message : "upstream connection failed",
                 referenceCount: referenceImages.length,
-                body: responseText.slice(0, 1000),
+                videoMode,
             });
+            return videoSubmissionUnknownResponse();
         }
-        const normalizedResponseText = normalizeLegacyVideoCreateFailureText(responseText) || responseText;
-        const taskId = readVideoTaskId(normalizedResponseText);
-        if (taskId) legacyGrokVideoTaskIds.add(taskId);
-        return new Response(normalizedResponseText, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: jsonResponseHeaders(upstreamResponse.headers) });
     } catch (error) {
         const message = error instanceof Error ? error.message : "Grok 视频任务创建失败";
         return Response.json({ error: { message } }, { status: 400 });
     }
 }
 
+function videoSubmissionUnknownResponse(upstreamStatus?: number) {
+    const message = "视频提交结果未知，系统没有自动重建任务；请先检查任务列表，避免重复生成和重复扣费";
+    return Response.json(
+        { error: { code: "video_submission_result_unknown", message, ...(upstreamStatus ? { upstream_status: upstreamStatus } : {}) } },
+        { status: 424 },
+    );
+}
+
 async function postLegacyGrokVideoJson(body: Record<string, unknown>, authorization: string) {
     const upstreamUrl = new URL(`${TOKAXIS_ORIGIN}/v1/videos`);
     const requestBody = JSON.stringify(body);
-    let lastResponse: Response | null = null;
-    let lastText = "";
-    for (let attempt = 1; attempt <= VIDEO_CREATE_RETRY_DELAYS_MS.length + 1; attempt += 1) {
-        const upstreamResponse = await fetch(upstreamUrl, {
-            method: "POST",
-            headers: { Authorization: authorization, "Content-Type": "application/json" },
-            body: requestBody,
-            cache: "no-store",
-        });
-        const responseText = await upstreamResponse.text();
-        if (upstreamResponse.ok || !isRetryableVideoCreateFailure(upstreamResponse, responseText) || attempt > VIDEO_CREATE_RETRY_DELAYS_MS.length) {
-            return { upstreamResponse, responseText, attempt };
-        }
-        lastResponse = upstreamResponse;
-        lastText = responseText;
-        console.warn("[tokaxis-proxy] retrying video create after transient upstream failure", {
-            status: upstreamResponse.status,
-            attempt,
-            body: responseText.slice(0, 300),
-        });
-        await delay(VIDEO_CREATE_RETRY_DELAYS_MS[attempt - 1]);
-    }
-    return { upstreamResponse: lastResponse || new Response(null, { status: 502 }), responseText: lastText, attempt: VIDEO_CREATE_RETRY_DELAYS_MS.length + 1 };
-}
-
-function isRetryableVideoCreateFailure(response: Response, responseText: string) {
-    const text = responseText.toLowerCase();
-    if (isNonRetryableGrokVideoCapacityFailure(text)) return false;
-    if (response.status === 429) return false;
-    if (response.status === 408 || response.status === 409 || response.status === 425 || response.status >= 500) return true;
-    return text.includes("temporarily unavailable");
-}
-
-function delay(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    // Creating a video is billable and the upstream contract has no shared
+    // idempotency key. A timeout/disconnect/5xx can occur after the task was
+    // accepted, so this proxy must never create a second task automatically.
+    const upstreamResponse = await fetch(upstreamUrl, {
+        method: "POST",
+        headers: { Authorization: authorization, "Content-Type": "application/json" },
+        body: requestBody,
+        cache: "no-store",
+    });
+    const responseText = await upstreamResponse.text();
+    return { upstreamResponse, responseText, attempt: 1 };
 }
 
 function normalizeLegacyVideoCreateFailureText(responseText: string) {
@@ -237,10 +252,39 @@ type LegacyGrokVideoPayload = {
     prompt?: unknown;
     seconds?: unknown;
     duration?: unknown;
-    reference_images?: Array<{ url?: unknown } | null>;
+    image?: unknown;
+    reference_images?: unknown;
+    images?: unknown;
     aspect_ratio?: unknown;
     resolution?: unknown;
+    storage_options?: unknown;
 };
+
+type LegacyGrokVideoMode = "t2v" | "i2v" | "r2v";
+type LegacyGrokVideoImage = { url: string } | { file_id: string };
+
+function legacyVideoImage(value: unknown, field: string): LegacyGrokVideoImage {
+    if (typeof value === "string" && value.trim()) return { url: value.trim() };
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${field} 缺少有效图片`);
+    const record = value as Record<string, unknown>;
+    const fileId = stringValue(record.file_id);
+    if (fileId) return { file_id: fileId };
+    const nestedImageUrl = record.image_url && typeof record.image_url === "object" ? stringValue((record.image_url as Record<string, unknown>).url) : "";
+    const url = stringValue(record.url) || nestedImageUrl;
+    if (!url) throw new Error(`${field} 缺少 url 或 file_id`);
+    return { url };
+}
+
+function legacyVideoImageUrl(value: LegacyGrokVideoImage | null) {
+    if (!value || !("url" in value) || !value.url) throw new Error("image 需要可访问的 url 或 data URI");
+    return value.url;
+}
+
+function legacyVideoStorageOptions(value: unknown) {
+    if (value === undefined) return null;
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("storage_options 必须是 JSON 对象");
+    return value as Record<string, unknown>;
+}
 
 function normalizeLegacyGrokPollPayload(payload: unknown): unknown {
     const task = envelopeData(payload);
@@ -253,7 +297,7 @@ function normalizeLegacyGrokPollPayload(payload: unknown): unknown {
 function normalizeLegacyGrokTask(task: Record<string, unknown>) {
     const status = stringValue(task.status).toLowerCase();
     const videoUrl = legacyVideoUrl(task);
-    if ((status === "completed" || status === "succeeded" || status === "done") && videoUrl) {
+    if ((status === "completed" || status === "succeeded" || status === "done" || status === "success" || status === "finished") && videoUrl) {
         return { ...task, status: "done", video: { ...(typeof task.video === "object" && task.video ? task.video : {}), url: videoUrl } };
     }
     if (status === "cancelled") return { ...task, status: "failed", error: task.error || { message: "视频生成已取消" } };
@@ -273,17 +317,50 @@ function readVideoTaskId(responseText: string) {
 }
 
 function legacyVideoUrl(task: Record<string, unknown>) {
-    const video = task.video;
-    if (video && typeof video === "object") {
-        const url = stringValue((video as Record<string, unknown>).url);
-        if (url) return url;
-    }
+    const directUrl = firstUsableVideoUrl(task.video_url, task.result_url, task.url, task.output);
+    if (directUrl) return directUrl;
+
     const content = task.content;
     if (content && typeof content === "object") {
-        const url = stringValue((content as Record<string, unknown>).video_url);
+        const url = firstUsableVideoUrl((content as Record<string, unknown>).video_url, (content as Record<string, unknown>).url);
         if (url) return url;
     }
-    return stringValue(task.video_url);
+    const video = task.video;
+    if (video && typeof video === "object") {
+        const url = firstUsableVideoUrl((video as Record<string, unknown>).url);
+        if (url) return url;
+    }
+    return "";
+}
+
+function firstUsableVideoUrl(...values: unknown[]) {
+    let fallback = "";
+    for (const value of values) {
+        const url = firstHttpUrl(value);
+        if (!url) continue;
+        if (!isProtectedVideoContentUrl(url)) return url;
+        fallback ||= url;
+    }
+    return fallback;
+}
+
+function firstHttpUrl(value: unknown): string {
+    if (typeof value === "string") return /^https?:\/\//i.test(value.trim()) ? value.trim() : "";
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            const url = firstHttpUrl(item);
+            if (url) return url;
+        }
+    }
+    return "";
+}
+
+function isProtectedVideoContentUrl(value: string) {
+    try {
+        return /\/v1\/videos\/[^/]+\/content(?:$|[?#])/.test(new URL(value).pathname);
+    } catch {
+        return false;
+    }
 }
 
 async function legacyReferenceImageBlob(value: unknown) {
@@ -306,20 +383,24 @@ function dataUrlToBlob(dataUrl: string) {
 
 function legacyVideoSize(value: unknown) {
     const ratio = stringValue(value);
-    return ratio === "9:16" ? "720x1280" : ratio === "16:9" ? "1280x720" : "720x1280";
+    return ratio === "16:9" ? "1280x720" : ratio === "1:1" ? "720x720" : "720x1280";
 }
 
-function legacyVideoResolution(value: unknown) {
+function legacyVideoResolution(value: unknown, model = "") {
     const resolution = stringValue(value).replace(/p$/i, "") || "720";
+    if (resolution === "1080" && stringValue(model).trim().toLowerCase() !== "grok-imagine-video-1.5-1080p") return "720p";
     return `${resolution}p`;
 }
 
-function legacyGrokVideoSeconds(value: unknown, referenceCount = 0) {
+function legacyGrokVideoSeconds(value: unknown, mode: LegacyGrokVideoMode = "t2v", model = "") {
     const raw = typeof value === "number" ? value : Number(stringValue(value));
     const seconds = Math.floor(Number.isFinite(raw) && raw > 0 ? raw : 15);
     const options = [6, 10, 15];
     const nearest = options.reduce((best, candidate) => (Math.abs(candidate - seconds) < Math.abs(best - seconds) ? candidate : best));
-    return String(referenceCount > 0 ? Math.min(nearest, 10) : nearest);
+    const normalizedModel = stringValue(model).trim().toLowerCase();
+    const isFastModel = normalizedModel === "grok-imagine-video-1.5-fast";
+    const isTenSecondModel = normalizedModel === "grok-imagine-video-1.5-preview" || normalizedModel === "grok-imagine-video-1.5-1080p";
+    return String(isTenSecondModel || mode === "r2v" || (!isFastModel && mode !== "t2v") ? Math.min(nearest, 10) : nearest);
 }
 
 function legacyImageExtension(mimeType: string) {

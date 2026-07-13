@@ -24,6 +24,7 @@ type CanvasNodeHoverToolbarProps = {
     onToggleDialog: (node: CanvasNodeData) => void;
     onGenerateImage: (node: CanvasNodeData) => void;
     onGenerateStoryboardKeyframes: (node: CanvasNodeData) => void;
+    onGenerateFullVideo: (node: CanvasNodeData) => void;
     onGenerateVideoClips: (node: CanvasNodeData) => void;
     onUpload: (node: CanvasNodeData) => void;
     onDownload: (node: CanvasNodeData) => void;
@@ -69,6 +70,7 @@ export function CanvasNodeHoverToolbar({
     onToggleDialog,
     onGenerateImage,
     onGenerateStoryboardKeyframes,
+    onGenerateFullVideo,
     onGenerateVideoClips,
     onUpload,
     onDownload,
@@ -201,7 +203,8 @@ export function CanvasNodeHoverToolbar({
                   },
               ]
             : []),
-        ...(isText && node.metadata?.commerceVideoPlan ? [{ id: "generateVideoClips", title: "从分镜生成视频片段", label: "生成视频", icon: <Video className="size-4" />, onClick: () => onGenerateVideoClips(node) }] : []),
+        ...(isText && node.metadata?.commerceVideoPlan ? [{ id: "generateVideoClips", title: "从独立关键帧分别生成分段视频素材", label: "生成分段", icon: <Video className="size-4" />, onClick: () => onGenerateVideoClips(node) }] : []),
+        ...(isStoryboardReviewSheet && hasImage ? [{ id: "generateFullVideo", title: "从整张12宫格生成一条完整视频", label: "生成整片", icon: <Video className="size-4" />, onClick: () => onGenerateFullVideo(node) }] : []),
         ...(isStoryboardReviewSheet && hasImage ? [{ id: "generateStoryboardKeyframes", title: "从这张12宫格生成干净关键帧", label: "关键帧", icon: <ImageIcon className="size-4" />, onClick: () => onGenerateStoryboardKeyframes(node) }] : []),
         ...(isConfig ? [{ id: "config", title: "生成配置", label: "生成配置", icon: <Settings2 className="size-4" />, onClick: () => onToggleDialog(node) }] : []),
         ...(isText ? [{ id: "decreaseFont", title: "减小字号", label: "缩小", icon: <Minus className="size-4" />, onClick: () => onDecreaseFont(node) }] : []),
@@ -213,7 +216,7 @@ export function CanvasNodeHoverToolbar({
         ...(hasImage ? imageTools.map((tool) => ({ id: tool.id, title: tool.title, label: tool.label, icon: tool.icon, active: tool.active, onClick: tool.onClick })) : []),
     ];
     const allToolbarTools = [...baseToolbarTools, ...nodeToolbarTools];
-    const forcedImageToolIds = new Set(["generateStoryboardKeyframes", "retry"]);
+    const forcedImageToolIds = new Set(["generateFullVideo", "generateStoryboardKeyframes", "retry"]);
     const toolbarTools = hasImage ? allToolbarTools.filter((tool) => tool.id !== "delete" && (coreImageToolIds.has(tool.id as ImageQuickToolId) || forcedImageToolIds.has(tool.id) || quickImageToolIdSet.has(tool.id as ImageQuickToolId))) : allToolbarTools;
     const deleteTool = hasImage ? allToolbarTools.find((tool) => tool.id === "delete") : null;
     const overflowTools = hasImage ? allToolbarTools.filter((tool) => tool.id !== "delete" && !toolbarTools.some((visibleTool) => visibleTool.id === tool.id)) : [];
@@ -380,7 +383,7 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
                     {view === "info" ? (
                         <div className="thin-scrollbar h-full space-y-3 overflow-auto pr-1">
                             <InfoRow label="ID" value={node.id} />
-                            <InfoRow label="类型" value={node.type === CanvasNodeType.Text ? "文本" : node.type === CanvasNodeType.Image ? "图片" : node.type === CanvasNodeType.Video ? "视频" : node.type === CanvasNodeType.Audio ? "音频" : "生成配置"} />
+                            <InfoRow label="类型" value={node.type === CanvasNodeType.Text ? "文本" : node.type === CanvasNodeType.Image ? "图片" : node.type === CanvasNodeType.Video ? "视频" : node.type === CanvasNodeType.Audio ? "音频" : node.type === CanvasNodeType.Director ? "导演台" : "生成配置"} />
                             <InfoRow label="尺寸" value={`${Math.round(node.width)} x ${Math.round(node.height)}`} />
                             <InfoRow label="位置" value={`${Math.round(node.position.x)}, ${Math.round(node.position.y)}`} />
                             <InfoRow label="状态" value={node.metadata?.status || "idle"} />

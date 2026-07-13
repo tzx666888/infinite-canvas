@@ -61,7 +61,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
                             }
                           : channel,
                   )
-                : [createModelChannel({ id: "default", name: "TokAxis", baseUrl: TOKAXIS_PROXY_BASE_URL, apiKey })],
+                : [createModelChannel({ id: "tokaxis", name: "TokAxis", baseUrl: TOKAXIS_PROXY_BASE_URL, apiKey })],
         );
         updateConfig("baseUrl", TOKAXIS_PROXY_BASE_URL);
         if (apiKey) updateConfig("apiKey", apiKey);

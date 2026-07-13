@@ -1,14 +1,26 @@
 import axios from "axios";
 
-import { normalizeReferenceVideoSeconds, selectGrokReferenceVideoImages } from "@/lib/video-model-settings";
+import { isGrok1080pVideoModel, isGrokVideoModel, normalizeReferenceVideoSeconds, preferredGrokVideoModel, selectGrokReferenceVideoImages, supportsGrokVideoReferenceCount, videoAspectRatioForSize } from "@/lib/video-model-settings";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { buildApiUrl, modelOptionName, requiresClientApiKey, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
-type VideoResponse = { id?: string; request_id?: string; status?: string; error?: { message?: string } | string; video?: { url?: string } | null; content?: { video_url?: string } | null; video_url?: string };
+type VideoResponse = {
+    id?: string;
+    request_id?: string;
+    status?: string;
+    error?: { message?: string } | string;
+    video?: { url?: string } | null;
+    content?: { video_url?: string; url?: string } | null;
+    video_url?: string;
+    result_url?: string;
+    url?: string;
+    output?: string[];
+};
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string };
 type SeedanceTask = {
     id: string;
@@ -50,7 +62,7 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const selectedModel = selectGrokVideoModel(config);
+    const selectedModel = selectGrokVideoModel(config, references.length);
     if (!selectedModel) throw new Error("视频模型只支持 Grok，请先同步模型或配置 Grok 视频模型");
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
@@ -79,9 +91,13 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const modelName = modelOptionName(model);
     const requestReferences = selectGrokReferenceVideoImages(references, modelName);
+    if (!supportsGrokVideoReferenceCount(modelName, requestReferences.length)) {
+        throw new Error(`${modelDisplayNameForError(modelName)} 需要连接 1 张参考图后再生成视频`);
+    }
     const seconds = normalizeReferenceVideoSeconds(config.videoSeconds, modelName, requestReferences.length);
-    const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds).trim());
-    if (!promptText && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
+    if (!prompt.trim() && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
+    const referenceMode = grokVideoReferenceMode(modelName, requestReferences.length);
+    const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode).trim());
 
     const referenceImages = await Promise.all(requestReferences.map(async (image) => ({ url: await imageToDataUrl(image) })));
     const body = {
@@ -89,9 +105,9 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
         prompt: promptText,
         seconds,
         duration: Number(seconds),
-        aspect_ratio: videoAspectRatio(config.size),
-        resolution: normalizeVideoResolution(config.vquality),
-        reference_images: referenceImages,
+        aspect_ratio: videoAspectRatioForSize(config.size),
+        resolution: normalizeVideoResolution(config.vquality, modelName),
+        ...(referenceMode === "i2v" ? { image: referenceImages[0] } : referenceMode === "r2v" ? { reference_images: referenceImages } : {}),
     };
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos/generations"), body, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
@@ -108,44 +124,75 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
             model: modelName,
             seconds,
             aspectRatio: body.aspect_ratio,
-            resolution: normalizeVideoResolution(config.vquality),
+            resolution: normalizeVideoResolution(config.vquality, modelName),
             referenceCount: requestReferences.length,
+            referenceMode,
             promptLength: promptText.length,
         });
         throw new Error(errorMessage);
     }
 }
 
-function isGrokVideoModel(model: string) {
-    return modelOptionName(model).trim().toLowerCase() === "grok-imagine-video";
+type GrokVideoReferenceMode = "t2v" | "i2v" | "r2v";
+
+function grokVideoReferenceMode(model: string, referenceCount: number): GrokVideoReferenceMode {
+    if (!referenceCount) return "t2v";
+    if (isGrok1080pVideoModel(model)) return "i2v";
+    if (modelOptionName(model) === "grok-imagine-video-1.5-preview" || referenceCount > 1) return "r2v";
+    // Fast with one image is the 15-second-capable image-to-video operation.
+    // The adapter must receive the explicit image field and must not infer the
+    // operation from the number of references.
+    return "i2v";
 }
 
-function selectGrokVideoModel(config: AiConfig) {
-    const candidates = [config.model, config.videoModel, ...config.videoModels, ...config.models, "default::grok-imagine-video", "grok-imagine-video"];
-    return candidates.map((model) => model.trim()).find(isGrokVideoModel) || "";
+function selectGrokVideoModel(config: AiConfig, referenceImageCount: number) {
+    const explicitModel = [config.videoModel, config.model].map((model) => model.trim()).find(isGrokVideoModel);
+    if (explicitModel) return explicitModel;
+
+    const candidates = [
+        ...config.videoModels,
+        ...config.models,
+        preferredGrokVideoModel(),
+        "tokaxis::grok-imagine-video-1.5-fast",
+        "grok-imagine-video-1.5-fast",
+    ];
+    return candidates.map((model) => model.trim()).find((model) => isGrokVideoModel(model) && supportsGrokVideoReferenceCount(model, referenceImageCount)) || "";
 }
 
-function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: number, requestReferenceCount: number, seconds: string) {
+function modelDisplayNameForError(model: string) {
+    if (model === "grok-imagine-video-1.5-preview") return "Grok 多参考图视频";
+    if (model === "grok-imagine-video-1.5-1080p") return "Grok 1080P 高清视频";
+    if (model === "grok-imagine-video-1.5-fast") return "Grok 视频 1.5";
+    return "当前 Grok 视频模型";
+}
+
+function buildReferenceVideoPrompt(
+    prompt: string,
+    originalReferenceCount: number,
+    requestReferenceCount: number,
+    seconds: string,
+    productScaleMode = "auto",
+    referenceMode: GrokVideoReferenceMode = requestReferenceCount ? "i2v" : "t2v",
+) {
     const rawPrompt = prompt.trim();
-    if (!requestReferenceCount) return rawPrompt;
-    if (rawPrompt.includes("STORYBOARD-DIRECTED VIDEO.")) return rawPrompt;
+    const explicitProductScalePrompt = productScaleMode !== "auto" ? buildVideoProductScalePrompt(productScaleMode) : "";
+    if (!requestReferenceCount) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
+    if (rawPrompt.includes("STORYBOARD-DIRECTED VIDEO.")) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
     const direction = canonicalizeVideoReferencePrompt(rawPrompt);
     const duration = normalizeDurationNumber(seconds);
-    const marketGuidance = buildLocalMarketVideoGuidance(direction);
-    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration);
-    if (requestReferenceCount === 1) {
+    if (referenceMode === "i2v") {
         return [
             `Create a ${duration}-second video by animating the attached source image as the exact opening frame.`,
-            "Preserve the same subject or product identity, package geometry, colors, label placement, object count, environment, composition, and camera orientation.",
-            "Add only physically plausible local motion. Keep faces, bodies, hands, labels, rigid objects, and background geometry stable; no morphing, redesign, rebranding, or invented label text.",
-            "If the source image is a product/object, keep it as a rigid unchanged product. Do not elongate it, add or remove parts, alter its surface pattern, or redesign its component count while creating motion around it.",
-            marketGuidance,
-            dramaGuidance,
-            "If audio is generated, use one consistent voice matching the visible presenter and the user's requested language. A visible female presenter requires a female voice; never change speaker or voice gender.",
-            "Visible speech rule: when a visible presenter is speaking, animate natural synchronized lips, jaw, cheeks, and facial micro-expressions. Never add spoken dialogue over a frozen mouth or static smile. If using off-screen voiceover, keep the presenter looking/listening naturally instead of pretending to speak.",
+            "Preserve every visible identity from that source: the same adult face, hair, wardrobe, body proportions, environment, object geometry, colors, label layout, and object count.",
+            "Follow the requested shot order with direct editorial cuts. Never cross-dissolve, morph, stretch, merge, or redraw a person or rigid object during a shot transition.",
+            "Do not invent a person, product, package, bottle, tool, or prop unless the direction explicitly names it. Keep hands, face, neck, shoulders, torso, and limbs anatomically stable.",
+            explicitProductScalePrompt,
+            "Use off-screen voiceover by default. Animate visible speech only when the direction explicitly says the presenter speaks on camera.",
             `Direction: ${limitInlinePrompt(direction || "Animate the source naturally while preserving visual identity.", 2200)}`,
         ].filter(Boolean).join("\n");
     }
+    const marketGuidance = buildLocalMarketVideoGuidance(direction);
+    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration);
     const referenceCountLine = originalReferenceCount > requestReferenceCount
         ? `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references selected from ${originalReferenceCount} source images.`
         : `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references.`;
@@ -155,6 +202,7 @@ function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: numbe
         referenceCountLine,
         buildReferenceLabelMap(requestReferenceCount),
         roleGuidance,
+        explicitProductScalePrompt,
         marketGuidance,
         dramaGuidance,
         "Use each reference at the right story moment instead of forcing all references into every frame. Preserve exact product identity, package silhouette, label blocks, colors, object count, people, and scene logic. Never rename, translate, recolor, rebrand, or replace the product.",
@@ -265,8 +313,8 @@ function limitInlinePrompt(value: string, maxChars: number) {
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
-        if (video.status === "completed" || video.status === "succeeded" || video.status === "done") {
-            const url = video.video?.url || video.content?.video_url || video.video_url;
+        if (video.status === "completed" || video.status === "succeeded" || video.status === "done" || video.status === "success" || video.status === "finished") {
+            const url = firstVideoUrl(video.video_url, video.result_url, video.url, video.output, video.content?.video_url, video.content?.url, video.video?.url);
             if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
             const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
             await assertVideoBlob(content.data);
@@ -390,6 +438,7 @@ async function resolveSeedanceAudioUrl(audio: ReferenceAudio) {
 }
 
 async function videoResultFromUrl(url: string, options?: RequestOptions): Promise<VideoGenerationResult> {
+    if (!isProtectedVideoContentUrl(url)) return { url, mimeType: "video/mp4" };
     try {
         const response = await axios.get<Blob>(url, { responseType: "blob", signal: options?.signal });
         await assertVideoBlob(response.data);
@@ -407,29 +456,12 @@ function assertVideoConfig(config: AiConfig, model: string) {
     if (config.apiFormat === "gemini") throw new Error("Gemini 调用格式暂不支持视频生成，请使用 OpenAI 格式渠道");
 }
 
-function normalizeVideoSize(value: string) {
-    if (value === "auto") return null;
-    const size = value || "1280x720";
-    const supportedSizes = new Set(["720x1280", "1280x720", "1024x1792", "1792x1024"]);
-    if (supportedSizes.has(size)) return size;
-    const dimensions = /^(\d+)x(\d+)$/.exec(size);
-    if (dimensions) return Number(dimensions[2]) > Number(dimensions[1]) ? "720x1280" : "1280x720";
-    return ["9:16", "2:3", "3:4"].includes(size) ? "720x1280" : "1280x720";
-}
-
-function normalizeVideoResolution(value: string) {
+function normalizeVideoResolution(value: string, model = "") {
     if (value === "low") return "480p";
     if (value === "auto" || value === "high" || value === "medium") return "720p";
     const resolution = value.replace(/p$/i, "") || "720";
+    if (resolution === "1080" && !isGrok1080pVideoModel(model)) return "720p";
     return `${resolution}p`;
-}
-
-function videoAspectRatio(value: string) {
-    const size = normalizeVideoSize(value);
-    if (!size) return "9:16";
-    const dimensions = /^(\d+)x(\d+)$/.exec(size);
-    if (!dimensions) return ["16:9", "4:3"].includes(value) ? "16:9" : "9:16";
-    return Number(dimensions[1]) > Number(dimensions[2]) ? "16:9" : "9:16";
 }
 
 function unwrapVideoResponse(payload: ApiVideoResponse) {
@@ -476,6 +508,31 @@ function readProviderTaskError(error: SeedanceTask["error"] | VideoResponse["err
     if (!error) return fallback;
     if (typeof error === "string") return error || fallback;
     return error.message || fallback;
+}
+
+function firstVideoUrl(...values: Array<string | string[] | undefined>) {
+    let fallback = "";
+    for (const value of values) {
+        const url = firstHttpUrl(value);
+        if (!url) continue;
+        if (!isProtectedVideoContentUrl(url)) return url;
+        fallback ||= url;
+    }
+    return fallback;
+}
+
+function firstHttpUrl(value: string | string[] | undefined): string {
+    if (typeof value === "string") return /^https?:\/\//i.test(value.trim()) ? value.trim() : "";
+    if (Array.isArray(value)) return value.map(firstHttpUrl).find(Boolean) || "";
+    return "";
+}
+
+function isProtectedVideoContentUrl(value: string) {
+    try {
+        return /\/v1\/videos\/[^/]+\/content$/.test(new URL(value).pathname);
+    } catch {
+        return false;
+    }
 }
 
 function statusMessage(status: number | undefined, fallback: string) {

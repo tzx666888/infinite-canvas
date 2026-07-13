@@ -19,6 +19,30 @@ export function compileVideoPrompt(plan: CanvasCommerceVideoPlan, context: Video
     return context.model === "veo" ? compileVeoPrompt(plan, beats, context) : compileGrokPrompt(plan, beats, context);
 }
 
+export function compileVideoBeatPrompt(plan: CanvasCommerceVideoPlan, beat: CommerceVideoBeat, context: VideoPromptContext): string {
+    const mode = resolveStoryboardMode(plan);
+    const orderedBeats = orderBeats(plan.beats);
+    const beatPosition = orderedBeats.findIndex((candidate) => candidate.index === beat.index);
+    const previousBeat = beatPosition > 0 ? orderedBeats[beatPosition - 1] : undefined;
+    const nextBeat = beatPosition >= 0 ? orderedBeats[beatPosition + 1] : undefined;
+    const shotType = readableText(beat.shotType, "medium shot");
+    const cameraMove = readableText(beat.cameraMove, "controlled camera movement");
+    const prompt = [
+        `Create one ${context.duration}-second ${aspectText(context.aspectRatio)} clip for this storyboard beat only.`,
+        `${shotType}, ${cameraMove}: ${describeBeat(beat, plan)}.`,
+        "Animate only the action in this beat. Do not replay the opening, demonstration, ending, or any other beat from the full storyboard.",
+        previousBeat ? "Begin with identity, wardrobe, product, lighting, and motion continuity from the preceding beat without repeating its action." : "Make the opening action immediately readable from the attached keyframe.",
+        nextBeat ? "End on a stable action or camera position that can cut cleanly into the next beat; do not perform the next beat yet." : "Finish this beat on one clean resolving pose or product position.",
+        identityConstraint(plan, mode),
+        locationConstraint(plan, mode, true),
+        referenceConstraint(context.referenceMode, plan, mode),
+        "Output clean full-frame footage with stable anatomy and rigid-object geometry: no grid, labels, captions, morphing, duplicated subjects, or unrelated entities.",
+    ]
+        .filter(Boolean)
+        .join(" ");
+    return normalizeSpaces(limitWords(prompt, 125));
+}
+
 export function selectBeatsForDuration(beats: CanvasCommerceVideoPlan["beats"], duration: number): CanvasCommerceVideoPlan["beats"] {
     const orderedBeats = orderBeats(beats);
     if (!orderedBeats.length) return [];
@@ -55,21 +79,27 @@ export function extractCommerceVideoPlan(rawText: string): CanvasCommerceVideoPl
 }
 
 function compileGrokPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBeat[], context: VideoPromptContext) {
-    const category = readableText(plan.productCategory, "the product");
-    const beatText = beats.map((beat) => describeBeat(beat, plan)).filter(Boolean);
+    const mode = resolveStoryboardMode(plan);
+    const category = readableText(plan.productCategory, mode === "product" ? "the referenced product" : "the referenced subject");
+    const beatWordBudget = Math.max(14, Math.floor(90 / Math.max(1, beats.length)));
+    const beatText = beats
+        .map((beat) => describeBeat(beat, plan))
+        .filter(Boolean)
+        .map((text) => limitWords(text, beatWordBudget));
     const actionChain = beatText.length
         ? beatText.map((text, index) => (index === 0 ? text : `then ${text}`)).join(", ")
-        : `open with an exaggerated but believable social-ad hook for ${category}, reveal the product as the obvious solution, demonstrate proof, then finish with a product hero shot and a purchase cue`;
+        : fallbackActionChain(plan, mode, category);
     const prompt = [
-        `Create a ${context.duration}-second ${aspectText(context.aspectRatio)} commerce video for ${category}.`,
-        `Use a viral direct-response short-video rhythm by percentage: 0-20% exaggerated but believable mishap, pain reaction, or visual shock; 20-35% product pushed into the foreground as the rescue solution; 35-70% clear demo and proof; 70-87% contrast result and reassurance; 87-100% final product hero and purchase-intent beat.`,
+        videoOpening(mode, context, category),
+        videoRhythm(mode),
+        identityConstraint(plan, mode),
+        locationConstraint(plan, mode, false),
         `Use one continuous visual storyline: ${actionChain}.`,
-        `Keep the subject consistent, the camera movement smooth, and the product clearly visible in every important moment.`,
-        `Make the hook thumb-stopping with fast camera energy, expressive human reaction, sudden mess, visible pain point, or product-forward close-up when relevant, but keep it believable. If people appear, keep faces, hands, fingers, and body proportions anatomically stable; use clean cuts for reaction shots and never morph a person into product-only or surface-only shots.`,
-        `Use realistic lighting, believable physical motion, and a clean conversion-focused ending that shows the product with the result without inventing claims.`,
-        referenceConstraint(context.referenceMode),
+        `Make the opening immediately readable using only actions, people, garments, products, props, and scenery that exist in the reference or ordered beats. Keep faces, hands, fingers, clothing, rigid objects, and body proportions anatomically stable; use clean cuts and never morph between people and objects.`,
+        endingConstraint(mode),
+        referenceConstraint(context.referenceMode, plan, mode),
         plan.enhancementWords || DEFAULT_ENHANCEMENT_WORDS,
-        "Negative prompt: no fake medical claims, no fake endorsements, no unreadable text overlays, no distorted hands, no warped faces, no extra fingers, no melted people, no product/person hybrids, no duplicated subjects, no autonomous unrelated scenes.",
+        "Negative prompt: no unrelated products, no invented bottles, no invented packaging, no category substitution, no imported props, no fake medical claims, no fake endorsements, no unreadable text overlays, no distorted hands, no warped faces, no extra fingers, no melted people, no product/person hybrids, no duplicated subjects, no autonomous unrelated scenes.",
     ]
         .filter(Boolean)
         .join(" ");
@@ -77,7 +107,8 @@ function compileGrokPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBe
 }
 
 function compileVeoPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBeat[], context: VideoPromptContext) {
-    const category = readableText(plan.productCategory, "the product");
+    const mode = resolveStoryboardMode(plan);
+    const category = readableText(plan.productCategory, mode === "product" ? "the referenced product" : "the referenced subject");
     const ranges = timelineRanges(beats.length || 1, context.duration);
     const lines = beats.length
         ? beats.map((beat, index) => {
@@ -86,15 +117,17 @@ function compileVeoPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBea
               const cameraMove = readableText(beat.cameraMove, "smooth camera movement");
               return `${range} ${shotType}, ${cameraMove}: ${describeBeat(beat, plan)}.`;
           })
-        : [`${ranges[0]} medium shot, smooth camera movement: show a concrete commerce hook, a clear product demonstration, and a final product hero shot for ${category}.`];
+        : [`${ranges[0]} medium shot, smooth camera movement: ${fallbackActionChain(plan, mode, category)}.`];
     return normalizeSpaces(
         [
-            `Create a ${context.duration}-second ${aspectText(context.aspectRatio)} commerce video for ${category}.`,
+            videoOpening(mode, context, category),
             ...lines,
-            `Maintain consistent subject appearance, product shape, color, and scene logic across all shots.`,
-            referenceConstraint(context.referenceMode),
+            identityConstraint(plan, mode),
+            locationConstraint(plan, mode, false),
+            endingConstraint(mode),
+            referenceConstraint(context.referenceMode, plan, mode),
             plan.enhancementWords || DEFAULT_ENHANCEMENT_WORDS,
-            "Negative prompt: no fabricated certifications, no fake discounts, no exaggerated medical or beauty claims, no visible storyboard labels, no arrows, no grid panels, no watermarks.",
+            "Negative prompt: no unrelated products, no invented bottles, no invented packaging, no category substitution, no imported props, no fabricated certifications, no fake discounts, no exaggerated medical or beauty claims, no visible storyboard labels, no arrows, no grid panels, no watermarks.",
         ]
             .filter(Boolean)
             .join("\n")
@@ -110,13 +143,91 @@ function describeBeat(beat: CommerceVideoBeat, plan: CanvasCommerceVideoPlan) {
 }
 
 function fallbackBeatDescription(beat: CommerceVideoBeat, plan: CanvasCommerceVideoPlan) {
-    const category = readableText(plan.productCategory, "the product");
+    const mode = resolveStoryboardMode(plan);
+    const category = readableText(plan.productCategory, mode === "product" ? "the referenced product" : "the referenced subject");
     const hook = readableText(plan.hookDescription, `a high-specificity visual hook for ${category}`);
     if (beat.phase === "hook") return hook;
-    if (beat.phase === "pain") return `show the real daily problem that makes ${category} relevant, without exaggerating or inventing claims`;
-    if (beat.phase === "demo") return `show a clear hands-on product demonstration with the product visible and easy to understand`;
-    if (beat.phase === "cta") return `finish with a clean product hero shot and a direct purchase cue`;
-    return `show a clear visual beat that advances the product story`;
+    if (mode === "apparel") {
+        if (beat.phase === "pain") return "advance the referenced adult model's natural movement while preserving the same face, body proportions, garment fit, coverage, and material";
+        if (beat.phase === "demo") return "show the referenced garment's fit, construction, and movement on the same adult model without adding any separate product";
+        if (beat.phase === "cta") return "finish with a clean identity-preserving apparel hero moment in the final planned related location";
+    }
+    if (mode === "subject" || mode === "scene") {
+        if (beat.phase === "pain") return "advance the referenced action or visual tension without introducing new entities";
+        if (beat.phase === "demo") return "continue the referenced subject or scene through a clear, physically plausible action beat";
+        if (beat.phase === "cta") return "finish with a coherent resolving image using only the referenced subject and the final planned related environment";
+    }
+    if (beat.phase === "pain") return `show the real use context that makes ${category} relevant, without inventing a problem or claim`;
+    if (beat.phase === "demo") return "show a clear product use or detail that is explicitly supported by the reference and plan";
+    if (beat.phase === "cta") return "finish with the same referenced product in a clean resolving shot without inventing offers or claims";
+    return "show a clear visual beat that advances the ordered reference-led story";
+}
+
+function resolveStoryboardMode(plan: CanvasCommerceVideoPlan): NonNullable<CanvasCommerceVideoPlan["storyboardMode"]> {
+    if (plan.storyboardMode === "product" || plan.storyboardMode === "apparel" || plan.storyboardMode === "subject" || plan.storyboardMode === "scene") {
+        return plan.storyboardMode;
+    }
+    const category = (plan.productCategory || "").trim().toLowerCase();
+    if (category === "apparel" || category.includes("clothing") || category.includes("fashion")) return "apparel";
+    if (category === "person" || category === "portrait" || category === "character") return "subject";
+    if (category === "scene" || category === "landscape" || category === "environment") return "scene";
+    return "product";
+}
+
+function resolveLocationStrategy(plan: CanvasCommerceVideoPlan, mode = resolveStoryboardMode(plan)): NonNullable<CanvasCommerceVideoPlan["locationStrategy"]> {
+    if (plan.locationStrategy === "single-location" || plan.locationStrategy === "related-location-montage") return plan.locationStrategy;
+    return mode === "product" ? "single-location" : "related-location-montage";
+}
+
+function fallbackActionChain(plan: CanvasCommerceVideoPlan, mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>, category: string) {
+    if (mode === "apparel") return `open on the referenced adult model and ${category}, progress through natural garment movement, fit details, and clean cuts across related lifestyle locations, then finish with the same model and garment in a strong closing frame`;
+    if (mode === "subject") return "open on the referenced subject, progress through physically plausible actions and clean cuts across related planned locations, then finish with a coherent resolving frame";
+    if (mode === "scene") return "establish the referenced visual world, progress through one visible event across its related zones, then finish on a coherent resolving view";
+    return `open with a reference-supported hook for ${category}, show only its real visible use or details, then finish with the same referenced product`;
+}
+
+function videoOpening(mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>, context: VideoPromptContext, category: string) {
+    const format = `${context.duration}-second ${aspectText(context.aspectRatio)}`;
+    if (mode === "apparel") return `Create a ${format} short-form apparel video featuring the same referenced adult model and ${category}.`;
+    if (mode === "subject") return `Create a ${format} reference-led short video centered on the same subject.`;
+    if (mode === "scene") return `Create a ${format} reference-led short video preserving one coherent visual world while the environment progresses through its planned related zones.`;
+    return `Create a ${format} commerce video for the exact referenced ${category}.`;
+}
+
+function videoRhythm(mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>) {
+    if (mode === "apparel") return "Use an energetic lifestyle-montage rhythm: a strong face, silhouette, or motion hook; varied full-body, tracking, and material-detail shots; clean editorial cuts through the related locations in the ordered beats; then a confident apparel hero finish.";
+    if (mode === "subject") return "Use an energetic cinematic-subject rhythm: strong first image, varied camera distance, clear physical progression, related-location cuts, and a memorable visual payoff. Do not force a commercial problem, rescue product, demonstration, or purchase cue.";
+    if (mode === "scene") return "Use a high-retention scene-progression rhythm: strong establishing image, visible event and spatial progression, varied scale and camera direction, then a coherent environmental payoff.";
+    return "Use a high-retention product rhythm by percentage: 0-20% reference-supported hook; 20-70% real use, construction, or visible detail from the ordered beats; 70-100% clear result or product finish. Do not invent mess, rescue, cleaning, or before/after actions.";
+}
+
+function identityConstraint(plan: CanvasCommerceVideoPlan, mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>) {
+    const lock = readableText(plan.visualIdentity, "");
+    const forbidden = (plan.forbiddenAdditions || []).map((item) => readableText(item, "")).filter(Boolean).join(", ");
+    const modeRule =
+        mode === "apparel"
+            ? "The worn garment is the product; never add a bottle, package, cleaner, tool, foam, wiping action, or unrelated prop."
+            : mode === "subject" || mode === "scene"
+              ? "No product is required; never invent packaging, brands, bottles, tools, or purchase gestures."
+              : "Use only the exact referenced product and never replace it with another category.";
+    return [
+        lock ? `Identity lock: ${lock}.` : "Maintain exact visual identity across all shots.",
+        modeRule,
+        forbidden ? `Forbidden additions: ${forbidden}.` : "",
+    ].filter(Boolean).join(" ");
+}
+
+function locationConstraint(plan: CanvasCommerceVideoPlan, mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>, singleBeat: boolean) {
+    const strategy = resolveLocationStrategy(plan, mode);
+    const locations = (plan.plannedLocations || []).map((location) => location.trim()).filter(Boolean);
+    if (strategy === "single-location") return "Keep one coherent environment while making camera position, framing, depth, and action visibly progress.";
+    if (singleBeat) return `Use only the environment assigned to this beat; preserve the same visual world and do not jump ahead to another planned location.${locations.length ? ` The full sequence location order is ${locations.join(" -> ")}.` : ""}`;
+    return `Allow clean hard cuts only among the related locations explicitly described by the ordered beats${locations.length ? `, in this mandatory order: ${locations.join(" -> ")}` : ""}. Keep one coherent visual world, but do not collapse every shot back into the first reference background or omit a planned location.`;
+}
+
+function endingConstraint(mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>) {
+    if (mode === "product") return "Use realistic lighting and believable physical motion; end with the same referenced product without inventing claims, labels, offers, or unrelated objects.";
+    return "Use realistic lighting and believable physical motion; end on the final ordered beat in its planned related location without adding a product, package, purchase cue, or unplanned scene.";
 }
 
 function aspectText(aspectRatio: VideoPromptContext["aspectRatio"]) {
@@ -125,8 +236,12 @@ function aspectText(aspectRatio: VideoPromptContext["aspectRatio"]) {
     return "square 1:1 composition with compact centered framing";
 }
 
-function referenceConstraint(referenceMode: VideoPromptContext["referenceMode"]) {
-    if (referenceMode === "i2v") return "Maintain visual continuity with the reference image: preserve subject appearance, color palette, and composition.";
+function referenceConstraint(referenceMode: VideoPromptContext["referenceMode"], plan: CanvasCommerceVideoPlan, mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>) {
+    const identity = readableText(plan.visualIdentity, "");
+    if (referenceMode === "i2v") {
+        const environmentRule = resolveLocationStrategy(plan, mode) === "single-location" ? "preserve the reference environment" : "use the reference for opening identity and composition, then follow only the related locations explicitly planned in the beats";
+        return `Maintain visual continuity with the reference image: preserve subject appearance, wardrobe or product structure, color palette, and opening composition; ${environmentRule}.${identity ? ` Preserve this identity exactly: ${identity}.` : ""}`;
+    }
     if (referenceMode === "r2v") return "Use the reference video as motion and rhythm guidance. Preserve the subject and key visual elements from the reference frames.";
     return "";
 }

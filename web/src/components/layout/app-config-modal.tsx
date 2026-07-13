@@ -537,7 +537,7 @@ function withChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
     const currentModels = channels[0]?.models?.length ? channels[0].models : defaultConfig.channels[0]?.models || [];
     const tokaxis = createModelChannel({
         ...channels[0],
-        id: "default",
+        id: "tokaxis",
         name: "TokAxis",
         baseUrl: TOKAXIS_PROXY_BASE_URL,
         apiFormat: "openai",

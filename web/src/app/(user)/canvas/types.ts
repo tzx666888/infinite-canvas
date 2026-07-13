@@ -13,6 +13,7 @@ export enum CanvasNodeType {
     Image = "image",
     Text = "text",
     Config = "config",
+    Director = "director",
     Video = "video",
     Audio = "audio",
 }
@@ -48,6 +49,13 @@ export type CanvasSceneExpansionPlan = {
 
 export type CanvasCommerceVideoPlan = {
     productCategory?: string;
+    storyboardMode?: "product" | "apparel" | "subject" | "scene";
+    storyboardStyle?: "direct-response" | "lifestyle-montage" | "cinematic-subject" | "scene-progression";
+    locationStrategy?: "single-location" | "related-location-montage";
+    directorBrief?: string;
+    plannedLocations?: string[];
+    visualIdentity?: string;
+    forbiddenAdditions?: string[];
     selectedHookType?: string;
     hookDescription?: string;
     beats?: Array<{
@@ -142,6 +150,7 @@ export type CanvasNodeMetadata = {
     count?: number;
     seconds?: string;
     vquality?: string;
+    productScaleMode?: string;
     generateAudio?: string;
     watermark?: string;
     audioVoice?: string;
@@ -171,6 +180,14 @@ export type CanvasNodeMetadata = {
     productIdentityV1?: CanvasProductIdentity;
     fusionPlacementPlanV1?: CanvasFusionPlacementPlan;
     commerceVideoPlan?: CanvasCommerceVideoPlan;
+    directorLastSnapshot?: string;
+    directorLastSnapshotStorageKey?: string;
+    directorSnapshotNodeId?: string;
+    directorConfigNodeId?: string;
+    directorPrompt?: string;
+    directorPresetId?: string;
+    directorMode?: string;
+    directorReference?: boolean;
     selectedHookType?: string;
     excludedHookTypes?: string[];
     storyboardPlanId?: string;
@@ -182,6 +199,9 @@ export type CanvasNodeMetadata = {
     targetVideoModel?: string;
     targetVideoSeconds?: 4 | 8 | 12 | 15 | number;
     targetVideoSize?: string;
+    videoSourcePrompt?: string;
+    videoConstraintVersion?: string;
+    videoReferenceImages?: string[];
     storageKey?: string;
     mimeType?: string;
     bytes?: number;

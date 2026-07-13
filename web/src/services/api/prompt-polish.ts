@@ -41,7 +41,7 @@ export type SceneExpansionPlan = {
     scenes: SceneExpansionShot[];
 };
 
-const DEFAULT_POLISH_MODEL = "default::gpt-5.5";
+const DEFAULT_POLISH_MODEL = "tokaxis::gpt-5.6-sol";
 const PRODUCT_DETAIL_FRAMING_CONTRACTS = [
     "Create a full-product hero photograph in a visibly new composition. Show the whole product at a clean three-quarter angle, occupying 65-80% of the frame on a new neutral studio sweep.",
     "Create a full-product side or opposite three-quarter view that reveals different visible faces than the source. Rotate only as a rigid object; use a new camera height and a new neutral background.",
@@ -62,7 +62,8 @@ const OPTIMIZE_PROMPT_SYSTEM = `你是一位专业的AI生图提示词优化专�
 4. 输出中文，方便用户阅读和修改
 5. 控制在 100-200 字
 6. 不要加任何解释，只输出优化后的提示词
-7. 禁止使用 beautiful / amazing / epic / stunning / gorgeous / incredible 这类空泛词`;
+7. 禁止使用 beautiful / amazing / epic / stunning / gorgeous / incredible 这类空泛词
+8. 禁止未成年人性化、明确裸露或色情、血腥暴力、仇恨歧视、违法行为；禁止虚假价格、折扣、认证、医疗功效、水印、乱码文字、畸形手指、畸形人脸和产品变形`;
 
 const PRODUCT_ANALYSIS_SYSTEM = `你是专业的电商产品拆解摄影策划师。你的任务不是撰写产品报告，而是读取参考图，锁定产品身份，并规划一组可以立即用于 AI 生图的独立细节镜头。
 
@@ -75,6 +76,7 @@ const PRODUCT_ANALYSIS_SYSTEM = `你是专业的电商产品拆解摄影策划�
 6. 每张图只突出一个明确重点，同时保持产品完整身份一致。除完整产品镜头外，微距镜头必须明显裁切产品、让目标细节占画面 70% 以上；不得把原参考图原样返回，也不得沿用原图背景、原图裁切和原图正面机位。背景简洁，使用商业产品摄影光线，不出现无关物品、人物、文字叠加或水印。
 7. title 和 focus 使用中文；identity 和 prompt 使用具体、可执行的英文摄影描述。
 8. 禁止使用 beautiful / amazing / epic / stunning / gorgeous / incredible 等空泛词。
+9. 禁止未成年人性化、明确裸露或色情、血腥暴力、仇恨歧视、违法行为；禁止虚假价格、认证、医疗功效、水印、乱码文字、人物或产品变形。
 
 只输出以下 JSON，不要 Markdown 代码块，不要解释：
 {
@@ -105,6 +107,7 @@ const SCENE_EXPAND_SYSTEM = `你是专业的电商产品场景摄影策划师。
 6. 根据品类合理决定人物出镜。操作型场景只露手和手腕；需要穿戴的产品可展示必要的身体部位；不需要人物时使用纯产品场景。
 7. title 和 focus 使用中文；identity 和 prompt 使用具体、可执行的英文摄影描述。
 8. 禁止使用 beautiful / amazing / epic / stunning / gorgeous / incredible 等空泛词。
+9. 禁止未成年人性化、明确裸露或色情、血腥暴力、仇恨歧视、违法行为；禁止虚假价格、认证、医疗功效、水印、乱码文字、畸形手指、畸形人脸和产品变形。
 
 只输出以下 JSON，不要 Markdown 代码块，不要解释：
 {
@@ -120,25 +123,37 @@ const SCENE_EXPAND_SYSTEM = `你是专业的电商产品场景摄影策划师。
 }`;
 
 const VIDEO_STORYBOARD_SYSTEM = `角色
-你是一位电商带货视频分镜规划师，不是影视导演。你的任务是把用户上传的产品图、产品描述或上游产品拆解/场景扩展结果，规划成能服务短视频转化的 CommerceVideoPlan。
+你是一位以参考素材为唯一事实来源的短视频分镜规划师。用户可能上传独立商品、穿戴服饰、人物主体或纯场景；不得把所有素材都强行解释成包装商品或清洁类带货。
 
-核心目标
-规划必须回答四个问题：为什么用户会停下来看、为什么用户会继续看、为什么用户会相信产品、为什么用户会点击购买。
-分镜要优先适配信息流带货，不是平铺直叙的产品说明片。前 1 秒必须有强视觉冲突、夸张但可信的痛点反应、突然发生的使用场景麻烦，或产品被推到镜头前的强入场。
-夸张只允许发生在镜头表现、人物反应、构图、节奏和可见问题上；不得编造价格、折扣、认证、销量、评价、医学效果、夸大功效或不可能的前后对比。
+第一原则：先分类，再规划
+1. 先把素材归为 storyboardMode：product（独立商品）、apparel（人物身上的服装/配饰本身是商品）、subject（人物/动物/角色主体）、scene（环境或事件场景）。
+2. visualIdentity 只锁定参考图中肉眼可确认的人物/主体身份、服装或商品、颜色和关键结构。环境变化写入 beats，不得把首张参考图的地点永久锁死。看不清的文字和物体不得猜测。
+3. forbiddenAdditions 明确列出最容易被误加的无关实体。若参考图和用户要求没有独立商品，必须禁止新增瓶子、包装、喷雾、清洁剂、工具、logo 或其他商品。
+4. 参考图、用户文字和当前 beats 是人物、商品、服装和道具的唯一内容来源。apparel / subject 可规划与素材语义一致的相关地点变化，但不得借用固定案例、历史任务或其他品类的实体和动作。
+5. 用户文字是绑定的导演要求。用户明确写出的时长、地点、地点顺序、人物、服装、禁用项和剪辑方式，必须逐项保留，不得为了贴近首张参考图而缩小、合并、替换或删除。参考图锁身份和可见实体，不锁死用户明确要求变化的环境。
 
-分析流程
-1. 先分析产品图，只描述可观察到的外观、包装、材质、颜色、使用场景和可能品类。
-2. 将信息分为四层：visual_observed（图片可确认）、user_supplied（用户明确提供）、verified_product_data（已验证资料）、unknown（未知，不得编造）。
-3. 根据品类匹配钩子类型，内部比较 2-3 种，优先选择最容易让用户停留的强钩子作为 selectedHookType。
-4. 钩子类型只能从以下 7 种中选择：contrast、pain-point、visual-shock、counter-intuitive、curiosity、number-impact、before-after。
-5. 按 Hook → Pain → Demo → CTA 规划 beats。4s 输出 2 个 beat（hook、cta）；8s 输出 3 个 beat（hook、pain、cta）；12s 输出 4 个 beat（hook、pain、demo、cta）；15s 输出 5-7 个 beat。用户未说明时长时，默认按 15s 输出 5 个 beat。
-6. 对 15s 带货视频，hook beat 要像社交平台爆款开头：真人惊讶/尴尬/急迫反应、突发污渍或麻烦、极近景痛点、快速推近、产品作为救场方案立刻入画。
+规划规则
+1. 将信息分为 visual_observed（图片可确认）、user_supplied（用户明确提供）、verified_product_data（已验证资料）、unknown（未知，不得编造）。
+2. 内部比较 2-3 种开场，只选择与素材相符的钩子。钩子类型只能是 contrast、pain-point、visual-shock、counter-intuitive、curiosity、number-impact、before-after。
+3. product 模式可按 Hook → Pain → Demo → CTA，但痛点、操作和商品必须确实存在于素材或用户要求中，禁止默认添加污渍、喷洒、擦拭、泡沫或前后对比。
+4. apparel 模式默认使用 lifestyle-montage：服装本身就是商品，锁定同一成年人物、脸、发型、服装设计、覆盖范围和身体比例；15s 计划应在 3-5 个语义相关地点间推进，例如同一度假区、同一城市路线或同一住宅的不同区域。绝不新增包装商品、瓶子、清洁动作或救场道具。
+5. subject 模式默认使用 cinematic-subject：围绕同一主体形成强开场、动作推进和视觉收束，可在 2-4 个相关地点间用干净剪辑切换，不强制商品、购买动作或问题解决。
+6. scene 模式使用 scene-progression：环境和事件可以在同一视觉世界内推进，不得突然跳到无关地点或加入无关人物/商品。
+7. product 模式默认 storyboardStyle=direct-response、locationStrategy=single-location；apparel / subject 默认 locationStrategy=related-location-montage。用户明确要求单一地点时必须尊重。
+8. 4s 输出 2 个 beat；8s 输出 3 个 beat；12s 输出 4 个 beat；15s 输出 5-7 个 beat。用户未说明时长时，默认按 15s 输出 5 个 beat。
+9. 每个 beat 必须按时间顺序推进。同一人物、服装和商品身份始终一致；环境可以按 beats 中明确规划的相关地点变化。相邻 beat 必须在动作、景别、机位或地点上有肉眼可见的推进，不得只做轻微换角度。
+10. plannedLocations 必须列出计划实际使用的英文地点。若用户点名多个地点，必须包含每个地点的准确英文语义，并在 beats 中按用户顺序覆盖全部地点；禁止把 beach、poolside、resort lounger、tropical waterfall 等不同地点概括成一个 shoreline 或同一背景。
 
 CommerceVideoPlan JSON 要求
 第一段必须输出 markdown JSON 代码块，语言名为 json。JSON 结构必须兼容 CanvasCommerceVideoPlan：
 {
-  "productCategory": "health-supplement | cleaning | beauty | kitchen | apparel | electronics | home | sports | other",
+  "productCategory": "health-supplement | cleaning | beauty | kitchen | apparel | electronics | home | sports | person | scene | other",
+  "storyboardMode": "product | apparel | subject | scene",
+  "storyboardStyle": "direct-response | lifestyle-montage | cinematic-subject | scene-progression",
+  "locationStrategy": "single-location | related-location-montage",
+  "plannedLocations": ["English location names in exact narrative order; preserve every user-specified location"],
+  "visualIdentity": "English identity lock for the subject, garment or product based only on visible references and user-supplied facts; do not lock the first location here",
+  "forbiddenAdditions": ["English names of unrelated entities or actions that must never appear"],
   "selectedHookType": "contrast | pain-point | visual-shock | counter-intuitive | curiosity | number-impact | before-after",
   "hookDescription": "English hook description",
   "beats": [
@@ -148,7 +163,7 @@ CommerceVideoPlan JSON 要求
       "timeRange": "0-3s",
       "shotType": "close-up | medium | wide | macro | overhead",
       "cameraMove": "static | slow push-in | handheld follow | orbit | tilt down",
-      "description": "English visual beat description with concrete subject, action, scene, lighting, camera, style, quality and constraint",
+      "description": "English visual beat description using only the referenced subject, action, scene and allowed objects",
       "eightElements": {
         "subject": "English",
         "action": "English",
@@ -157,7 +172,7 @@ CommerceVideoPlan JSON 要求
         "camera": "English",
         "style": "English",
         "quality": "English",
-        "constraint": "English"
+        "constraint": "English identity and no-new-entity constraint"
       }
     }
   ],
@@ -170,67 +185,42 @@ CommerceVideoPlan JSON 要求
 }
 
 语言硬约束
-- JSON 中 productCategory、hookDescription、beats[].description、beats[].eightElements、compliance、enhancementWords 必须全部使用英文。
-- JSON 后面必须追加“中文分镜说明”，每个 beat 用中文解释镜头内容、运镜、注意事项，方便客户阅读修改。
-
-电商转化规则
-- Hook 只占 2-3 秒，要高具体性、高视觉差异并且真实，不得通过虚假夸张制造停留。
-- Pain 用“具体场景 + 出现频率 + 后果”表达，不能编造疾病、疗效、用户评价。
-- Demo 展示产品外观、使用过程、材质、包装、配件或场景价值，只能基于可观察信息和用户提供信息。
-- CTA 重复核心利益点和明确动作，但不得编造价格、折扣、库存、认证或专家背书。
+- JSON 中所有描述字段必须使用英文。
+- JSON 后面必须追加“中文分镜说明”，逐个 beat 解释镜头、运镜和身份约束。
+- 输出前逐项核对用户要求。用户点名 N 个地点时，plannedLocations 必须有 N 个对应地点且 beats 必须全部覆盖；不满足时先自行修正再输出。
 
 合规硬约束
-- 保健品、医疗、护理类必须在 compliance.mustInclude 中加入非医疗建议或非治疗承诺提醒。
-- 禁止承诺治愈、康复、减肥、变美、永久效果。
-- 禁止编造成分、认证、价格、折扣、医生推荐、专家背书、用户评价、Before/After 结果。
-- 只描述产品外观和真实使用场景，不推断功效。
+- 禁止未成年人性化、明确裸露或色情、血腥暴力、仇恨歧视和违法行为。
+- 保健品、医疗、护理类禁止承诺治疗、康复、减肥、变美或永久效果。
+- 禁止编造成分、认证、价格、折扣、销量、医生推荐、专家背书、用户评价或不可能的前后对比。
+- 只描述图中可观察信息和用户明确提供的信息。
 
 禁止
 - 禁止空泛词：beautiful / amazing / epic / stunning / gorgeous / incredible。
-- 禁止输出固定产品案例。必须根据客户上传的产品图和文字动态生成。
-- 禁止直接输出图片 prompt 或把规划写成宫格图说明。这里只输出 CommerceVideoPlan JSON + 中文分镜说明；画布会基于 JSON 另行生成 12 宫格候选图和干净关键帧。`;
+- 禁止输出固定产品案例，禁止从其他任务串入商品、人物、道具、场景或动作。
+- 禁止直接输出宫格图片 prompt。这里只输出 CommerceVideoPlan JSON + 中文分镜说明；画布会基于 JSON 生成 12 宫格候选图。`;
 
+export const VIDEO_PROMPT_SYSTEM = `角色
+你是参考素材驱动的短视频提示词专家。你的任务是写出一段简洁、可直接交给 Grok Fast 的英文视频提示词，风格必须像专业导演给生成模型的拍摄指令，而不是复述分镜表或堆砌模型约束。
 
+输出硬格式
+- 只输出 100-160 个英文单词、一个自然段，不要标题、列表、时间轴、JSON 或解释。
+- 第一处内容必须是具体运镜，例如 slow dolly-in、steady close-up、low-angle push-in、handheld follow 或 smooth tracking shot；随后再写场景和动作。
+- 先判断素材属于 product、apparel、subject 或 scene，再使用 5-7 个清楚的镜头动作。product 按 opening hook → use/detail → proof/result → product finish 推进；apparel / subject 按 visual hook → movement → related-location progression → hero payoff 推进；scene 按 establish → event progression → resolving view 推进。
+- 宫格或分镜图只用于在内部理解故事顺序。选择最关键的镜头，不要逐格复述全部面板。
+- 只使用参考素材和用户文字中真实出现的人物、商品、服装与道具。保持同一人物、服装设计、商品形状、主色、标签位置和数量一致，不新增其他商品或包装。
+- apparel / subject 可以在同一生活方式世界内切换 3-5 个语义相关地点，例如相连的度假区、城市路线或住宅区域；必须用干净剪辑，并保持同一人物和服装。除非用户要求单一地点，不要让所有镜头停留在几乎相同的背景和构图。
+- 人物只在故事需要时出现；产品特写、操作特写和结果镜头保持干净，不让人物与商品发生变形过渡。
 
-const VIDEO_PROMPT_SYSTEM = `角色
-你是视频生成提示词专家，负责把产品描述、参考图说明、分镜规划或 CommerceVideoPlan JSON 编译成 Grok 可直接使用的英文视频 prompt。
+禁止写入最终提示词的模板废话
+- 不要提 reference image、storyboard、grid、panel、visual continuity 或模型如何读取参考图。
+- 不要追加 4K ultra HD、cinematic quality、smooth continuous motion、no frame skipping 等通用质量词串。
+- 不要写 Negative prompt，也不要追加一长串 no ... 禁止项。必要约束应自然融入对应镜头。
+- 不要使用 beautiful / amazing / epic / stunning / gorgeous / incredible 等空泛词。
+- 不要编造价格、折扣、认证、医疗功效、品牌文字或看不清的标签内容。
 
-输入
-- 客户的产品描述、视频目标或自由文本
-- 可能包含 CommerceVideoPlan JSON，也可能只是普通中文说明
-- 可能包含参考图、关键帧、产品图或场景图
-- 如果参考图是宫格/分镜候选图，把面板的阅读顺序当作镜头顺序；最终视频必须是干净全屏镜头，不得出现宫格边框、角标、拼图版式或分镜页
-
-输出格式
-只输出 Grok 版本：
-
-## Grok Version
-输出 120-220 词英文单段 prompt。不要分段，不要时间轴。用逗号、then、while、as 连接成一条连续主线。强调主体一致、动作连续、物理真实、镜头跟随自然。
-
-编写规则
-- 所有视觉描述必须具体：主体、动作、场景、光影、镜头、风格、画质、约束都要明确。
-- Grok 适合简洁连续单主线，自由文本 prompt 不要写复杂时间轴；宫格转视频由画布单独补百分比节奏。
-- 必须像爆款带货短视频：夸张但可信的第一眼冲突或真人反应，产品迅速救场，过程有可见证明，结果有反差，最后回到产品英雄镜头和购买意图。
-- 4s 只保留 hook + cta；8s 加 pain；12s 加 demo；15s 使用完整 Hook → Pain → Demo → CTA 节奏。
-- 如果输入包含参考图，追加保真约束：Maintain visual continuity with the reference image, preserve subject appearance, color palette, product shape, label placement, and composition.
-- 如果输入包含宫格或分镜候选图，追加：Use the storyboard grid as ordered shot guidance only; recreate each panel as a clean full-frame shot and never show the grid, panel borders, badges, labels, or collage layout.
-- 如果人物只在部分参考图中出现，把人物当作短反应/认可切镜；不要让人物贯穿产品、台面、包装等纯物体镜头，也不要在人和物之间变形过渡。
-- 如果输入明显是参考视频或动作序列，追加：Use the reference video as motion and rhythm guidance, preserve the subject and key visual elements from the reference frames.
-- 9:16 竖屏：主体居中偏上，避免裁切头脚或产品边缘。
-- 16:9 横屏：保留环境空间，让场景关系清楚。
-- 1:1 方图：主体居中，构图紧凑，避免空白过多。
-- 尾部追加强化词：4K ultra HD, cinematic quality, natural body proportions, smooth continuous motion, no frame skipping, consistent appearance throughout.
-- 末尾追加 Negative prompt：no storyboard labels, no arrows, no grid, no captions, no watermark, no warped faces, no distorted hands, no extra limbs, no unreadable product labels, no false medical claims.
-
-合规约束
-- 保健品、医疗、护理类不得承诺治疗、康复、减肥、变美或永久效果。
-- 不得编造成分、认证、价格、折扣、医生推荐、专家背书、用户评价。
-- 只能使用用户明确提供或图中可观察的信息。
-
-禁止
-- 禁止空泛词：beautiful / amazing / epic / stunning / gorgeous / incredible。
-- 禁止输出中文视频 prompt。
-- 禁止解释分析过程，只输出 Grok Version。`;
+最终检查
+输出应当像“运镜开头 + 场景中的连续关键动作 + 清楚的产品/结果收尾”的短版导演提示词。只输出英文提示词正文。`;
 
 const VIDEO_REVERSE_SYSTEM_PROMPT = `你是一位专业的视频分析专家。分析提供的视频关键帧图片，反推出一段可以直接用于 AI 视频生成的英文提示词。
 
@@ -303,12 +293,30 @@ function readPayloadContent(payload: ChatCompletionResponse, fallback: string) {
     return content;
 }
 
-export async function analyzeProductBreakdown(
-    config: AiConfig,
-    userPrompt: string,
-    model = DEFAULT_POLISH_MODEL,
-    referenceImages: PolishReferenceImage[] = [],
-): Promise<ProductBreakdownPlan> {
+const VIDEO_PROMPT_BOILERPLATE_MARKERS = [
+    "Maintain visual continuity with the reference image",
+    "Use the storyboard grid as ordered shot guidance only",
+    "Use the numbered storyboard panels",
+    "Use the reference video as motion and rhythm guidance",
+    "4K ultra HD",
+    "Negative prompt:",
+] as const;
+
+export function normalizeGeneratedVideoPrompt(raw: string) {
+    const grokVersion = raw.match(/##\s*Grok Version\s*\n([\s\S]*?)(?=\n##\s|$)/i)?.[1] || raw;
+    let prompt = grokVersion
+        .replace(/^\s*(?:Grok Version\s*:?\s*)/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const markerIndex = VIDEO_PROMPT_BOILERPLATE_MARKERS.reduce((earliest, marker) => {
+        const index = prompt.toLowerCase().indexOf(marker.toLowerCase());
+        return index >= 0 && (earliest < 0 || index < earliest) ? index : earliest;
+    }, -1);
+    if (markerIndex >= 0) prompt = prompt.slice(0, markerIndex).trim();
+    return prompt.replace(/[\s,;:—-]+$/, "").trim();
+}
+
+export async function analyzeProductBreakdown(config: AiConfig, userPrompt: string, model = DEFAULT_POLISH_MODEL, referenceImages: PolishReferenceImage[] = []): Promise<ProductBreakdownPlan> {
     if (!referenceImages.length) throw new Error("产品拆解至少需要一张产品参考图");
     const requestConfig = resolveModelRequestConfig(config, model || config.textModel || config.model);
     const response = await axios.post<ChatCompletionResponse>(
@@ -370,11 +378,12 @@ export function buildProductDetailImagePrompt(plan: ProductBreakdownPlan, shot: 
     ].join("\n");
 }
 
-
 export function buildProductCollagePrompt(plan: ProductBreakdownPlan) {
-    const shotDescriptions = plan.shots.map((shot, index) => {
-        return `Panel ${index + 1} (${shot.title}): ${shot.prompt}`;
-    }).join("\n");
+    const shotDescriptions = plan.shots
+        .map((shot, index) => {
+            return `Panel ${index + 1} (${shot.title}): ${shot.prompt}`;
+        })
+        .join("\n");
 
     return [
         "Create a professional multi-angle product detail photography grid for e-commerce. The supplied images are identity references only.",
@@ -395,11 +404,12 @@ export function buildProductCollagePrompt(plan: ProductBreakdownPlan) {
     ].join("\n");
 }
 
-
 export function buildSceneCollagePrompt(plan: SceneExpansionPlan) {
-    const sceneDescriptions = plan.scenes.map((scene, index) => {
-        return `Panel ${index + 1} (${scene.title}): ${scene.prompt}`;
-    }).join("\n");
+    const sceneDescriptions = plan.scenes
+        .map((scene, index) => {
+            return `Panel ${index + 1} (${scene.title}): ${scene.prompt}`;
+        })
+        .join("\n");
 
     return [
         "Create a professional multi-scene product lifestyle photography grid for e-commerce. The supplied images are product identity references only.",
@@ -420,13 +430,7 @@ export function buildSceneCollagePrompt(plan: SceneExpansionPlan) {
     ].join("\n");
 }
 
-export async function analyzeSceneExpansion(
-    config: AiConfig,
-    userPrompt: string,
-    count: number,
-    model = DEFAULT_POLISH_MODEL,
-    referenceImages: PolishReferenceImage[] = [],
-): Promise<SceneExpansionPlan> {
+export async function analyzeSceneExpansion(config: AiConfig, userPrompt: string, count: number, model = DEFAULT_POLISH_MODEL, referenceImages: PolishReferenceImage[] = []): Promise<SceneExpansionPlan> {
     if (!referenceImages.length) throw new Error("场景扩展至少需要一张产品参考图");
     const sceneCount = Math.max(1, Math.min(10, Math.floor(count) || 1));
     const requestConfig = resolveModelRequestConfig(config, model || config.textModel || config.model);
@@ -461,11 +465,7 @@ export async function analyzeSceneExpansion(
 }
 
 export function formatSceneExpansionPlan(plan: SceneExpansionPlan) {
-    return [
-        `### 产品\n${plan.productName}`,
-        `### 产品身份锁定\n${plan.identity}`,
-        `### 独立场景图\n${plan.scenes.map((scene, index) => `${index + 1}. ${scene.title}：${scene.focus}`).join("\n")}`,
-    ].join("\n\n");
+    return [`### 产品\n${plan.productName}`, `### 产品身份锁定\n${plan.identity}`, `### 独立场景图\n${plan.scenes.map((scene, index) => `${index + 1}. ${scene.title}：${scene.focus}`).join("\n")}`].join("\n\n");
 }
 
 export function buildSceneExpansionImagePrompt(plan: SceneExpansionPlan, scene: SceneExpansionShot) {
@@ -483,62 +483,140 @@ export function buildSceneExpansionImagePrompt(plan: SceneExpansionPlan, scene: 
     ].join("\n");
 }
 
-const STORYBOARD_REVIEW_MOMENTS = [
-    "opening human reaction plus visible problem in the same frame, not only a mess close-up",
-    "product jumps into the foreground as the obvious rescue solution, label readable",
-    "macro close-up of the problem or pain point, maximum visual tension",
-    "first product application begins with fast hand movement",
-    "visible product reaction, foam, mist, texture change, or active use process",
-    "wipe, peel, pour, press, or reveal action that starts the transformation",
-    "half-before half-after proof in one believable frame",
-    "macro proof of the improved result, shine, texture, or solved detail",
-    "product hero beside the improved result",
-    "human satisfaction, relief, approval gesture, or lifestyle ease moment",
-    "label-readable reassurance shot with product held forward and result behind it",
-    "final hero packshot plus clear result, product in front",
+const PRODUCT_STORYBOARD_REVIEW_MOMENTS = [
+    "open with the assigned beat's strongest reference-supported visual hook",
+    "show the exact product or use context in a wider readable composition",
+    "move into a decisive product, material, or problem detail without inventing claims",
+    "begin the assigned physical action with a clear hand, tool, or product relationship only when supported",
+    "show the next physically plausible instant of the assigned use or construction detail",
+    "change camera height and shot size while keeping the exact product geometry stable",
+    "show a believable proof, texture, mechanism, or result already described by the beat",
+    "reconnect the exact product with its real use environment in a medium or wide shot",
+    "advance the ordered action with a visibly different composition",
+    "hold a clean product-forward moment without adding packaging or offers",
+    "show the final beat's result or reassurance from a fresh angle",
+    "finish with the same product in a strong, truthful resolving frame",
 ] as const;
 
-function beatForStoryboardPanel(beats: NonNullable<CanvasCommerceVideoPlan["beats"]>, panelIndex: number) {
-    const phasePreference =
-        panelIndex === 0
-            ? ["hook", "pain"]
-            : panelIndex === 1
-              ? ["demo", "cta", "hook"]
-              : panelIndex === 2
-                ? ["pain", "hook"]
-                : panelIndex <= 7
-                  ? ["demo", "pain"]
-                  : panelIndex <= 9
-                    ? ["cta", "demo"]
-                    : ["cta", "demo"];
-    const phaseBeat = phasePreference.map((phase) => beats.find((beat) => beat.phase === phase)).find(Boolean);
-    if (phaseBeat) return phaseBeat;
-    return beats[Math.min(beats.length - 1, Math.floor((panelIndex / STORYBOARD_REVIEW_MOMENTS.length) * beats.length))];
+const LIFESTYLE_STORYBOARD_REVIEW_MOMENTS = [
+    "open on the strongest face, silhouette, garment, or subject motion hook from the assigned beat",
+    "show a dynamic full-body or wider entrance with the same identity and wardrobe",
+    "use a tracking, follow, or lateral camera move that gives the subject clear direction",
+    "move into a precise face, garment, material, hand, or movement detail",
+    "cut cleanly to the next related location explicitly planned by the assigned beat",
+    "show a natural turn, walk, reach, pose change, or environmental interaction already supported by the beat",
+    "use a low, high, rear three-quarter, or side angle while preserving face, anatomy, and wardrobe",
+    "reveal more of the related environment with a wide shot and active foreground or background depth",
+    "capture the next energetic action instant with believable hair, fabric, water, wind, or body motion only when present",
+    "slow briefly into a composed medium portrait or identity-preserving lifestyle moment",
+    "advance into the final related location or strongest payoff composition from the ordered beats",
+    "finish with a confident full-body or subject hero frame that resolves the final beat",
+] as const;
+
+const SCENE_STORYBOARD_REVIEW_MOMENTS = [
+    "establish the assigned environment with a strong readable opening composition",
+    "move closer to the event or environmental detail that drives the assigned beat",
+    "show the first visible change in weather, light, activity, or camera position",
+    "use a new camera height or direction to reveal spatial relationships",
+    "advance the event by one physically plausible step",
+    "show a tight atmospheric or action detail without importing new entities",
+    "return to a medium or wide frame that reconnects the event and environment",
+    "cut to the next related zone explicitly described by the ordered beat",
+    "increase motion, depth, or visual tension through the planned event",
+    "hold a clear environmental payoff from a fresh angle",
+    "show a calm resolving variation within the same visual world",
+    "finish the final assigned beat with a coherent closing view",
+] as const;
+
+function storyboardReviewMoments(plan: CanvasCommerceVideoPlan): readonly string[] {
+    const mode = resolveStoryboardMode(plan);
+    if (mode === "apparel" || mode === "subject") return LIFESTYLE_STORYBOARD_REVIEW_MOMENTS;
+    if (mode === "scene") return SCENE_STORYBOARD_REVIEW_MOMENTS;
+    return PRODUCT_STORYBOARD_REVIEW_MOMENTS;
+}
+
+function beatForStoryboardPanel(beats: NonNullable<CanvasCommerceVideoPlan["beats"]>, panelIndex: number, totalPanels: number) {
+    const beatIndex = Math.min(beats.length - 1, Math.floor((panelIndex * beats.length) / Math.max(1, totalPanels)));
+    return beats[beatIndex];
 }
 
 function storyboardReviewFrames(plan: CanvasCommerceVideoPlan, totalPanels = 12) {
     const beats = [...(plan.beats || [])].sort((a, b) => a.index - b.index);
+    const moments = storyboardReviewMoments(plan);
     if (!beats.length) {
-        return Array.from({ length: totalPanels }, (_, index) => `Hidden storyboard instruction: ${STORYBOARD_REVIEW_MOMENTS[index % STORYBOARD_REVIEW_MOMENTS.length]}.`);
+        return Array.from({ length: totalPanels }, (_, index) => `Hidden storyboard instruction: ${moments[index % moments.length]}.`);
     }
 
     return Array.from({ length: totalPanels }, (_, index) => {
-        const beat = beatForStoryboardPanel(beats, index);
+        const beat = beatForStoryboardPanel(beats, index, totalPanels);
         const el = beat.eightElements;
         const detail = [el?.subject, el?.action, el?.scene, el?.lighting, el?.camera, el?.style, el?.constraint].filter(Boolean).join(", ") || beat.description;
-        return `Hidden storyboard instruction: ${STORYBOARD_REVIEW_MOMENTS[index % STORYBOARD_REVIEW_MOMENTS.length]}. Use the matching ${beat.phase} source material. ${detail}`;
+        return `Hidden storyboard instruction: ${moments[index % moments.length]}. Follow beat ${beat.index} (${beat.phase}) in chronological order. ${detail}. Do not add any person, product, package, prop, brand, tool, garment, or action that is absent from the references and this beat.`;
     });
+}
+
+function resolveStoryboardMode(plan: CanvasCommerceVideoPlan): NonNullable<CanvasCommerceVideoPlan["storyboardMode"]> {
+    if (plan.storyboardMode === "product" || plan.storyboardMode === "apparel" || plan.storyboardMode === "subject" || plan.storyboardMode === "scene") {
+        return plan.storyboardMode;
+    }
+    const category = (plan.productCategory || "").trim().toLowerCase();
+    if (category === "apparel" || category.includes("clothing") || category.includes("fashion")) return "apparel";
+    if (category === "person" || category === "portrait" || category === "character") return "subject";
+    if (category === "scene" || category === "landscape" || category === "environment") return "scene";
+    return "product";
+}
+
+function resolveLocationStrategy(plan: CanvasCommerceVideoPlan): NonNullable<CanvasCommerceVideoPlan["locationStrategy"]> {
+    if (plan.locationStrategy === "single-location" || plan.locationStrategy === "related-location-montage") return plan.locationStrategy;
+    const mode = resolveStoryboardMode(plan);
+    return mode === "product" ? "single-location" : "related-location-montage";
+}
+
+function storyboardModeRules(plan: CanvasCommerceVideoPlan) {
+    const mode = resolveStoryboardMode(plan);
+    const locationStrategy = resolveLocationStrategy(plan);
+    const plannedLocations = (plan.plannedLocations || []).map((location) => location.trim()).filter(Boolean);
+    const locationRule =
+        locationStrategy === "single-location"
+            ? "LOCATION STRATEGY: single-location. Keep one coherent environment, but make shots visibly different through action, framing, camera height, and depth."
+            : `LOCATION STRATEGY: related-location-montage. Use every related location explicitly planned in the ordered beats${plannedLocations.length ? `, specifically and without substitution: ${plannedLocations.join(" -> ")}` : ""}; for a 15-second apparel or subject montage, aim for at least three distinct but coherent location zones. Change locations only with clean cuts and never change the subject identity or wardrobe.`;
+    if (mode === "apparel") {
+        return [
+            "MODE LOCK: apparel. The garment or accessory already worn by the referenced person is the product; preserve the same adult person, face, hair, garment design, coverage, colors, material, and body proportions across every panel.",
+            locationRule,
+            "Never add a separate packaged product, bottle, spray trigger, cleaner, label, box, tool, foam, wiping action, stain-removal action, or unrelated prop unless it is explicitly visible in the references or named in a beat.",
+        ];
+    }
+    if (mode === "subject") {
+        return [
+            "MODE LOCK: subject-led. No commercial product is required. Preserve the referenced person, animal, or character and build the sheet only from the ordered actions and scene in the plan.",
+            locationRule,
+            "Never invent packaging, bottles, brands, tools, cleaning actions, purchase gestures, or product hero shots.",
+        ];
+    }
+    if (mode === "scene") {
+        return [
+            "MODE LOCK: scene-led. Preserve one coherent visual world while allowing the ordered event to progress through related zones; no product is required unless one is explicitly visible or named in the plan.",
+            locationRule,
+            "Never turn the scene into a packaged-product advertisement and never import objects or actions from another category.",
+        ];
+    }
+    return [
+        "MODE LOCK: product-led. Use only the exact product visibly supplied in the references or explicitly named in the plan; preserve its shape, components, colors, material, label placement, scale, and identity.",
+        locationRule,
+        "Never replace it with another product category or add a second unrelated product, package, brand, tool, person, or action.",
+    ];
 }
 
 export function buildStoryboardReviewSheetPrompt(plan: CanvasCommerceVideoPlan, variantIndex = 1): string {
     const variantNotes = [
-        "Variant direction: balanced visual sales rhythm with clear product readability.",
-        "Variant direction: stronger visual hook and faster camera rhythm while keeping product identity accurate.",
-        "Variant direction: more lifestyle context and warmer human-use moments while keeping claims realistic.",
-        "Variant direction: cleaner product-proof style with sharper detail frames and a strong final hero visual.",
+        "Variant direction: balanced chronological rhythm with clear subject identity.",
+        "Variant direction: stronger opening camera energy while preserving every referenced entity.",
+        "Variant direction: more environmental context and natural action continuity.",
+        "Variant direction: sharper detail framing with a coherent final resolving visual.",
     ];
     return [
-        "Render ONE image that is ONLY a strict 3-by-4 storyboard reference sheet for a short ecommerce video.",
+        "Render ONE image that is ONLY a strict 3-by-4 storyboard reference sheet for the short video described below.",
         "Hard layout contract: exactly 3 columns and exactly 4 rows, exactly 12 equal rectangular cells, thin dividers, no missing cells, no merged cells, no oversized hero cell.",
         "Do not make a 1-column vertical strip, 2-by-2 layout, four-scene ad, poster, banner, infographic, comic page, carousel page, landing-page graphic, or final advertising creative.",
         "Every cell must be a clean full-bleed photographic keyframe. The sheet is only for choosing video shots, not for publishing as an ad.",
@@ -546,27 +624,37 @@ export function buildStoryboardReviewSheetPrompt(plan: CanvasCommerceVideoPlan, 
         "Do not display any visible ordering marks anywhere: no 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, or 12; no black number boxes; no green label blocks; no corner stickers. Shot order must be understood only from the 3-by-4 reading position.",
         "Leave every panel corner photographic and clean. If a corner would contain a number, badge, or title, remove it and show only the underlying scene.",
         "The only readable text allowed is text physically printed on the real product package or label. Never render any words from this prompt into the image.",
-        `Product category: ${plan.productCategory || "e-commerce product"}.`,
+        "SOURCE-OF-TRUTH LOCK: the supplied reference images, visual identity, and ordered beat descriptions are authoritative. Generic instructions are lower priority. Never import a person, product, package, prop, brand, garment, scene, or action from another task or category.",
+        `Content category: ${plan.productCategory || "referenced visual subject"}.`,
+        `Storyboard style: ${plan.storyboardStyle || (resolveStoryboardMode(plan) === "product" ? "direct-response" : resolveStoryboardMode(plan) === "apparel" ? "lifestyle-montage" : resolveStoryboardMode(plan) === "subject" ? "cinematic-subject" : "scene-progression")}.`,
+        `Location strategy: ${resolveLocationStrategy(plan)}.`,
+        plan.directorBrief ? `BINDING USER DIRECTOR BRIEF: ${plan.directorBrief}. Preserve every explicitly named location, its order, duration, identity lock, and forbidden addition; never narrow this brief to the reference background.` : "",
+        plan.plannedLocations?.length ? `MANDATORY LOCATION ORDER: ${plan.plannedLocations.join(" -> ")}. Every one of these locations must be clearly recognizable in the sheet, with no substitution or omission.` : "",
+        plan.visualIdentity ? `VISUAL IDENTITY LOCK: ${plan.visualIdentity}.` : "",
+        plan.forbiddenAdditions?.length ? `FORBIDDEN ADDITIONS: ${plan.forbiddenAdditions.join(", ")}.` : "",
+        ...storyboardModeRules(plan),
         plan.hookDescription ? `Visual hook strategy, internal only: ${plan.hookDescription}. Convert it into image action, not text.` : "",
         plan.enhancementWords ? `Shared style and quality: ${plan.enhancementWords}.` : "",
         variantNotes[(Math.max(1, variantIndex) - 1) % variantNotes.length],
         "Internal shot-order plan only, never draw these notes as text:",
         ...storyboardReviewFrames(plan).map((line) => `- ${line}`),
         "Rules:",
-        "- Preserve one consistent product identity, packaging, colors, materials, logo placement, scale, and lighting logic across all panels.",
-        "- Show twelve visibly different storyboard moments, not one repeated image and not fewer than twelve panels. Do not repeat the same wiping, spraying, hand pose, or camera angle too many times.",
-        "- Build a high-retention visual sales rhythm: the opening cell must include a human reaction or human interruption plus the problem in frame when people are plausible; the next early cells introduce the product and problem tension; the middle cells show ordered action and proof; the final row returns to product hero and satisfied outcome.",
-        "- Prefer social-ad style hooks when relevant: startled facial reaction, sudden spill or mess, embarrassing everyday problem, dramatic close-up of the pain point, product pushed toward camera, fast hand movement, urgent camera push-in. Keep it visually exaggerated, but not false.",
-        "- Follow cause-and-effect order. Do not show wiping before product application for cleaning products, do not solve the problem before the proof panel, and do not jump from dirty to clean without an action frame.",
-        "- At most two panels may be pure problem-only close-ups. Every other panel should include a product, a person, an action, a contrast, or a result.",
-        "- For cleaning, kitchen, beauty, home, tool, and daily-use products, avoid unsafe or illogical contact: do not show bare hands touching grease, chemicals, grime, sharp objects, or hot surfaces. Use a cloth, sponge, glove, applicator, or safe hand pose.",
-        "- The product or packaging must be clearly visible early, again around the middle proof moment, and in the final two panels. Keep label readability when a label is naturally visible.",
-        "- Include one strong before/after or problem/result contrast inside a single middle panel, plus one clean result proof panel after it. Keep the transformation visually realistic for the product category.",
-        "- The last two panels must not be near-duplicates. The penultimate panel should be a label-readable hand-held product reassurance shot; the final panel should be the clean final packshot with product in front and result or lifestyle context behind it.",
+        "- Preserve the same referenced identities, wardrobe, product structure when present, colors, materials, and anatomy across all panels. Preserve visual-world and lighting continuity while allowing the related location changes explicitly planned in the beats.",
+        "- Show twelve visibly different but chronologically connected moments. Variation must come from action progression, shot size, camera movement, depth, and planned related locations; it must never come from inventing new entities.",
+        "- Follow the exact ordered beats from top-left to bottom-right. Start with the first beat, progress through the middle beats, and end with the final beat. Never reorder phases to fit a generic advertising template.",
+        "- Use at least four visibly different shot sizes or compositions and at least three camera heights, directions, or movements across the sheet. No two adjacent panels may be near-duplicates.",
+        "- When locationStrategy is related-location-montage, use all distinct related scene descriptions present in the beats and connect them with clean editorial cuts. Do not collapse the whole sheet back into the first reference location.",
+        "- Use a high-retention opening only when it is supported by the first beat. Do not automatically add surprise reactions, spills, stains, mess, rescue products, spraying, wiping, foam, before/after comparisons, packaging, or packshots.",
+        "- If no standalone product is visible in the references or named in the plan, no standalone product may appear in any panel.",
+        "- If a product is present, keep only that exact product and show it only in beats that call for it. If apparel is present, the worn garment itself is the product.",
+        "- Do not change a person's face, age group, body proportions, hairstyle, outfit design, or coverage between panels. Do not duplicate, merge, or replace the subject.",
+        "- The last two panels must advance or resolve the final assigned beat; they do not need a package, hand-held product, label shot, purchase gesture, or packshot unless the plan explicitly requires one.",
         "- If the source plan mentions slogans, buying prompts, discounts, titles, subtitles, timings, or phase names, translate them into visual action only and never show them as text.",
         "- Keep all claims visually conservative and realistic. Do not invent certifications, prices, discounts, medical effects, user reviews, or impossible before/after results.",
         "- Final check before output: the result must be one vertical 3-by-4 grid with 12 photo cells, zero overlay text, and zero visible numbering. If there is any ambiguity, simplify the content but keep the 12-cell grid.",
-    ].filter(Boolean).join("\n");
+    ]
+        .filter(Boolean)
+        .join("\n");
 }
 
 export function buildStoryboardKeyframePrompt(
@@ -578,8 +666,14 @@ export function buildStoryboardKeyframePrompt(
         cameraMove?: string;
         description: string;
         eightElements?: {
-            subject?: string; action?: string; scene?: string; lighting?: string;
-            camera?: string; style?: string; quality?: string; constraint?: string;
+            subject?: string;
+            action?: string;
+            scene?: string;
+            lighting?: string;
+            camera?: string;
+            style?: string;
+            quality?: string;
+            constraint?: string;
         };
     },
     options: { selectedReviewSheet?: boolean } = {},
@@ -604,6 +698,12 @@ export function formatCommerceVideoPlan(plan: CanvasCommerceVideoPlan): string {
     const lines: string[] = [];
     lines.push("# 视频分镜规划\n");
     if (plan.productCategory) lines.push(`品类：${plan.productCategory}`);
+    if (plan.storyboardMode) lines.push(`分镜模式：${plan.storyboardMode}`);
+    if (plan.storyboardStyle) lines.push(`分镜风格：${plan.storyboardStyle}`);
+    if (plan.locationStrategy) lines.push(`场景策略：${plan.locationStrategy}`);
+    if (plan.plannedLocations?.length) lines.push(`地点顺序：${plan.plannedLocations.join(" → ")}`);
+    if (plan.directorBrief) lines.push(`导演要求：${plan.directorBrief}`);
+    if (plan.visualIdentity) lines.push(`视觉身份：${plan.visualIdentity}`);
     if (plan.selectedHookType) lines.push(`钩子类型：${plan.selectedHookType}`);
     if (plan.hookDescription) lines.push(`钩子描述：${plan.hookDescription}`);
     lines.push("");
@@ -695,7 +795,10 @@ function parseSceneExpansionPlan(content: string, count: number): SceneExpansion
 }
 
 function extractJsonObject(content: string) {
-    const cleaned = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    const cleaned = content
+        .trim()
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/, "");
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");
     if (start < 0 || end <= start) throw new Error("产品拆解未返回可解析结果，请重试");
@@ -723,7 +826,13 @@ function normalizedStringArray(value: unknown, fallback: string) {
 
 export async function polishPrompt(config: AiConfig, userPrompt: string, mode: PolishMode, template: PolishTemplate = "optimize", model = DEFAULT_POLISH_MODEL, referenceImages: PolishReferenceImage[] = []): Promise<string> {
     const requestConfig = resolveModelRequestConfig(config, model || config.textModel || config.model);
-    const promptText = userPrompt.trim() || (mode === "video" || template === "storyboard" ? "请结合参考图片生成电商短视频分镜规划，后续用于12宫格候选图。" : "请结合参考图片整理产品视觉要素。");
+    const promptText =
+        userPrompt.trim() ||
+        (template === "videoprompt"
+            ? "请根据参考图片写一段短版英文视频生成提示词：运镜开头，只保留最关键的动作、证明镜头和收尾，不要提及宫格或参考图。"
+            : mode === "video" || template === "storyboard"
+              ? "请结合参考图片生成与素材类型匹配的短视频分镜规划，后续用于12宫格候选图。不得新增参考图中不存在的商品、人物或道具；人物/服饰题材可规划与素材语义一致的相关地点蒙太奇。"
+              : "请结合参考图片整理产品视觉要素。");
     const images = imageContent(referenceImages);
     const response = await axios.post<ChatCompletionResponse>(
         aiApiUrl(requestConfig, "/chat/completions"),
@@ -735,19 +844,28 @@ export async function polishPrompt(config: AiConfig, userPrompt: string, mode: P
                     role: "user",
                     content: images.length
                         ? [
-                              { type: "text" as const, text: `用户需求：${promptText}\n\n参考图片数量：${images.length}。请严格结合参考图片输出中文结果，不要要求用户补充信息。` },
+                              {
+                                  type: "text" as const,
+                                  text:
+                                      template === "videoprompt"
+                                          ? `用户需求：${promptText}\n\n参考图片数量：${images.length}。只输出短版英文视频提示词正文；在内部读取素材，但不要在结果中提 reference、storyboard、grid 或 panel，也不要要求用户补充信息。`
+                                          : template === "storyboard"
+                                            ? `绑定导演要求（最高优先级，禁止缩写、改写或降级）：${promptText}\n\n参考图片数量：${images.length}。参考图用于锁定人物、服装、商品和可见实体；导演要求用于确定时长、地点、地点顺序、动作与禁用项。若导演要求点名多个地点，plannedLocations 和 beats 必须逐一覆盖所有地点，不得退回首张参考图的单一背景。请严格结合参考图片完成当前模板，不要要求用户补充信息。`
+                                          : `用户需求：${promptText}\n\n参考图片数量：${images.length}。请严格结合参考图片完成当前模板，不要要求用户补充信息。`,
+                              },
                               ...images,
                           ]
                         : promptText,
                 },
             ],
             stream: false,
-            max_tokens: 2000,
-            temperature: 0.3,
+            max_tokens: template === "videoprompt" ? 600 : 2000,
+            temperature: template === "videoprompt" ? 0.2 : 0.3,
         },
         { headers: aiHeaders(requestConfig) },
     );
-    return readPayloadContent(response.data, "润色失败");
+    const content = readPayloadContent(response.data, "润色失败");
+    return template === "videoprompt" ? normalizeGeneratedVideoPrompt(content) : content;
 }
 
 export async function reverseVideoPrompt(config: AiConfig, frames: Array<{ dataUrl: string; label?: string }>): Promise<string> {

@@ -41,20 +41,20 @@ No collage, split screen, infographic, captions, extra text, watermark, people, 
 - prompt 模板以 "Create exactly one NEW standalone commercial lifestyle product photograph" 开头
 
 ## Skill 3: 优化提示词（prompt-optimize）
-客户选「✨ 优化提示词」时触发。将粗糙描述优化为高质量中文生图提示词（100-200字）。
-规则：保留原始意图，补充光线/色调/构图/景别/材质细节，增加专业摄影术语。
+客户选「✨ 优化提示词」时触发。图片节点输出 120-280 字中文生图提示词；视频节点输出 90-180 词英文单段视频提示词。
+规则：保留原始意图，补充可执行的主体/动作/场景/构图/镜头/光线/材质/比例/数量与版式；有参考图时锁定人物、产品、服装、现实尺度、logo 和标签位置，不堆砌空泛画质词。
 优化后用 canvas_update_node_text 回填。
 
 ## Shared Commerce Knowledge: 电商通用知识（shared-commerce）
-所有带货相关能力都必须遵守：短视频按 Hook→Pain→Demo→CTA 思路组织；可选钩子包括 contrast、pain-point、visual-shock、counter-intuitive、curiosity、number-impact、before-after。钩子要具体、真实、有视觉差异，不得靠虚假夸张制造停留。
-产品信息分四层：visual_observed（图片可确认）、user_supplied（用户明确提供）、verified_product_data（已验证资料）、unknown（未知，不得编造）。保健品/医疗/护理类必须标注非医疗建议，不得承诺治愈、康复、减肥、变美、永久效果，不得编造成分、认证、价格、折扣、医生推荐、专家背书、用户评价。
+先判断用户要商品展示、生活方式、教程还是明确带货；只有明确带货时才使用 Hook→Pain→Demo→CTA，不给普通视频强加事故、痛点或夸张反应。
+产品信息分四层：visual_observed（图片可确认）、user_supplied（用户明确提供）、verified_product_data（已验证资料）、unknown（未知，不得编造）。不得编造功效、成分、认证、价格、折扣、销量、医生推荐、专家背书、用户评价或不可验证的前后对比。泳装、内衣或贴身服装只使用明确成年人的非色情时尚编辑/商品目录语境。
 
 ## Skill 4: 视频分镜（video-storyboard）
-客户选「🎬 视频分镜」时触发。目标是生成电商带货视频规划，并由画布生成多张 12 宫格候选图供用户选择，不是固定九宫格影视分镜或单张关键帧。读取产品图、文字说明、上游产品拆解和场景信息，输出 CommerceVideoPlan：Hook→Pain→Demo→CTA，beat 数量按 4/8/12/15 秒动态规划。JSON 中 hookDescription、beat description、eightElements 必须使用英文；给客户看的说明用中文。
+客户选「🎬 视频分镜」时触发。读取产品图、文字说明、上游产品拆解和场景信息，按商品展示、生活方式、教程或明确带货的真实意图输出 CommerceVideoPlan。beat 数量按 6/10/15 秒规划：6 秒 2-3 个、10 秒 3-4 个、15 秒 4-6 个。JSON 中 hookDescription、beat description、eightElements 必须使用英文；给客户看的说明用中文。
 重要边界：视频分镜润色只回填计划文本；点击生成后先创建 12 宫格候选图，用户选一张再生成干净关键帧。审阅分镜图 review-sheet 只能作为用户审阅和关键帧生成方向参考；真正生成视频时只能使用无标题、无文字、无箭头、无网格的干净关键帧。
 
 ## Skill 5: 视频生成提示词（video-prompt）
-客户要求视频生成提示词时触发。基于 CommerceVideoPlan、产品图、关键帧或自由文本，输出 Grok 和 Veo 两套英文 prompt。Grok 用 100-180 词单段连续主线，不写时间轴；Veo 可写 [0:00-0:03] 时间轴分段。只支持 Grok 和 Veo。时长只使用 4/8/12/15 秒。prompt 必须强调主体一致、动作连续、物理真实、参考图保真、无分镜标注污染。
+客户要求视频生成提示词时触发。基于 CommerceVideoPlan、产品图、关键帧或自由文本，只输出当前 Grok 模型可执行的 90-180 词英文单段 prompt。fast 支持文生/单图 6/10/15 秒；preview 支持 1-7 张参考图 6/10 秒；1080p 需要单图并支持 6/10 秒。prompt 必须强调身份与现实尺度一致、动作连续、物理真实、参考图保真、无分镜标注污染；不得擅自换模型、时长或写 4K/8K 冒充原生分辨率。
 
 ## Skill 6: 局部遮罩编辑（mask-edit）
 客户涂抹遮罩并选操作类型后触发。6 种操作：
@@ -73,86 +73,122 @@ No collage, split screen, infographic, captions, extra text, watermark, people, 
 - 视频分镜的 beat 描述必须用英文，中文只用于客户阅读说明
 - 审阅分镜图（review-sheet）不能作为视频参考图
 - 保健品/医疗/护理类必须规避治疗承诺和虚假背书
+- 人物必须保持自然骨骼、面部和手指；贴身服装只用非色情商业摄影语境
 - 不要模拟鼠标点击
 - 不要要求用户手动复制 JSON
 - 工具参数必须使用画布中真实存在的节点 id
 - 不确定时先简短提问`;
 
-export type CanvasWorkspaceConfig = { workspacePath: string; activeThreadId?: string; pinnedThreadIds?: string[] };
-export type CanvasAgentConfig = { url: string; token: string; origins?: string[]; canvases?: Record<string, CanvasWorkspaceConfig> };
+export type CanvasWorkspaceConfig = {
+  workspacePath: string;
+  activeThreadId?: string;
+  pinnedThreadIds?: string[];
+};
+export type CanvasAgentConfig = {
+  url: string;
+  token: string;
+  origins?: string[];
+  canvases?: Record<string, CanvasWorkspaceConfig>;
+};
 
 const PROJECT_ROOT = "/opt/infinite-canvas";
 
 export function loadConfig(create = false): CanvasAgentConfig {
-    try {
-        return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")) as CanvasAgentConfig;
-    } catch {
-        const config = { url: `http://127.0.0.1:${Number(process.env.PORT) || DEFAULT_PORT}`, token: crypto.randomBytes(18).toString("hex") };
-        if (create) saveConfig(config);
-        return config;
-    }
+  try {
+    return JSON.parse(
+      fs.readFileSync(CONFIG_FILE, "utf8"),
+    ) as CanvasAgentConfig;
+  } catch {
+    const config = {
+      url: `http://127.0.0.1:${Number(process.env.PORT) || DEFAULT_PORT}`,
+      token: crypto.randomBytes(18).toString("hex"),
+    };
+    if (create) saveConfig(config);
+    return config;
+  }
 }
 
 export function saveConfig(config: CanvasAgentConfig) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
-export function ensureCanvasWorkspace(config: CanvasAgentConfig, canvasId: string) {
-    const id = safeSegment(canvasId || "default");
-    config.canvases ||= {};
-    const current = config.canvases[id];
-    if (current?.workspacePath) {
-        fs.mkdirSync(resolveWorkspacePath(current.workspacePath), { recursive: true });
-        ensureSkillsLink(resolveWorkspacePath(current.workspacePath));
-        return { canvasId: id, ...current, workspacePath: resolveWorkspacePath(current.workspacePath) };
-    }
-    const workspacePath = path.join(CONFIG_DIR, "agent-workspaces", id);
-    config.canvases[id] = { workspacePath };
-    fs.mkdirSync(workspacePath, { recursive: true });
-    ensureSkillsLink(workspacePath);
-    saveConfig(config);
-    return { canvasId: id, workspacePath };
+export function ensureCanvasWorkspace(
+  config: CanvasAgentConfig,
+  canvasId: string,
+) {
+  const id = safeSegment(canvasId || "default");
+  config.canvases ||= {};
+  const current = config.canvases[id];
+  if (current?.workspacePath) {
+    fs.mkdirSync(resolveWorkspacePath(current.workspacePath), {
+      recursive: true,
+    });
+    ensureSkillsLink(resolveWorkspacePath(current.workspacePath));
+    return {
+      canvasId: id,
+      ...current,
+      workspacePath: resolveWorkspacePath(current.workspacePath),
+    };
+  }
+  const workspacePath = path.join(CONFIG_DIR, "agent-workspaces", id);
+  config.canvases[id] = { workspacePath };
+  fs.mkdirSync(workspacePath, { recursive: true });
+  ensureSkillsLink(workspacePath);
+  saveConfig(config);
+  return { canvasId: id, workspacePath };
 }
 
-export function updateCanvasWorkspace(config: CanvasAgentConfig, canvasId: string, patch: Partial<CanvasWorkspaceConfig>) {
-    const current = ensureCanvasWorkspace(config, canvasId);
-    const workspacePath = patch.workspacePath ? resolveWorkspacePath(patch.workspacePath) : current.workspacePath;
-    const next = { ...current, ...patch, workspacePath };
-    config.canvases ||= {};
-    config.canvases[current.canvasId] = { workspacePath: next.workspacePath, activeThreadId: next.activeThreadId, pinnedThreadIds: next.pinnedThreadIds };
-    fs.mkdirSync(workspacePath, { recursive: true });
-    saveConfig(config);
-    return { canvasId: current.canvasId, ...config.canvases[current.canvasId] };
+export function updateCanvasWorkspace(
+  config: CanvasAgentConfig,
+  canvasId: string,
+  patch: Partial<CanvasWorkspaceConfig>,
+) {
+  const current = ensureCanvasWorkspace(config, canvasId);
+  const workspacePath = patch.workspacePath
+    ? resolveWorkspacePath(patch.workspacePath)
+    : current.workspacePath;
+  const next = { ...current, ...patch, workspacePath };
+  config.canvases ||= {};
+  config.canvases[current.canvasId] = {
+    workspacePath: next.workspacePath,
+    activeThreadId: next.activeThreadId,
+    pinnedThreadIds: next.pinnedThreadIds,
+  };
+  fs.mkdirSync(workspacePath, { recursive: true });
+  saveConfig(config);
+  return { canvasId: current.canvasId, ...config.canvases[current.canvasId] };
 }
 
 function resolveWorkspacePath(value: string) {
-    if (value === "~") return os.homedir();
-    if (value.startsWith("~/")) return path.join(os.homedir(), value.slice(2));
-    return path.resolve(value);
+  if (value === "~") return os.homedir();
+  if (value.startsWith("~/")) return path.join(os.homedir(), value.slice(2));
+  return path.resolve(value);
 }
 
 function safeSegment(value: string) {
-    return value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120) || "default";
+  return value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120) || "default";
 }
 
 function ensureSkillsLink(workspacePath: string) {
-    const source = path.join(PROJECT_ROOT, ".agents");
-    const target = path.join(workspacePath, ".agents");
-    try {
-        const stat = fs.lstatSync(target);
-        if (stat.isSymbolicLink()) return;
-    } catch {}
-    try {
-        fs.symlinkSync(source, target, "dir");
-    } catch {}
+  const source = path.join(PROJECT_ROOT, ".agents");
+  const target = path.join(workspacePath, ".agents");
+  try {
+    const stat = fs.lstatSync(target);
+    if (stat.isSymbolicLink()) return;
+  } catch {}
+  try {
+    fs.symlinkSync(source, target, "dir");
+  } catch {}
 }
 
 function readPackageVersion() {
-    try {
-        const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version?: string };
-        return pkg.version || "0.0.0";
-    } catch {
-        return "0.0.0";
-    }
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version?: string };
+    return pkg.version || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
 }

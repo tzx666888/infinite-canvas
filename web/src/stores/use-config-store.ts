@@ -36,6 +36,7 @@ export type AiConfig = {
     audioInstructions: string;
     videoSeconds: string;
     vquality: string;
+    videoProductScaleMode: string;
     videoGenerateAudio: string;
     videoWatermark: string;
     systemPrompt: string;
@@ -62,13 +63,18 @@ export type WebdavSyncConfig = {
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 const CHANNEL_MODEL_SEPARATOR = "::";
-const TOKAXIS_CHANNEL_ID = "default";
+const TOKAXIS_CHANNEL_ID = "tokaxis";
 const TOKAXIS_BASE_URL = "/api/tokaxis";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-const TOKAXIS_DEFAULTS_VERSION = 7;
+const TOKAXIS_DEFAULTS_VERSION = 16;
 const TOKAXIS_FALLBACK_MODELS = [
     "gpt-image-2",
-    "grok-imagine-video",
+    "gemini-3.1-flash-image",
+    "grok-imagine-image-lite",
+    "grok-imagine-video-1.5-fast",
+    "grok-imagine-video-1.5-preview",
+    "grok-imagine-video-1.5-1080p",
+    "gpt-5.6-sol",
     "gpt-5.5",
     "gpt-5.4",
     "gpt-5.4-mini",
@@ -77,8 +83,24 @@ const TOKAXIS_FALLBACK_MODELS = [
 ];
 const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
 const TOKAXIS_DISABLED_VIDEO_MODEL_RE = /^veo_3_1_/;
-const TOKAXIS_VIDEO_MODEL_IDS = new Set([
+const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set([
+    "gpt-image-2",
+    "gemini-3.1-flash-image",
+    "grok-imagine-image-lite",
+]);
+const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set([
+    "grok-image-video",
+    "grok-video-1.5",
     "grok-imagine-video",
+    "grok-imagine-1.0-video",
+    "grok-imagine-1.0-video-16s",
+    "grok-imagine-video-1.5-fast-16s",
+    "grok-imagine-video-preview",
+]);
+const TOKAXIS_VIDEO_MODEL_IDS = new Set([
+    "grok-imagine-video-1.5-fast",
+    "grok-imagine-video-1.5-preview",
+    "grok-imagine-video-1.5-1080p",
 ]);
 const TOKAXIS_FALLBACK_MODEL_OPTIONS = TOKAXIS_FALLBACK_MODELS.map((model) => encodeChannelModel(TOKAXIS_CHANNEL_ID, model));
 const TOKAXIS_IMAGE_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "image");
@@ -102,17 +124,18 @@ export const defaultConfig: AiConfig = {
             models: TOKAXIS_FALLBACK_MODELS,
         },
     ],
-    model: "default::gpt-image-2",
-    imageModel: "default::gpt-image-2",
-    videoModel: "default::grok-imagine-video",
-    textModel: "default::gpt-5.5",
-    audioModel: "default::gpt-4o-mini-tts",
+    model: "tokaxis::gpt-image-2",
+    imageModel: "tokaxis::gpt-image-2",
+    videoModel: "tokaxis::grok-imagine-video-1.5-fast",
+    textModel: "tokaxis::gpt-5.6-sol",
+    audioModel: "tokaxis::gpt-4o-mini-tts",
     audioVoice: "alloy",
     audioFormat: "mp3",
     audioSpeed: "1",
     audioInstructions: "",
     videoSeconds: "15",
     vquality: "720",
+    videoProductScaleMode: "auto",
     videoGenerateAudio: "true",
     videoWatermark: "false",
     systemPrompt: "",
@@ -277,8 +300,8 @@ export const useConfigStore = create<ConfigStore>()(
                         baseUrl: TOKAXIS_BASE_URL,
                         model: normalizeDefaultTokaxisModel(config.model, models, channels) || models[0] || "",
                         imageModel: normalizeDefaultTokaxisImageModel(config.imageModel || config.model, shouldMigrateTokaxisDefaults, imageModels, channels),
-                        videoModel: normalizeDefaultTokaxisModel(config.videoModel, videoModels, channels) || "",
-                        textModel: normalizeDefaultTokaxisModel(config.textModel || config.model, textModels, channels),
+                        videoModel: shouldMigrateTokaxisDefaults ? defaultConfig.videoModel : normalizeDefaultTokaxisModel(config.videoModel, videoModels, channels) || "",
+                        textModel: shouldMigrateTokaxisDefaults ? defaultConfig.textModel : normalizeDefaultTokaxisModel(config.textModel || config.model, textModels, channels),
                         audioModel: normalizeDefaultTokaxisModel(config.audioModel || defaultConfig.audioModel, audioModels, channels),
                         audioVoice: config.audioVoice || defaultConfig.audioVoice,
                         audioFormat: config.audioFormat || defaultConfig.audioFormat,
@@ -286,6 +309,7 @@ export const useConfigStore = create<ConfigStore>()(
                         audioInstructions: config.audioInstructions || "",
                         videoSeconds: shouldMigrateTokaxisDefaults ? "15" : config.videoSeconds || "15",
                         vquality: config.vquality || "720",
+                        videoProductScaleMode: config.videoProductScaleMode || defaultConfig.videoProductScaleMode,
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
                         canvasImageCount: config.canvasImageCount || "3",
@@ -366,7 +390,12 @@ export function normalizeModelOptionValue(value: string | undefined, channels: M
     const decoded = decodeChannelModel(model);
     if (decoded) {
         const channel = channels.find((item) => item.id === decoded.channelId);
-        return channel && channel.models.includes(decoded.model) ? model : "";
+        if (channel && channel.models.includes(decoded.model)) return model;
+        if (decoded.channelId === "default") {
+            const tokaxis = channels.find((item) => item.id === TOKAXIS_CHANNEL_ID);
+            if (tokaxis && tokaxis.models.includes(decoded.model)) return encodeChannelModel(TOKAXIS_CHANNEL_ID, decoded.model);
+        }
+        return "";
     }
     const channel = channels.find((item) => item.models.includes(model)) || channels[0];
     return channel && channel.models.includes(model) ? encodeChannelModel(channel.id, model) : model;
@@ -376,7 +405,7 @@ export function resolveModelChannel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
     const model = decoded?.model || value;
     const matched = decoded ? config.channels.find((channel) => channel.id === decoded.channelId) : config.channels.find((channel) => channel.models.includes(model));
-    return matched || config.channels[0] || createModelChannel({ id: "default", name: "默认渠道", baseUrl: config.baseUrl, apiKey: config.apiKey, apiFormat: config.apiFormat, models: config.models.map(modelOptionName) });
+    return matched || config.channels[0] || createModelChannel({ id: TOKAXIS_CHANNEL_ID, name: "TokAxis", baseUrl: config.baseUrl, apiKey: config.apiKey, apiFormat: config.apiFormat, models: config.models.map(modelOptionName) });
 }
 
 export function resolveModelRequestConfig(config: AiConfig, value: string) {
@@ -404,7 +433,7 @@ function normalizeChannels(config: AiConfig) {
     const channels = persistedChannels.map((channel, index) =>
         createModelChannel({
             ...channel,
-            id: channel.id || (index === 0 ? "default" : `channel-${index + 1}`),
+            id: channel.id || (index === 0 ? TOKAXIS_CHANNEL_ID : `channel-${index + 1}`),
             name: channel.name || (index === 0 ? "默认渠道" : `渠道 ${index + 1}`),
             models: uniqueRawModels(channel.models || []),
         }),
@@ -412,7 +441,7 @@ function normalizeChannels(config: AiConfig) {
     if (!channels.length) {
         channels.push(
             createModelChannel({
-                id: "default",
+                id: TOKAXIS_CHANNEL_ID,
                 name: "默认渠道",
                 baseUrl: config.baseUrl || defaultConfig.baseUrl,
                 apiKey: config.apiKey || "",
@@ -435,7 +464,8 @@ function normalizeTokaxisChannels(config: AiConfig) {
     const first = Array.isArray(config.channels) ? config.channels[0] : undefined;
     const persistedModels = first?.models?.length ? first.models : [];
     const modelSource = persistedModels.length ? persistedModels : config.models?.map(modelOptionName) || [];
-    const models = sanitizeTokaxisModels(modelSource.length ? modelSource : TOKAXIS_FALLBACK_MODELS);
+    const shouldMigrateTextModel = (config.tokaxisDefaultsVersion || 0) < TOKAXIS_DEFAULTS_VERSION;
+    const models = sanitizeTokaxisModels(modelSource.length ? [...modelSource, ...(shouldMigrateTextModel ? ["gpt-5.6-sol"] : [])] : TOKAXIS_FALLBACK_MODELS);
     return [
         createModelChannel({
             id: TOKAXIS_CHANNEL_ID,
@@ -510,7 +540,7 @@ function modelListsFromModels(models: string[]) {
 
 function sanitizeTokaxisModels(models: string[]) {
     const visibleModels = uniqueRawModels(models).filter(
-        (model) => !isDisabledModelName(model) && !TOKAXIS_DISABLED_IMAGE_MODEL_RE.test(model) && (!isImageModelName(model) || model === "gpt-image-2"),
+        (model) => !isDisabledModelName(model) && !TOKAXIS_DISABLED_IMAGE_MODEL_RE.test(model) && (!isImageModelName(model) || TOKAXIS_PUBLIC_IMAGE_MODEL_IDS.has(model)),
     );
     return visibleModels.length ? visibleModels : TOKAXIS_FALLBACK_MODELS;
 }
@@ -534,7 +564,8 @@ function uniqueRawModels(models: string[]) {
 }
 
 function isDisabledModelName(model: string) {
-    return TOKAXIS_DISABLED_VIDEO_MODEL_RE.test(modelOptionName(model).trim().toLowerCase());
+    const value = modelOptionName(model).trim().toLowerCase();
+    return TOKAXIS_DISABLED_VIDEO_MODEL_RE.test(value) || TOKAXIS_DISABLED_VIDEO_MODEL_IDS.has(value);
 }
 
 function uniqueModelOptions(models: string[]) {

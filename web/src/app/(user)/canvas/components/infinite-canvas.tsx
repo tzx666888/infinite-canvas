@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -34,6 +34,13 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
     const nextViewportRef = useRef<ViewportTransform | null>(null);
     const [isSpacePressed, setIsSpacePressed] = useState(false);
 
+    const resetContainerScroll = useCallback(() => {
+        const container = containerRef.current;
+        if (!container) return;
+        if (container.scrollLeft !== 0) container.scrollLeft = 0;
+        if (container.scrollTop !== 0) container.scrollTop = 0;
+    }, [containerRef]);
+
     useEffect(() => {
         scaleRef.current = viewport.k;
     }, [viewport.k]);
@@ -64,9 +71,20 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
         };
     }, []);
 
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        resetContainerScroll();
+        const handleScroll = () => resetContainerScroll();
+        container.addEventListener("scroll", handleScroll, { passive: true });
+        return () => container.removeEventListener("scroll", handleScroll);
+    }, [containerRef, resetContainerScroll]);
+
     const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
         const target = event.target instanceof Element ? event.target : null;
         if (isCanvasWheelExemptTarget(target)) return;
+        resetContainerScroll();
 
         const delta = -event.deltaY;
         const factor = Math.pow(1.1, delta / 100);
@@ -87,6 +105,7 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
     };
 
     const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+        resetContainerScroll();
         const target = event.target instanceof Element ? event.target : null;
         if (target?.closest("[data-canvas-no-zoom]")) return;
         if (target?.closest("[data-connection-create-menu]")) return;
@@ -175,6 +194,7 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
         const preventWheelScroll = (event: WheelEvent) => {
             const target = event.target instanceof Element ? event.target : null;
             if (isCanvasWheelExemptTarget(target)) return;
+            resetContainerScroll();
             event.preventDefault();
         };
         container.addEventListener("wheel", preventWheelScroll, { passive: false });
@@ -184,14 +204,20 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
     return (
         <div
             ref={containerRef}
-            className="relative h-full w-full cursor-grab select-none overflow-hidden"
+            className="relative h-full w-full cursor-grab select-none overflow-clip"
             style={{ background: theme.canvas.background }}
             onPointerDown={handlePointerDown}
             onDoubleClick={handleDoubleClick}
             onWheel={handleWheel}
             onContextMenu={onContextMenu}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={onDrop}
+            onDragOver={(event) => {
+                event.preventDefault();
+                resetContainerScroll();
+            }}
+            onDrop={(event) => {
+                resetContainerScroll();
+                onDrop?.(event);
+            }}
         >
             <CanvasGrid viewport={viewport} mode={backgroundMode} />
             <div

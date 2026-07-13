@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { AlertTriangle, ChevronRight, Image as ImageIcon, Music2, RefreshCw, Star, Video } from "lucide-react";
+import { AlertTriangle, Box, ChevronRight, Image as ImageIcon, Music2, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -485,7 +485,7 @@ function panelResizeCursor(edge: PanelResizeEdge) {
 }
 
 function NodeContent(props: NodeContentRendererProps): React.ReactElement | null {
-    if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) {
+    if ((props.node.type === CanvasNodeType.Config || props.node.type === CanvasNodeType.Director) && props.renderNodeContent) {
         return <>{props.renderNodeContent(props.node) ?? null}</>;
     }
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
@@ -500,6 +500,7 @@ const nodeContentRenderers = {
     [CanvasNodeType.Text]: TextContent,
     [CanvasNodeType.Image]: ImageNodeContent,
     [CanvasNodeType.Config]: EmptyImageContent,
+    [CanvasNodeType.Director]: DirectorFallbackContent,
     [CanvasNodeType.Video]: VideoNodeContent,
     [CanvasNodeType.Audio]: AudioNodeContent,
 } satisfies Record<CanvasNodeType, (props: NodeContentRendererProps) => ReactNode>;
@@ -566,7 +567,7 @@ function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "
                 onMouseDown={(event) => event.stopPropagation()}
             >
                 <RefreshCw className="size-3.5" />
-                重试
+                重新生成
             </button>
         </div>
     );
@@ -589,12 +590,12 @@ function describeNodeError(errorDetails?: string) {
         return { title: "请求太密集", message: "系统已保留节点和提示词，稍等片刻后点重试即可。", detail };
     }
 
-    if (/timeout|timed out|524|gateway|upstream|超时/.test(lower) || /超时|上游/.test(text)) {
-        return { title: "上游响应超时", message: "素材和参数没有丢，通常直接重试就能继续。", detail };
+    if (/moderated|moderation|danger_filter|safety|policy|content filter|unsafe|no final video url|安全|违规|风控/.test(lower) || /安全|违规|风控|审核/.test(text)) {
+        return { title: "触发安全过滤", message: "换成更中性的动作、镜头或文案后再重试。", detail };
     }
 
-    if (/danger_filter|safety|policy|content filter|unsafe|安全|违规|风控/.test(lower) || /安全|违规|风控/.test(text)) {
-        return { title: "触发安全过滤", message: "换成更中性的动作、镜头或文案后再重试。", detail };
+    if (/timeout|timed out|524|gateway|upstream|超时/.test(lower) || /超时|上游/.test(text)) {
+        return { title: "生成失败：上游超时，请重试", message: "素材和参数已保留，可单独重新生成这一张。", detail };
     }
 
     if (/401|403|api key|token|permission|unauthorized|forbidden|令牌|权限|未开放/.test(lower) || /令牌|权限|未开放/.test(text)) {
@@ -753,6 +754,20 @@ function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batc
     return content;
 }
 
+function DirectorFallbackContent({ theme }: NodeContentRendererProps) {
+    return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ color: theme.node.text }}>
+            <div className="grid size-14 place-items-center rounded-2xl" style={{ background: theme.toolbar.activeBg }}>
+                <Box className="size-6 opacity-65" />
+            </div>
+            <div>
+                <div className="text-base font-semibold">导演台</div>
+                <div className="mt-1 text-xs opacity-55">打开后设置机位并截图参考帧</div>
+            </div>
+        </div>
+    );
+}
+
 function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [duration, setDuration] = useState<number | null>(null);
@@ -831,17 +846,34 @@ function ImageContent({
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const isBatchChild = Boolean(node.metadata?.batchRootId);
+    const [imageLoadFailed, setImageLoadFailed] = useState(false);
+
+    useEffect(() => {
+        setImageLoadFailed(false);
+    }, [node.metadata?.content]);
 
     return (
         <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>
-            <div className="h-full w-full overflow-hidden rounded-3xl">
+            <div className="relative h-full w-full overflow-hidden rounded-3xl">
                 <img
                     src={node.metadata!.content!}
                     alt={node.title}
                     draggable={false}
+                    onLoad={(event) => {
+                        const image = event.currentTarget;
+                        setImageLoadFailed(!image.naturalWidth || !image.naturalHeight);
+                    }}
+                    onError={() => setImageLoadFailed(true)}
                     onDragStart={(event) => event.preventDefault()}
-                    className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
+                    className={`pointer-events-none block h-full w-full select-none ${imageLoadFailed ? "opacity-0" : ""} ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
                 />
+                {imageLoadFailed ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/35 px-4 text-center text-white/80">
+                        <AlertTriangle className="size-6 text-amber-300" />
+                        <div className="text-xs font-semibold">生成结果无法读取</div>
+                        <div className="max-w-[160px] text-[10px] leading-snug text-white/55">此历史结果未能成功保存，请重新生成</div>
+                    </div>
+                ) : null}
             </div>
             {isBatchRoot ? (
                 <button

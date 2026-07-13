@@ -6,12 +6,17 @@ import { Switch } from "antd";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceFastModel, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { fixedVideoDurationOptions, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
+import { normalizeVideoProductScaleMode, videoProductScaleOptions } from "@/lib/video-product-scale";
+import { fixedVideoDurationOptions, isGrok1080pVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
-const resolutionOptions = [
+const baseResolutionOptions = [
     { value: "720", label: "720p" },
     { value: "480", label: "480p" },
+];
+const grok1080ResolutionOptions = [
+    { value: "1080", label: "1080p" },
+    ...baseResolutionOptions,
 ];
 
 const sizeOptions = [
@@ -27,7 +32,7 @@ const defaultSecondOptions = [6, 10, 12, 16, 20];
 
 type VideoSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
+    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoProductScaleMode" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -38,13 +43,15 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
         return <SeedanceVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
 
-    const model = modelOptionName(config.model || config.videoModel);
+    const model = modelOptionName(config.videoModel || config.model);
     const fixedSecondOptions = fixedVideoDurationOptions(model);
     const secondOptions = fixedSecondOptions || defaultSecondOptions;
     const seconds = normalizeModelVideoSeconds(config.videoSeconds || "6", model);
     const size = normalizeVideoSizeValue(config.size);
     const dimensions = readSizeDimensions(size);
-    const resolution = normalizeVideoResolutionValue(config.vquality);
+    const resolutionOptions = isGrok1080pVideoModel(model) ? grok1080ResolutionOptions : baseResolutionOptions;
+    const resolution = normalizeVideoResolutionValue(config.vquality, model);
+    const productScaleMode = normalizeVideoProductScaleMode(config.videoProductScaleMode);
     const updateDimension = (key: "width" | "height", value: number | null) => {
         const next = Math.max(1, Math.floor(value || dimensions[key] || 720));
         onConfigChange("size", `${key === "width" ? next : dimensions.width}x${key === "height" ? next : dimensions.height}`);
@@ -91,6 +98,15 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         ))}
                     </div>
                 </SettingGroup>
+                <SettingGroup title="产品尺寸" color={theme.node.muted}>
+                    <div className="grid grid-cols-3 gap-2.5">
+                        {videoProductScaleOptions.map((item) => (
+                            <OptionPill key={item.value} selected={productScaleMode === item.value} theme={theme} onClick={() => onConfigChange("videoProductScaleMode", item.value)}>
+                                {item.label}
+                            </OptionPill>
+                        ))}
+                    </div>
+                </SettingGroup>
                 <SettingGroup title="秒数" color={theme.node.muted}>
                     <div className={`grid gap-2.5 ${secondOptions.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>
                         {secondOptions.map((value) => (
@@ -107,7 +123,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
 }
 
 function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
-    const model = modelOptionName(config.model || config.videoModel);
+    const model = modelOptionName(config.videoModel || config.model);
     const resolution = normalizeSeedanceResolution(config.vquality, model);
     const ratio = normalizeSeedanceRatio(config.size);
     const duration = normalizeSeedanceDuration(config.videoSeconds);
@@ -170,8 +186,8 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
     );
 }
 
-export function videoResolutionLabel(value: string) {
-    return `${normalizeVideoResolutionValue(value)}p`;
+export function videoResolutionLabel(value: string, model = "") {
+    return `${normalizeVideoResolutionValue(value, model)}p`;
 }
 
 export function videoSizeLabel(value: string) {
@@ -193,10 +209,12 @@ export function normalizeVideoSizeValue(value: string) {
     return ["9:16", "2:3", "3:4"].includes(value) ? "720x1280" : "1280x720";
 }
 
-export function normalizeVideoResolutionValue(value: string) {
+export function normalizeVideoResolutionValue(value: string, model = "") {
     if (value === "480p" || value === "low") return "480";
     if (value === "720p" || value === "auto" || value === "high" || value === "medium") return "720";
-    return value.replace(/p$/i, "") || "720";
+    const resolution = value.replace(/p$/i, "") || "720";
+    if (resolution === "1080" && !isGrok1080pVideoModel(model)) return "720";
+    return resolution;
 }
 
 function OptionPill({ selected, disabled = false, theme, onClick, children }: { selected: boolean; disabled?: boolean; theme: CanvasTheme; onClick: () => void; children: ReactNode }) {
