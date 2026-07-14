@@ -23,7 +23,7 @@ import {
     type SceneExpansionPlan,
 } from "@/services/api/prompt-polish";
 import { DOCS_URL } from "@/constant/env";
-import { defaultConfig, modelMatchesCapability, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { defaultConfig, modelMatchesCapability, modelOptionName, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { imageToDataUrl, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
@@ -129,6 +129,9 @@ const STORYBOARD_REVIEW_COLUMNS = 3;
 const STORYBOARD_REVIEW_ROWS = 4;
 const STORYBOARD_REVIEW_PANEL_COUNT = STORYBOARD_REVIEW_COLUMNS * STORYBOARD_REVIEW_ROWS;
 const STORYBOARD_VIDEO_FRAME_CROP = { x: 0.14, y: 0.055, width: 0.82, height: 0.88 };
+const VIDEO_BRIDGE_PRIMARY_TIMEOUT_MS = 120_000;
+const VIDEO_BRIDGE_FALLBACK_TIMEOUT_MS = 75_000;
+const VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS = ["gemini-3.1-flash-image", "grok-imagine-image-lite"] as const;
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
 const CONNECTION_NODE_HIT_PADDING = 32;
 const NODE_STATUS_IDLE = "idle" as const;
@@ -3538,6 +3541,7 @@ function InfiniteCanvasPage() {
                         metadata: {
                             prompt: videoPrompt,
                             status: NODE_STATUS_LOADING,
+                            statusMessage: needsStoryboardBridge || directProductLock ? "正在重建高清首帧..." : "正在提交视频...",
                             model: videoGenerationConfig.model,
                             size: videoGenerationConfig.size,
                             seconds: videoGenerationConfig.videoSeconds,
@@ -3561,11 +3565,21 @@ function InfiniteCanvasPage() {
                     );
                     if (!isEmptyVideoNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]);
                     const controller = startGenerationRequest(videoId, nodeId, nodeId, runController);
+                    const updateVideoGenerationStage = (statusMessage: string) => {
+                        setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, statusMessage } } : node)));
+                    };
                     try {
                         let requestVideoPrompt = videoPrompt;
                         let requestVideoReferenceImages = videoReferenceImages;
                         if (needsStoryboardBridge && requestVideoReferenceImages[0]) {
-                            const bridgeImage = await createStoryboardVideoBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), requestVideoReferenceImages[0], videoGenerationConfig.size, storyboardPlan, controller.signal);
+                            const bridgeImage = await createStoryboardVideoBridgeReference(
+                                buildGenerationConfig(effectiveConfig, sourceNode, "image"),
+                                requestVideoReferenceImages[0],
+                                videoGenerationConfig.size,
+                                storyboardPlan,
+                                controller.signal,
+                                updateVideoGenerationStage,
+                            );
                             requestVideoReferenceImages = [bridgeImage];
                             requestVideoPrompt = buildWholeStoryboardI2VPrompt(videoPromptSource, videoGenerationConfig.videoSeconds, videoAspectRatioForSize(videoGenerationConfig.size), storyboardPlan, 1, 1);
                             setNodes((prev) =>
@@ -3585,7 +3599,7 @@ function InfiniteCanvasPage() {
                                 ),
                             );
                         } else if (directProductLock) {
-                            const bridgeImage = await createDirectProductBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), directProductLock, videoGenerationConfig.size, controller.signal);
+                            const bridgeImage = await createDirectProductBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), directProductLock, videoGenerationConfig.size, controller.signal, updateVideoGenerationStage);
                             requestVideoReferenceImages = [bridgeImage];
                             requestVideoPrompt = buildStoryboardReviewSheetVideoPrompt(
                                 directProductLock.videoPrompt,
@@ -3612,6 +3626,7 @@ function InfiniteCanvasPage() {
                                 ),
                             );
                         }
+                        updateVideoGenerationStage("视频任务提交/生成中...");
                         const video = await storeGeneratedVideo(
                             await requestVideoGeneration(videoGenerationConfig, requestVideoPrompt, requestVideoReferenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal }),
                         );
@@ -3635,6 +3650,7 @@ function InfiniteCanvasPage() {
                                               productScaleMode: videoGenerationConfig.videoProductScaleMode,
                                               generateAudio: videoGenerationConfig.videoGenerateAudio,
                                               watermark: videoGenerationConfig.videoWatermark,
+                                              statusMessage: undefined,
                                               videoReferenceImages: generationImageReferenceUrls(requestVideoReferenceImages),
                                               references: generationReferenceUrls({ ...generationContext, referenceImages: requestVideoReferenceImages }),
                                           },
@@ -3743,7 +3759,9 @@ function InfiniteCanvasPage() {
                 const errorDetails = error instanceof Error ? error.message : "生成失败";
                 message.error(errorDetails);
                 setNodes((prev) =>
-                    prev.map((node) => (node.id === nodeId || pendingChildIds.includes(node.id) ? (node.id === nodeId && !markSourceStatus ? node : { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } }) : node)),
+                    prev.map((node) =>
+                        node.id === nodeId || pendingChildIds.includes(node.id) ? (node.id === nodeId && !markSourceStatus ? node : { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, statusMessage: undefined, errorDetails } }) : node,
+                    ),
                 );
             } finally {
                 finishGenerationRequest(nodeId, runController);
@@ -3868,8 +3886,25 @@ function InfiniteCanvasPage() {
             }
 
             setRunningNodeId(node.id);
-            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
+            setNodes((prev) =>
+                prev.map((item) =>
+                    item.id === node.id
+                        ? {
+                              ...item,
+                              metadata: {
+                                  ...item.metadata,
+                                  status: NODE_STATUS_LOADING,
+                                  statusMessage: node.type === CanvasNodeType.Video ? (needsRetryStoryboardBridge || retryDirectProductLock ? "正在重建高清首帧..." : "正在提交视频...") : undefined,
+                                  errorDetails: undefined,
+                              },
+                          }
+                        : item,
+                ),
+            );
             const controller = startGenerationRequest(node.id, sourceNode.id, node.id);
+            const updateRetryVideoGenerationStage = (statusMessage: string) => {
+                setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, statusMessage } } : item)));
+            };
 
             try {
                 if (node.type === CanvasNodeType.Text) {
@@ -3902,7 +3937,14 @@ function InfiniteCanvasPage() {
                               node.metadata?.commerceVideoPlan,
                           );
                     if (needsRetryStoryboardBridge && retryVideoImages[0]) {
-                        const bridgeImage = await createStoryboardVideoBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), retryVideoImages[0], generationConfig.size, node.metadata?.commerceVideoPlan, controller.signal);
+                        const bridgeImage = await createStoryboardVideoBridgeReference(
+                            buildGenerationConfig(effectiveConfig, sourceNode, "image"),
+                            retryVideoImages[0],
+                            generationConfig.size,
+                            node.metadata?.commerceVideoPlan,
+                            controller.signal,
+                            updateRetryVideoGenerationStage,
+                        );
                         retryVideoImages = [bridgeImage];
                         videoPrompt = buildWholeStoryboardI2VPrompt(retryVideoPromptSource, generationConfig.videoSeconds, videoAspectRatioForSize(generationConfig.size), node.metadata?.commerceVideoPlan, 1, 1);
                         setNodes((prev) =>
@@ -3922,7 +3964,7 @@ function InfiniteCanvasPage() {
                             ),
                         );
                     } else if (retryDirectProductLock) {
-                        const bridgeImage = await createDirectProductBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), retryDirectProductLock, generationConfig.size, controller.signal);
+                        const bridgeImage = await createDirectProductBridgeReference(buildGenerationConfig(effectiveConfig, sourceNode, "image"), retryDirectProductLock, generationConfig.size, controller.signal, updateRetryVideoGenerationStage);
                         retryVideoImages = [bridgeImage];
                         videoPrompt = buildStoryboardReviewSheetVideoPrompt(
                             retryDirectProductLock.videoPrompt,
@@ -3934,6 +3976,7 @@ function InfiniteCanvasPage() {
                             node.metadata?.commerceVideoPlan,
                         );
                     }
+                    updateRetryVideoGenerationStage("视频任务提交/生成中...");
                     const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryVideoImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
@@ -3955,6 +3998,7 @@ function InfiniteCanvasPage() {
                                           productScaleMode: generationConfig.videoProductScaleMode,
                                           generateAudio: generationConfig.videoGenerateAudio,
                                           watermark: generationConfig.videoWatermark,
+                                          statusMessage: undefined,
                                           videoSourcePrompt: retryVideoPromptSource,
                                           videoConstraintVersion: retriesWholeStoryboardSheet || storyboardRetryImages.length ? GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION : undefined,
                                           videoReferenceImages: generationImageReferenceUrls(retryVideoImages).length ? generationImageReferenceUrls(retryVideoImages) : item.metadata?.videoReferenceImages,
@@ -4020,7 +4064,7 @@ function InfiniteCanvasPage() {
                 if (isGenerationCanceled(error)) return;
                 const errorDetails = error instanceof Error ? error.message : "生成失败";
                 message.error(errorDetails);
-                setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item)));
+                setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, statusMessage: undefined, errorDetails } } : item)));
             } finally {
                 finishGenerationRequest(node.id, controller);
                 setRunningNodeId(null);
@@ -5465,14 +5509,16 @@ function buildDirectProductLockVideoContext(prompt: string, referenceImages: Ref
     };
 }
 
-async function createDirectProductBridgeReference(config: AiConfig, context: NonNullable<ReturnType<typeof buildDirectProductLockVideoContext>>, size: string, signal?: AbortSignal): Promise<ReferenceImage> {
+type VideoBridgeStageReporter = (statusMessage: string) => void;
+
+async function createDirectProductBridgeReference(config: AiConfig, context: NonNullable<ReturnType<typeof buildDirectProductLockVideoContext>>, size: string, signal?: AbortSignal, reportStage?: VideoBridgeStageReporter): Promise<ReferenceImage> {
     const bridgeConfig = {
         ...config,
         count: "1",
         size: size || config.size || "9:16",
         quality: config.quality === "auto" ? "high" : config.quality,
     };
-    const image = await requestEdit(bridgeConfig, context.bridgePrompt, context.bridgeReferences, undefined, { signal }).then((items) => items[0]);
+    const image = await requestVideoBridgeImage(bridgeConfig, context.bridgePrompt, context.bridgeReferences, signal, reportStage);
     if (!image?.dataUrl) throw new Error("产品锁定关键帧生成失败，请重试");
     const uploaded = await uploadImage(image.dataUrl);
     return {
@@ -5485,7 +5531,7 @@ async function createDirectProductBridgeReference(config: AiConfig, context: Non
     };
 }
 
-async function createStoryboardVideoBridgeReference(config: AiConfig, seedReference: ReferenceImage, size: string, plan?: CanvasCommerceVideoPlan, signal?: AbortSignal): Promise<ReferenceImage> {
+async function createStoryboardVideoBridgeReference(config: AiConfig, seedReference: ReferenceImage, size: string, plan?: CanvasCommerceVideoPlan, signal?: AbortSignal, reportStage?: VideoBridgeStageReporter): Promise<ReferenceImage> {
     const bridgeConfig = {
         ...config,
         count: "1",
@@ -5505,7 +5551,7 @@ async function createStoryboardVideoBridgeReference(config: AiConfig, seedRefere
     ]
         .filter(Boolean)
         .join("\n");
-    const image = await requestEdit(bridgeConfig, bridgePrompt, [seedReference], undefined, { signal }).then((items) => items[0]);
+    const image = await requestVideoBridgeImage(bridgeConfig, bridgePrompt, [seedReference], signal, reportStage);
     if (!image?.dataUrl) throw new Error("分镜视频首帧重建失败，请重试");
     const uploaded = await uploadImage(image.dataUrl);
     return {
@@ -5516,6 +5562,72 @@ async function createStoryboardVideoBridgeReference(config: AiConfig, seedRefere
         url: uploaded.url,
         storageKey: uploaded.storageKey,
     };
+}
+
+async function requestVideoBridgeImage(config: AiConfig, prompt: string, references: ReferenceImage[], signal?: AbortSignal, reportStage?: VideoBridgeStageReporter) {
+    reportStage?.("正在重建高清首帧...");
+    try {
+        return await requestVideoBridgeImageAttempt(config, prompt, references, VIDEO_BRIDGE_PRIMARY_TIMEOUT_MS, signal);
+    } catch (error) {
+        if (signal?.aborted) throw new Error("请求已取消");
+        if (!isRetryableVideoBridgeError(error)) throw error;
+        const fallbackModel = resolveVideoBridgeFallbackModel(config);
+        if (!fallbackModel) throw new Error(`高清首帧重建失败：${videoBridgeErrorMessage(error)}`);
+
+        reportStage?.("首帧服务繁忙，正在切换备用模型...");
+        const fallbackConfig = { ...config, model: fallbackModel, imageModel: fallbackModel };
+        try {
+            return await requestVideoBridgeImageAttempt(fallbackConfig, prompt, references, VIDEO_BRIDGE_FALLBACK_TIMEOUT_MS, signal);
+        } catch (fallbackError) {
+            if (signal?.aborted) throw new Error("请求已取消");
+            throw new Error(`高清首帧重建失败：${videoBridgeErrorMessage(fallbackError)}`);
+        }
+    }
+}
+
+async function requestVideoBridgeImageAttempt(config: AiConfig, prompt: string, references: ReferenceImage[], timeoutMs: number, parentSignal?: AbortSignal) {
+    if (parentSignal?.aborted) throw new Error("请求已取消");
+    const controller = new AbortController();
+    let timedOut = false;
+    const abortFromParent = () => controller.abort();
+    parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+    const timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+    }, timeoutMs);
+    try {
+        const image = await requestEdit(config, prompt, references, undefined, { signal: controller.signal }).then((items) => items[0]);
+        if (!image?.dataUrl) throw new Error("首帧生成服务没有返回图片");
+        return image;
+    } catch (error) {
+        if (parentSignal?.aborted) throw new Error("请求已取消");
+        if (timedOut) throw new Error("视频首帧重建超时");
+        throw error;
+    } finally {
+        clearTimeout(timeout);
+        parentSignal?.removeEventListener("abort", abortFromParent);
+    }
+}
+
+function resolveVideoBridgeFallbackModel(config: AiConfig) {
+    const currentModel = modelOptionName(config.model || config.imageModel);
+    const options = [...config.imageModels, ...config.models];
+    for (const fallbackName of VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS) {
+        if (fallbackName === currentModel) continue;
+        const option = options.find((model) => modelOptionName(model) === fallbackName);
+        if (option) return option;
+    }
+    return "";
+}
+
+function isRetryableVideoBridgeError(error: unknown) {
+    const message = videoBridgeErrorMessage(error).toLowerCase();
+    return /timeout|timed out|network|connection|socket|upstream|internal server|502|503|504|超时|繁忙|暂时|连接|中断|上游/.test(message);
+}
+
+function videoBridgeErrorMessage(error: unknown) {
+    const message = error instanceof Error ? error.message : typeof error === "string" ? error : "首帧生成服务暂时不可用";
+    return message.trim().slice(0, 180) || "首帧生成服务暂时不可用";
 }
 
 function isGrokCanvasVideoModel(model: string) {

@@ -330,6 +330,10 @@ assert.match(canvasClientSource, /storyboardReviewSheetKeyframeAnchorReferences\
 assert.match(canvasClientSource, /storyboardReviewSheetOpeningPanelReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "whole-video generation must isolate one opening panel when no clean keyframe exists");
 assert.match(canvasClientSource, /const needsStoryboardBridge = usesWholeStoryboardSheet && !storyboardKeyframeAnchorImages\.length/, "whole-video generation must rebuild a clean opening anchor when only a sheet panel exists");
 assert.match(canvasClientSource, /createStoryboardVideoBridgeReference/, "whole-video generation must create a high-resolution bridge instead of animating a grid or raw crop");
+assert.match(canvasClientSource, /VIDEO_BRIDGE_PRIMARY_TIMEOUT_MS = 120_000/, "a stalled primary bridge request must not block video submission for ten minutes");
+assert.match(canvasClientSource, /VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS = \["gemini-3\.1-flash-image", "grok-imagine-image-lite"\]/, "bridge generation must retain an independent fallback path");
+assert.match(canvasClientSource, /requestVideoBridgeImageAttempt\(fallbackConfig/, "retryable bridge failures must switch models before failing the video node");
+assert.match(canvasClientSource, /首帧服务繁忙，正在切换备用模型/, "the canvas must expose the pre-video fallback phase instead of pretending Grok is already running");
 assert.match(canvasClientSource, /storyboardVideoAnchorMode: "generated-bridge"/, "generated bridge metadata must be persisted for reliable retry");
 assert.match(canvasClientSource, /const storyboardVideoImages = usesWholeStoryboardSheet \? \[\] : storyboardReferenceFrames/, "whole-video generation must never send the complete sheet as the literal Fast opening frame");
 assert.match(canvasClientSource, /referenceMode: videoReferenceImages\.length \? "i2v" : "t2v"/, "whole-grid prompt compilation must describe the actual single-image contract");
