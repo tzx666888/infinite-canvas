@@ -34,6 +34,14 @@ export type ImageSplitPiece = {
     dataUrl: string;
 };
 
+export type ImageGridComposeParams = {
+    rows: number;
+    columns: number;
+    width: number;
+    height: number;
+    divider?: number;
+};
+
 export type MaskedEditCropData = {
     x: number;
     y: number;
@@ -73,6 +81,58 @@ export async function splitDataUrl(dataUrl: string, params: ImageSplitParams): P
     }
 
     return pieces;
+}
+
+export async function composeDataUrlGrid(dataUrls: string[], params: ImageGridComposeParams) {
+    const rows = Math.max(1, Math.floor(params.rows));
+    const columns = Math.max(1, Math.floor(params.columns));
+    const width = Math.max(columns, Math.floor(params.width));
+    const height = Math.max(rows, Math.floor(params.height));
+    const divider = Math.max(0, Math.floor(params.divider || 0));
+    const images = await Promise.all(dataUrls.slice(0, rows * columns).map(loadImage));
+    if (!images.length) throw new Error("没有可合成的图片");
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("无法创建图片合成画布");
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+
+    images.forEach((image, index) => {
+        const row = Math.floor(index / columns);
+        const column = index % columns;
+        const left = Math.floor((column * width) / columns);
+        const right = Math.floor(((column + 1) * width) / columns);
+        const top = Math.floor((row * height) / rows);
+        const bottom = Math.floor(((row + 1) * height) / rows);
+        const cellWidth = right - left;
+        const cellHeight = bottom - top;
+        const sourceWidth = image.naturalWidth || image.width;
+        const sourceHeight = image.naturalHeight || image.height;
+        const sourceAspect = sourceWidth / sourceHeight;
+        const targetAspect = cellWidth / cellHeight;
+        const cropWidth = sourceAspect > targetAspect ? sourceHeight * targetAspect : sourceWidth;
+        const cropHeight = sourceAspect > targetAspect ? sourceHeight : sourceWidth / targetAspect;
+        const sourceX = (sourceWidth - cropWidth) / 2;
+        const sourceY = (sourceHeight - cropHeight) / 2;
+        context.drawImage(image, sourceX, sourceY, cropWidth, cropHeight, left, top, cellWidth, cellHeight);
+    });
+
+    if (divider > 0) {
+        context.fillStyle = "#ffffff";
+        for (let column = 1; column < columns; column += 1) {
+            const x = Math.floor((column * width) / columns) - Math.floor(divider / 2);
+            context.fillRect(x, 0, divider, height);
+        }
+        for (let row = 1; row < rows; row += 1) {
+            const y = Math.floor((row * height) / rows) - Math.floor(divider / 2);
+            context.fillRect(0, y, width, divider);
+        }
+    }
+
+    return canvas.toDataURL("image/png");
 }
 
 export async function transformAngleDataUrl(dataUrl: string, params: ImageAngleTransform) {

@@ -5,6 +5,7 @@ const GROK_MULTI_REFERENCE_VIDEO_MODEL_IDS = new Set(["grok-imagine-video-1.5-fa
 export const GROK_REFERENCE_VIDEO_MAX_IMAGES = 7;
 export const GROK_REFERENCE_VIDEO_MAX_SECONDS = 10;
 export type VideoAspectRatio = "9:16" | "16:9" | "1:1";
+export type GrokVideoReferenceMode = "t2v" | "i2v" | "r2v";
 
 export function videoAspectRatioForSize(value: string): VideoAspectRatio {
     const normalized = value.trim().toLowerCase();
@@ -32,6 +33,14 @@ export function isGrokVideoModel(model: string) {
 
 export function isGrok1080pVideoModel(model: string) {
     return normalizeVideoModelId(model) === "grok-imagine-video-1.5-1080p";
+}
+
+export function grokVideoReferenceMode(model: string, referenceCount: number): GrokVideoReferenceMode {
+    if (!referenceCount) return "t2v";
+    const normalized = normalizeVideoModelId(model);
+    if (normalized === "grok-imagine-video-1.5-1080p") return "i2v";
+    if (normalized === "grok-imagine-video-1.5-preview" || referenceCount > 1) return "r2v";
+    return "i2v";
 }
 
 export function fixedGrokVideoResolution(model: string): "720" | "1080" | null {

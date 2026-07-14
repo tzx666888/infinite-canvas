@@ -2,6 +2,7 @@ import axios from "axios";
 
 import {
     fixedGrokVideoResolution,
+    grokVideoReferenceMode,
     grokVideoReferenceImageLimit,
     isGrok1080pVideoModel,
     isGrokVideoModel,
@@ -147,18 +148,6 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     }
 }
 
-type GrokVideoReferenceMode = "t2v" | "i2v" | "r2v";
-
-function grokVideoReferenceMode(model: string, referenceCount: number): GrokVideoReferenceMode {
-    if (!referenceCount) return "t2v";
-    if (isGrok1080pVideoModel(model)) return "i2v";
-    if (modelOptionName(model) === "grok-imagine-video-1.5-preview" || referenceCount > 1) return "r2v";
-    // Fast with one image is the 15-second-capable image-to-video operation.
-    // The adapter must receive the explicit image field and must not infer the
-    // operation from the number of references.
-    return "i2v";
-}
-
 function selectGrokVideoModel(config: AiConfig, referenceImageCount: number) {
     const explicitModel = [config.videoModel, config.model].map((model) => model.trim()).find(isGrokVideoModel);
     if (explicitModel) return explicitModel;
@@ -174,7 +163,7 @@ function modelDisplayNameForError(model: string) {
     return "当前 Grok 视频模型";
 }
 
-function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: number, requestReferenceCount: number, seconds: string, productScaleMode = "auto", referenceMode: GrokVideoReferenceMode = requestReferenceCount ? "i2v" : "t2v") {
+function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: number, requestReferenceCount: number, seconds: string, productScaleMode = "auto", referenceMode: ReturnType<typeof grokVideoReferenceMode> = requestReferenceCount ? "i2v" : "t2v") {
     const rawPrompt = prompt.trim();
     const explicitProductScalePrompt = productScaleMode !== "auto" ? buildVideoProductScalePrompt(productScaleMode) : "";
     if (!requestReferenceCount) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");

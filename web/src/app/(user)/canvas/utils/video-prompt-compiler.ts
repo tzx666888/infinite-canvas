@@ -1,4 +1,4 @@
-import type { CanvasCommerceVideoPlan } from "../types";
+import type { CanvasCommerceVideoPlan, CanvasConnection, CanvasNodeData } from "../types";
 
 export type VideoTargetModel = "grok" | "veo";
 
@@ -53,75 +53,33 @@ export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | 
 
     const evidence = [userDirection, plan?.visualIdentity || "", ...(plan?.beats || []).map((beat) => beat.description || "")].join(" ");
     const hasVisiblePresenter = plan?.storyboardMode === "apparel" || plan?.storyboardMode === "subject" || visiblePresenterPattern.test(evidence);
-    // Saved plans from before audioPlan existed should behave like the proven
-    // presenter-led I2V workflow, not silently fall back to detached narration.
-    const mode = audioPlan?.mode || (hasVisiblePresenter ? "on-camera" : "voiceover");
+    const mode = audioPlan?.mode || (hasVisiblePresenter ? "mixed" : "voiceover");
     const voice = compactSpeechText(audioPlan?.voice || "", 180) || inferredVoiceDirection(evidence);
-    const script = compactSpeechText(audioPlan?.script || "", 520);
-    const fallbackLanguage = script ? audioPlan?.language : resolveFallbackSpeechLanguage(plan, userDirection);
-    const languageDirection = storyboardLanguageDirection(fallbackLanguage, userDirection);
-
-    // Older saved storyboards do not have an audioPlan. The proven July 10
-    // single-reference I2V result let Grok compose short lines around visible
-    // performances instead of forcing narration across every visual beat.
-    if (!audioPlan && hasVisiblePresenter) {
-        return [
-            "Audio and speech lock: generate clear audible commercial speech in the final audio track; do not return a silent or music-only video.",
-            voice,
-            languageDirection,
-            compileLegacyPresenterSpeechSchedule(duration),
-            "Write exactly one short, natural, evidence-safe sales phrase per scheduled window, with no second sentence or added clause; for Mandarin use at most 12 Han characters per phrase. Generate voice and face together with synchronized lips, jaw, cheeks, breath, and expression.",
-            "Use no off-screen voiceover and no speech outside the scheduled windows. No captions, subtitles, invented prices, certifications, brand wording, testimonials, medical claims, or unsupported benefits.",
-        ].join(" ");
-    }
-
-    const timingDirection = compileWholeVideoSpeechTiming(plan, duration, Boolean(script), userDirection);
+    const beatScript = orderBeats(plan?.beats)
+        .map((beat) => compactSpeechText(beat.spokenLine || "", 140))
+        .filter(Boolean)
+        .join(" ");
+    const script = compactSpeechText(storyboardAudioScriptForDuration(plan, duration) || beatScript, 520);
+    const languageDirection = storyboardLanguageDirection(audioPlan?.language, userDirection);
+    const voiceDirection = `${voice.replace(/[.!?]+$/g, "")}.`;
     const performance =
         mode === "on-camera"
-            ? "The same visible adult presenter performs every spoken cue on camera. Keep the face clearly visible and looking toward the camera for the complete line, with natural synchronized lips, jaw, cheeks, breath, and facial micro-expressions. Put detail close-ups, back views, and silent reaction holds only between cue lines. Never use off-screen voiceover for a quoted cue and never play speech over a frozen mouth or static smile."
+            ? "On-camera delivery: keep the same presenter's full face and mouth readable whenever words are spoken, with synchronized lips, jaw, breath, and expression. Pause speech during face-hidden, back-view, product-only, or detail shots."
             : mode === "mixed"
-              ? "Perform every cue assigned to the visible adult presenter on camera with the face clearly visible for the complete line and natural synchronized lips, jaw, and facial motion. Use off-screen voiceover only for a beat explicitly written as narration with no presenter spokenLine; place detail shots and back views between spoken cues. Never play speech over a frozen mouth or static smile."
-              : "Use off-screen voiceover. Do not animate a visible mouth unless an explicit beat line is assigned to that presenter.";
-    const scriptDirection = timingDirection
-        ? "Perform each exact cue line once with natural conversational emphasis; do not paraphrase it or read any production instruction aloud."
-        : script
-          ? mode === "on-camera"
-              ? `Perform this exact spoken script once, naturally, across two or three close or medium face shots: "${script}" Choose phrase breaks that fit the visible performance; keep non-face shots silent.`
-              : `Perform this exact spoken script once, naturally, without paraphrasing or reading production instructions: "${script}"`
-          : `Write and perform one concise, evidence-safe commercial script of about ${speechWordBudget(duration)} English words or equivalent cadence, using only visible facts and the requested actions.`;
+              ? "Mixed delivery: open on one stable face-visible medium or close shot where the same presenter says only the short first sentence with synchronized lips and natural facial motion. After one breath, continue the same voice as off-screen narration over B-roll; never speak over a frozen, hidden, back-view, or mismatched mouth."
+              : "Voiceover delivery: keep speech off-screen; visible presenters act naturally and never fake the narration.";
+    const scriptDirection = script
+        ? `Say this exact script once, conversationally, with one natural breath and no restart: "${script}"`
+        : `Compose and say one evidence-safe ${speechWordBudget(duration)}-word English script or equivalent cadence. Start with a conversational 4-7 word reaction, take one breath, and finish one connected thought. No shot-order language, feature checklist, repeated slogan, or disconnected fragment.`;
 
     return [
-        "Audio and speech lock: generate clear audible commercial speech in the final audio track; do not return a silent or music-only video.",
-        voice,
+        "Audio lock: generate clear commercial speech; never return silent or music-only video.",
+        voiceDirection,
         languageDirection,
-        timingDirection,
         performance,
         scriptDirection,
-        "Keep music below the voice. No captions, subtitles, invented prices, discounts, certifications, brand wording, testimonials, medical claims, or unsupported benefits.",
+        "Keep music below the voice. No captions, invented prices, certifications, brand wording, testimonials, medical claims, or unsupported benefits.",
     ].join(" ");
-}
-
-function compileLegacyPresenterSpeechSchedule(duration: number) {
-    const seconds = Math.max(4, Math.min(15, Math.round(duration || 15)));
-    if (seconds <= 8) {
-        const firstStart = formatSpeechTime(seconds * 0.08);
-        const firstEnd = formatSpeechTime(seconds * 0.36);
-        const finalStart = formatSpeechTime(seconds * 0.66);
-        const finalEnd = formatSpeechTime(seconds * 0.97);
-        return `MANDATORY ON-CAMERA SPEECH SCHEDULE: ${firstStart}-${firstEnd}s first face-to-camera sales line; ${finalStart}-${finalEnd}s second face-to-camera CTA. Reuse one identical stationary front-facing chest-up presenter setup in every speech window: exact same face, hair state, camera, focal length, and lighting; shoulders square, full face and mouth visible, no walking, profile, or turn-away. Hold the shot until the voice and mouth stop. Every other time range is silent B-roll. Never speak during a torso-only, product-only, back, face-hidden, detail, or transition shot.`;
-    }
-
-    const firstStart = formatSpeechTime(seconds * 0.05);
-    const firstEnd = formatSpeechTime(seconds * 0.25);
-    const secondStart = formatSpeechTime(seconds * 0.28);
-    const secondEnd = formatSpeechTime(seconds * 0.5);
-    const finalStart = formatSpeechTime(seconds * 0.78);
-    const finalEnd = formatSpeechTime(seconds * 0.98);
-    return `MANDATORY ON-CAMERA SPEECH SCHEDULE: ${firstStart}-${firstEnd}s first face-to-camera sales line; ${secondStart}-${secondEnd}s second face-to-camera benefit line; ${finalStart}-${finalEnd}s final face-to-camera CTA. Reuse one identical stationary front-facing chest-up presenter setup in every speech window: exact same face, hair state, camera, focal length, and lighting; shoulders square, full face and mouth visible, no walking, profile, or turn-away. Hold the shot until the voice and mouth stop. Every other time range, especially ${secondEnd}-${finalStart}s, is silent B-roll. Never speak during a torso-only, product-only, back, face-hidden, detail, or transition shot.`;
-}
-
-function formatSpeechTime(value: number) {
-    return (Math.round(value * 10) / 10).toFixed(1);
 }
 
 function compileStoryboardBeatAudioDirection(plan: CanvasCommerceVideoPlan, beat: CommerceVideoBeat, duration: number) {
@@ -135,7 +93,7 @@ function compileStoryboardBeatAudioDirection(plan: CanvasCommerceVideoPlan, beat
     const languageDirection = storyboardLanguageDirection(audioPlan?.language, userDirection);
     const voice = compactSpeechText(audioPlan?.voice || "", 180) || inferredVoiceDirection(evidence);
     const spokenLine = compactSpeechText(beat.spokenLine || "", 220);
-    const fullScript = compactSpeechText(audioPlan?.script || "", 420);
+    const fullScript = compactSpeechText(storyboardAudioScriptForDuration(plan, duration), 420);
     if (audioPlan?.mode === "on-camera" && !spokenLine) {
         return "This is a silent B-roll beat. Generate no speech, dialogue, narration, or singing; use only natural location sound and low background music. Do not animate the presenter as if speaking.";
     }
@@ -145,7 +103,7 @@ function compileStoryboardBeatAudioDirection(plan: CanvasCommerceVideoPlan, beat
           ? `Perform only one short phrase from this full narration that directly matches this beat, without repeating the whole script: "${fullScript}"`
           : `Create and perform one evidence-safe line of at most ${Math.max(6, Math.min(14, Math.round(duration * 1.8)))} words describing only this beat's visible action.`;
     const delivery =
-        audioPlan?.mode === "on-camera" || (audioPlan?.mode !== "voiceover" && visiblePresenterPattern.test(evidence))
+        spokenLine && audioPlan?.mode !== "voiceover" && visiblePresenterPattern.test(evidence)
             ? "The visible adult presenter speaks with natural synchronized lips and facial motion."
             : "Use off-screen voiceover and do not make a visible presenter fake the narration.";
     return `Generate clear audible speech for this clip. ${languageDirection} ${voice} ${speech} ${delivery} Keep music below the voice; no captions, unsupported claims, or spoken production instructions.`;
@@ -155,14 +113,15 @@ export function selectBeatsForDuration(beats: CanvasCommerceVideoPlan["beats"], 
     const orderedBeats = orderBeats(beats);
     if (!orderedBeats.length) return [];
     if (duration <= 4) return pickBeatsByPhase(orderedBeats, ["hook", "cta"], 2);
-    if (duration <= 8) return pickBeatsByPhase(orderedBeats, ["hook", "pain", "cta"], 3);
-    if (duration <= 12) return pickBeatsByPhase(orderedBeats, ["hook", "pain", "demo", "cta"], 4);
-    if (orderedBeats.length <= 7) return orderedBeats;
+    if (duration <= 6) return orderBeats(pickBeatsByPhase(orderedBeats, ["hook", "cta"], 2));
+    if (duration <= 10) return orderBeats(pickBeatsByPhase(orderedBeats, ["hook", "demo", "cta"], 3));
+    if (duration <= 12) return orderBeats(pickBeatsByPhase(orderedBeats, ["hook", "pain", "demo", "cta"], 4));
+    if (orderedBeats.length <= 4) return orderedBeats;
 
     const hook = findBeatByPhase(orderedBeats, "hook") || orderedBeats[0];
     const cta = findLastBeatByPhase(orderedBeats, "cta") || orderedBeats[orderedBeats.length - 1];
     const middle = orderedBeats.filter((beat) => beat !== hook && beat !== cta);
-    return orderBeats([hook, ...pickEvenly(middle, 5), cta]);
+    return orderBeats([hook, ...pickEvenly(middle, 2), cta]);
 }
 
 export function extractCommerceVideoPlan(rawText: string): CanvasCommerceVideoPlan | null {
@@ -186,30 +145,163 @@ export function extractCommerceVideoPlan(rawText: string): CanvasCommerceVideoPl
     return null;
 }
 
+export function storyboardAudioScriptForDuration(plan: CanvasCommerceVideoPlan | null | undefined, duration: number) {
+    const audioPlan = plan?.audioPlan;
+    if (!audioPlan || audioPlan.mode === "ambient-only") return "";
+    const durationKey = storyboardScriptDurationKey(duration);
+    const durationScript = audioPlan.scriptsByDuration?.[durationKey]?.trim();
+    if (durationScript && storyboardScriptFitsDuration(durationScript, audioPlan.language, duration)) return durationScript;
+    const baseScript = audioPlan.script?.trim() || "";
+    return baseScript && storyboardScriptFitsDuration(baseScript, audioPlan.language, duration) ? baseScript : "";
+}
+
+export function hasCompleteStoryboardAudioPlan(plan: CanvasCommerceVideoPlan | null | undefined, duration?: number) {
+    if (!plan?.beats?.length) return false;
+    if (plan.audioPlan?.mode === "ambient-only") return true;
+    if (duration !== undefined) {
+        const durationKey = storyboardScriptDurationKey(duration);
+        const durationScript = plan.audioPlan?.scriptsByDuration?.[durationKey]?.trim();
+        if (durationScript && storyboardScriptFitsDuration(durationScript, plan.audioPlan?.language, duration)) return true;
+        const baseScript = plan.audioPlan?.script?.trim();
+        return Boolean(baseScript && storyboardScriptFitsDuration(baseScript, plan.audioPlan?.language, duration));
+    }
+    if (plan.audioPlan?.script?.trim()) return true;
+    if (Object.values(plan.audioPlan?.scriptsByDuration || {}).some((script) => Boolean(script?.trim()))) return true;
+    return plan.beats.some((beat) => Boolean(beat.spokenLine?.trim()));
+}
+
+export function selectStoryboardLocationsForDuration(plan: CanvasCommerceVideoPlan, duration: number) {
+    const selectedBeats = selectBeatsForDuration(plan.beats, duration) || [];
+    const beatLocations = uniqueReadableLocations(selectedBeats.map((beat) => beat.eightElements?.scene || ""));
+    const plannedLocations = uniqueReadableLocations(plan.plannedLocations || []);
+    const candidates = beatLocations.length ? beatLocations : plannedLocations;
+    const maximum = storyboardShotBudget(duration);
+    return candidates.length <= maximum ? candidates : pickEvenly(candidates, maximum);
+}
+
+export function storyboardShotBudget(duration: number) {
+    if (duration <= 6) return 2;
+    if (duration <= 10) return 3;
+    return 4;
+}
+
+export function resolveStoryboardVideoPlan(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], rawText = "") {
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const sourceNode = nodeById.get(nodeId);
+    const directPlan = commercePlanFromNode(sourceNode);
+    if (directPlan) return directPlan;
+
+    const planId = sourceNode?.metadata?.storyboardPlanId;
+    if (planId) {
+        for (const node of nodes) {
+            if (node.metadata?.storyboardPlanId !== planId) continue;
+            const sharedPlan = commercePlanFromNode(node);
+            if (sharedPlan) return sharedPlan;
+        }
+    }
+
+    const incoming = new Map<string, string[]>();
+    for (const connection of connections) {
+        const ids = incoming.get(connection.toNodeId) || [];
+        ids.push(connection.fromNodeId);
+        incoming.set(connection.toNodeId, ids);
+    }
+    const queue = [...(incoming.get(nodeId) || [])];
+    const visited = new Set<string>([nodeId]);
+    while (queue.length) {
+        const currentId = queue.shift()!;
+        if (visited.has(currentId)) continue;
+        visited.add(currentId);
+        const currentNode = nodeById.get(currentId);
+        const upstreamPlan = commercePlanFromNode(currentNode);
+        if (upstreamPlan) return upstreamPlan;
+        queue.push(...(incoming.get(currentId) || []));
+    }
+
+    return extractCommerceVideoPlan(rawText);
+}
+
+function commercePlanFromNode(node: CanvasNodeData | undefined) {
+    const direct = node?.metadata?.commerceVideoPlan;
+    if (direct?.beats?.length) return direct;
+    for (const text of [node?.metadata?.content, node?.metadata?.prompt]) {
+        const extracted = extractCommerceVideoPlan(text || "");
+        if (extracted?.beats?.length) return extracted;
+    }
+    return null;
+}
+
 function compileGrokPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBeat[], context: VideoPromptContext) {
     const mode = resolveStoryboardMode(plan);
     const category = readableText(plan.productCategory, mode === "product" ? "the referenced product" : "the referenced subject");
-    const beatWordBudget = Math.max(10, Math.floor(65 / Math.max(1, beats.length)));
+    const beatWordBudget = Math.max(14, Math.min(22, Math.floor(80 / Math.max(1, beats.length))));
     const beatText = beats
         .map((beat) => describeBeat(beat, plan))
+        .map(sanitizeStoryboardBeatDirection)
         .filter(Boolean)
-        .map((text) => limitWords(text, beatWordBudget));
-    const actionChain = beatText.length ? beatText.map((text, index) => (index === 0 ? text : `then ${text}`)).join(", ") : fallbackActionChain(plan, mode, category);
+        .map((text) => limitBeatWords(text, beatWordBudget));
+    const stageRanges = grokStageRanges(beatText.length, context.duration);
+    const actionChain = beatText.length
+        ? beatText.map((text, index) => `${index === 0 ? "" : "hard cut to "}${stageRanges[index]} ${text}`).join("; ")
+        : fallbackActionChain(plan, mode, category);
+    const plannedLocations = selectStoryboardLocationsForDuration(plan, context.duration);
+    const locationDirection =
+        resolveLocationStrategy(plan, mode) === "single-location"
+            ? "Keep one coherent environment while the framing and action visibly progress."
+            : `Move through the related locations${plannedLocations.length ? ` in this order: ${plannedLocations.join(" -> ")}` : ""}. Do not omit a planned location or collapse every shot back into the first background.`;
+    const opening =
+        mode === "apparel"
+            ? `Create a ${context.duration}-second ${context.aspectRatio} short-form apparel video with the same referenced adult model and garment.`
+            : mode === "subject"
+              ? `Create a ${context.duration}-second ${context.aspectRatio} short video centered on the same referenced subject.`
+              : mode === "scene"
+                ? `Create a ${context.duration}-second ${context.aspectRatio} scene-progression video inside one coherent visual world.`
+                : `Create a ${context.duration}-second ${context.aspectRatio} commerce video for the exact referenced ${category}.`;
     const prompt = [
-        videoOpening(mode, context, category),
-        `Use one edited sequence of distinct shots joined only by instantaneous hard cuts: ${actionChain}.`,
-        locationConstraint(plan, mode, false),
+        opening,
+        `Follow one coherent staged visual story in this order: ${actionChain}. Hold each stage continuously; adjacent reference poses are alternatives, not extra cuts.`,
+        locationDirection,
         identityConstraint(plan, mode),
-        videoRhythm(mode),
-        `Make the opening immediately readable using only actions, people, garments, products, props, and scenery that exist in the reference or ordered beats. Keep faces, hands, fingers, clothing, rigid objects, and body proportions anatomically stable; use clean cuts and never morph between people and objects.`,
+        "Use clean direct editorial cuts, varied but readable framing, and natural local motion. Keep the same face, body, wardrobe, product geometry, and voice throughout; never morph between shots.",
         endingConstraint(mode),
-        referenceConstraint(context.referenceMode, plan, mode),
-        plan.enhancementWords || DEFAULT_ENHANCEMENT_WORDS,
-        "Negative prompt: no unrelated products, no invented bottles, no invented packaging, no category substitution, no imported props, no fake medical claims, no fake endorsements, no unreadable text overlays, no distorted hands, no warped faces, no extra fingers, no melted people, no product/person hybrids, no duplicated subjects, no autonomous unrelated scenes.",
     ]
         .filter(Boolean)
         .join(" ");
-    return normalizeSpaces(limitWords(prompt, 220));
+    return normalizeSpaces(limitWords(prompt, 200));
+}
+
+function storyboardScriptDurationKey(duration: number): "6" | "10" | "15" {
+    if (duration <= 6) return "6";
+    if (duration <= 10) return "10";
+    return "15";
+}
+
+function storyboardScriptFitsDuration(script: string, language: string | undefined, duration: number) {
+    const normalizedLanguage = (language || "").trim().toLowerCase();
+    const looksEnglish = /english|\ben\b/.test(normalizedLanguage) || (!normalizedLanguage && !/[\u3400-\u9fff]/.test(script));
+    if (!looksEnglish) return true;
+    const wordCount = script.match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g)?.length || 0;
+    const [minimum, maximum] = storyboardSpeechWordRange(duration);
+    return wordCount >= minimum && wordCount <= maximum;
+}
+
+function storyboardSpeechWordRange(duration: number): [number, number] {
+    if (duration <= 6) return [10, 14];
+    if (duration <= 10) return [18, 24];
+    return [26, 34];
+}
+
+function uniqueReadableLocations(locations: string[]) {
+    const seen = new Set<string>();
+    return locations
+        .map((location) => limitBeatWords(location.trim(), 10))
+        .filter((location) => location && !/^the same referenced environment\.?$/i.test(location))
+        .filter((location) => {
+            const key = location.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
 }
 
 function compileVeoPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBeat[], context: VideoPromptContext) {
@@ -388,6 +480,13 @@ function pickEvenly<T>(items: T[], count: number) {
     return Array.from({ length: count }, (_, index) => items[Math.round((index * lastIndex) / (count - 1))]);
 }
 
+function grokStageRanges(count: number, duration: number) {
+    if (count === 2 && duration <= 6) return ["[0:00-0:03]", `[0:03-0:${String(duration).padStart(2, "0")}]`];
+    if (count === 3 && duration <= 10) return ["[0:00-0:03]", "[0:03-0:07]", `[0:07-0:${String(duration).padStart(2, "0")}]`];
+    if (count === 4 && duration >= 15) return ["[0:00-0:03]", "[0:03-0:08]", "[0:08-0:13]", `[0:13-0:${String(duration).padStart(2, "0")}]`];
+    return timelineRanges(count, duration);
+}
+
 function timelineRanges(count: number, duration: number) {
     const safeCount = Math.max(1, count);
     return Array.from({ length: safeCount }, (_, index) => {
@@ -423,184 +522,7 @@ function storyboardLanguageDirection(explicitLanguage: string | undefined, userD
     const language = compactSpeechText(explicitLanguage || "", 80);
     if (language) return `Speak natural ${language} throughout and never change language or speaker.`;
     if (/[㐀-鿿]/.test(userDirection)) return "Speak natural Mandarin Chinese throughout and never change language or speaker.";
-    return "Use the user's requested language. If the package or market is Chinese, speak natural Mandarin Chinese even when production directions are English. Keep one language and speaker.";
-}
-
-function compileWholeVideoSpeechTiming(plan: CanvasCommerceVideoPlan | undefined, duration: number, hasExactScript: boolean, userDirection: string) {
-    const beats = orderBeats(plan?.beats);
-    if (!beats.length) return "";
-    const audioMode = plan?.audioPlan?.mode;
-    const presenterCueBeats = beats.filter((beat) => compactSpeechText(beat.spokenLine || "", 110));
-    if ((audioMode === "on-camera" || audioMode === "mixed") && presenterCueBeats.length) {
-        const selectedCueBeats = presenterCueBeats.length <= 6 ? presenterCueBeats : pickEvenly(presenterCueBeats, 6);
-        const allParsedRanges = beats.map((beat) => parseSpeechTimeRange(beat.timeRange));
-        const plannedEnd = Math.max(0, ...allParsedRanges.map((range) => range?.end || 0));
-        const timeScale = plannedEnd > 0 && Math.abs(plannedEnd - duration) > 0.25 ? duration / plannedEnd : 1;
-        const cues = selectedCueBeats.map((beat) => {
-            const parsedRange = parseSpeechTimeRange(beat.timeRange);
-            const range = parsedRange ? `${formatCueSecond(parsedRange.start * timeScale)}-${formatCueSecond(parsedRange.end * timeScale)}s` : "a dedicated face shot";
-            return `${range} the same presenter faces the camera and says '${compactSpeechText(beat.spokenLine || "", 110)}'`;
-        });
-        const silentRanges = beats
-            .filter((beat) => !compactSpeechText(beat.spokenLine || "", 110))
-            .map((beat) => parseSpeechTimeRange(beat.timeRange))
-            .filter((range): range is { start: number; end: number } => Boolean(range))
-            .map((range) => `${formatCueSecond(range.start * timeScale)}-${formatCueSecond(range.end * timeScale)}s`);
-        const silenceRule = silentRanges.length ? ` Keep ${silentRanges.join(", ")} silent with ambience or low music only.` : "";
-        return `On-camera cue timing: ${cues.join("; ")}. Keep the face visible and do not cut away until each quoted line ends.${silenceRule}`;
-    }
-    if (audioMode === "on-camera" && hasExactScript) return "";
-    const selectedBeats = beats.length <= 6 ? beats : pickEvenly(beats, 6);
-    const usesLegacyFallback = !hasExactScript && selectedBeats.every((beat) => !compactSpeechText(beat.spokenLine || "", 110));
-    const beatGroups = usesLegacyFallback ? groupLegacySpeechBeats(selectedBeats) : selectedBeats.map((beat) => [beat]);
-    const fallbackRanges = timelineRanges(beatGroups.length, duration);
-    const parsedRanges = beatGroups.map((group) => {
-        const first = parseSpeechTimeRange(group[0].timeRange);
-        const last = parseSpeechTimeRange(group[group.length - 1].timeRange);
-        return first && last ? { start: first.start, end: last.end } : null;
-    });
-    const plannedEnd = Math.max(0, ...parsedRanges.map((range) => range?.end || 0));
-    const timeScale = plannedEnd > 0 && Math.abs(plannedEnd - duration) > 0.25 ? duration / plannedEnd : 1;
-    const cues = beatGroups.map((group, index) => {
-        const beat = group[0];
-        const parsedRange = parsedRanges[index];
-        const range = parsedRange ? `${formatCueSecond(parsedRange.start * timeScale)}-${formatCueSecond(parsedRange.end * timeScale)}s` : fallbackRanges[index];
-        const spokenLine = compactSpeechText(beat.spokenLine || "", 110);
-        if (spokenLine) return `${range} say '${spokenLine}'`;
-        if (!hasExactScript) {
-            const originalIndex = selectedBeats.indexOf(beat);
-            return `${range} say '${legacyFallbackSpokenLine(plan || {}, beat, originalIndex, selectedBeats, userDirection, group.length > 1)}'`;
-        }
-        const phase = compactSpeechText(beat.phase || "beat", 24);
-        const cueMeaning = compactSpeechText(limitWords(beat.description || fallbackBeatDescription(beat, plan || {}), 12).replace(/[,:;.!?]+$/, "."), 100);
-        return `${range} ${phase}: one brief target-language phrase conveying '${cueMeaning}'`;
-    });
-    const scriptRule = hasExactScript ? "Place each script clause in its matching cue." : "Say each quoted cue line exactly once in its assigned range. Never replace it with director notes or production terminology.";
-    const closingRule = beatGroups.some((group) => group.length > 1) ? "Keep the final combined demonstration-and-CTA sentence intact, then leave a brief music-backed visual hold." : "Do not front-load or finish before the penultimate cue.";
-    return `Narration timing lock: ${cues.join("; ")}. ${scriptRule} Keep every phrase inside its shot and pause naturally at each cut. ${closingRule}`;
-}
-
-function groupLegacySpeechBeats(beats: CommerceVideoBeat[]) {
-    if (beats.length < 5) return beats.map((beat) => [beat]);
-    const penultimate = beats[beats.length - 2];
-    const last = beats[beats.length - 1];
-    if ((penultimate.phase || "").toLowerCase() !== "demo" || (last.phase || "").toLowerCase() !== "cta") return beats.map((beat) => [beat]);
-    return [...beats.slice(0, -2).map((beat) => [beat]), [penultimate, last]];
-}
-
-function resolveFallbackSpeechLanguage(plan: CanvasCommerceVideoPlan | undefined, userDirection: string) {
-    const explicit = compactSpeechText(plan?.audioPlan?.language || "", 80);
-    if (explicit) return explicit;
-    const spokenLines = (plan?.beats || [])
-        .map((beat) => beat.spokenLine || "")
-        .join(" ")
-        .trim();
-    if (spokenLines) return /[\u3400-\u9fff]/.test(spokenLines) ? "Mandarin Chinese" : "English";
-    if (/[\u3400-\u9fff]/.test(userDirection)) return "Mandarin Chinese";
-    // Saved 3.0 plans predate audioPlan. The product currently targets a
-    // Chinese UI/market, so make their generated fallback script deterministic.
-    return "Mandarin Chinese";
-}
-
-function legacyFallbackSpokenLine(plan: CanvasCommerceVideoPlan, beat: CommerceVideoBeat, index: number, selectedBeats: CommerceVideoBeat[], userDirection: string, combinesCta = false) {
-    const language = resolveFallbackSpeechLanguage(plan, userDirection).toLowerCase();
-    const usesMandarin = /mandarin|chinese|中文|普通话|汉语/.test(language);
-    const mode = resolveStoryboardMode(plan);
-    const phase = (beat.phase || "").toLowerCase();
-    const demoIndex = selectedBeats.slice(0, index + 1).filter((item) => (item.phase || "").toLowerCase() === "demo").length - 1;
-    const lines = usesMandarin ? legacyMandarinLines(mode) : legacyEnglishLines(mode);
-    if (combinesCta && phase === "demo") return lines.demoCta;
-    if (phase === "hook") return lines.hook;
-    if (phase === "pain") return lines.pain;
-    if (phase === "cta") return lines.cta;
-    return lines.demo[Math.max(0, demoIndex) % lines.demo.length];
-}
-
-function legacyMandarinLines(mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>) {
-    if (mode === "apparel") {
-        return {
-            hook: "看，这套一上身就很亮眼。",
-            pain: "选衣服，款式和细节都要看清。",
-            demo: ["近一点看，做工细节都很清楚。", "正面侧面都看一遍，整体更直观。"],
-            cta: "喜欢这套造型，就选它吧。",
-            demoCta: "正面侧面都看一遍，整体更直观，喜欢这套就选它吧。",
-        };
-    }
-    if (mode === "subject") {
-        return {
-            hook: "先看这个瞬间，氛围一下就来了。",
-            pain: "换个角度，人物状态更清楚。",
-            demo: ["动作自然展开，画面更有层次。", "从近景到全身，节奏连贯又舒服。"],
-            cta: "喜欢这种风格，就继续看下去吧。",
-            demoCta: "从近景到全身，节奏连贯又舒服，喜欢这种感觉就继续看吧。",
-        };
-    }
-    if (mode === "scene") {
-        return {
-            hook: "第一眼，这个空间就很有感觉。",
-            pain: "顺着动线走，空间层次慢慢展开。",
-            demo: ["细节和光线，让氛围更加完整。", "换个角度，整个场景看得更清楚。"],
-            cta: "喜欢这样的环境，就来看看吧。",
-            demoCta: "换个角度，整个场景看得更清楚，喜欢这里就来看看吧。",
-        };
-    }
-    return {
-        hook: "这个日常小麻烦，你也遇到过吗？",
-        pain: "别急，解决方法就在这里。",
-        demo: ["跟着画面操作，每一步都很清楚。", "前后变化，现在看得很清楚。"],
-        cta: "需要的话，现在就去看看吧。",
-        demoCta: "前后变化，现在看得很清楚，需要的话就去看看吧。",
-    };
-}
-
-function legacyEnglishLines(mode: NonNullable<CanvasCommerceVideoPlan["storyboardMode"]>) {
-    if (mode === "apparel") {
-        return {
-            hook: "Look, this outfit stands out instantly.",
-            pain: "Fit and design details really matter.",
-            demo: ["See the cut and design up close.", "Check the complete look from every angle."],
-            cta: "Love this style? Make it yours.",
-            demoCta: "Check the complete look from every angle, and make it yours if you love it.",
-        };
-    }
-    if (mode === "subject") {
-        return {
-            hook: "Watch this moment come to life.",
-            pain: "A new angle reveals more character.",
-            demo: ["Natural movement gives every shot more depth.", "The sequence flows smoothly from close to wide."],
-            cta: "Love this style? Keep watching.",
-            demoCta: "The sequence flows smoothly from close to wide, so keep watching if you love this style.",
-        };
-    }
-    if (mode === "scene") {
-        return {
-            hook: "This space makes an instant impression.",
-            pain: "Follow the path as each layer opens up.",
-            demo: ["Light and detail complete the atmosphere.", "A new angle reveals the whole setting."],
-            cta: "Like this setting? Come take a closer look.",
-            demoCta: "A new angle reveals the whole setting, so come take a closer look if you like it.",
-        };
-    }
-    return {
-        hook: "Do you deal with this everyday problem too?",
-        pain: "Here is a clear way to handle it.",
-        demo: ["Follow the steps shown right here.", "Now the visible change is easy to see."],
-        cta: "Need one? Take a closer look today.",
-        demoCta: "Now the visible change is easy to see, so take a closer look if you need one.",
-    };
-}
-
-function parseSpeechTimeRange(value: string) {
-    const match = value.match(/(\d+(?:\.\d+)?)\s*s?\s*[-–—]\s*(\d+(?:\.\d+)?)\s*s?/i);
-    if (!match) return null;
-    const start = Number(match[1]);
-    const end = Number(match[2]);
-    return Number.isFinite(start) && Number.isFinite(end) && end > start ? { start, end } : null;
-}
-
-function formatCueSecond(value: number) {
-    const rounded = Math.round(value * 10) / 10;
-    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+    return "Speak natural English with one speaker; never infer language from visible labels.";
 }
 
 function speechWordBudget(duration: number) {
@@ -618,6 +540,15 @@ function compactSpeechText(value: string, maxChars: number) {
         .trim();
     if (compact.length <= maxChars) return compact;
     return `${compact.slice(0, Math.max(1, maxChars - 3)).trim()}...`;
+}
+
+function sanitizeStoryboardBeatDirection(value: string) {
+    return normalizeSpaces(
+        value
+            .replace(/\bContinue in the visible panel order as\b/gi, "")
+            .replace(/\bpreserve the final (?:\w+|\d+)-panel progression:\s*/gi, "finish with ")
+            .replace(/\b(?:visible|numbered|ordered) panel order\b/gi, "planned story order"),
+    );
 }
 
 function parsePlan(value: string): CanvasCommerceVideoPlan | null {
@@ -666,6 +597,15 @@ function limitWords(value: string, maxWords: number) {
     const words = value.split(/\s+/).filter(Boolean);
     if (words.length <= maxWords) return value;
     return `${words.slice(0, maxWords).join(" ")}.`;
+}
+
+function limitBeatWords(value: string, maxWords: number) {
+    const words = value.split(/\s+/).filter(Boolean);
+    if (words.length <= maxWords) return value;
+    const selected = words.slice(0, maxWords);
+    const danglingWord = /^(?:a|an|the|as|and|or|but|to|of|for|with|from|in|on|at|into|while|then|her|his|their|its)$/i;
+    while (selected.length > Math.max(8, Math.floor(maxWords * 0.7)) && danglingWord.test(selected[selected.length - 1] || "")) selected.pop();
+    return selected.join(" ").replace(/[,:;\-]+$/, "");
 }
 
 function normalizeSpaces(value: string) {

@@ -63,6 +63,11 @@ export type CanvasCommerceVideoPlan = {
         language?: string;
         voice?: string;
         script?: string;
+        scriptsByDuration?: {
+            "6"?: string;
+            "10"?: string;
+            "15"?: string;
+        };
     };
     beats?: Array<{
         index: number;
@@ -209,7 +214,7 @@ export type CanvasNodeMetadata = {
     videoSourcePrompt?: string;
     videoConstraintVersion?: string;
     videoReferenceImages?: string[];
-    storyboardVideoAnchorMode?: "keyframe" | "bridge-pending" | "generated-bridge";
+    storyboardVideoAnchorMode?: "review-sheet" | "review-sheet-panel" | "keyframe" | "source";
     storageKey?: string;
     mimeType?: string;
     bytes?: number;
