@@ -36,6 +36,18 @@ assert.match(previewPrompt, /all 3 images as ordered identity, wardrobe, product
 assert.match(previewPrompt, /never blend them/i);
 assert.doesNotMatch(previewPrompt, /exact opening-frame/i);
 
+const previewSingleReferencePrompt = compileVideoWorkbenchPrompt(direction, {
+    mode: "commerce",
+    model: "grok-imagine-video-1.5-preview",
+    duration: 6,
+    aspectRatio: "9:16",
+    referenceMode: "r2v",
+    referenceCount: 1,
+    sourcePrompt: "真人带货",
+});
+assert.match(previewSingleReferencePrompt, /attached image as the exact identity, wardrobe, product, and scene anchor/i);
+assert.doesNotMatch(previewSingleReferencePrompt, /all 1 images/i);
+
 const hdPrompt = compileVideoWorkbenchPrompt(direction, {
     mode: "commerce",
     model: "grok-imagine-video-1.5-1080p",
@@ -48,6 +60,18 @@ const hdPrompt = compileVideoWorkbenchPrompt(direction, {
 assert.match(hdPrompt, /exactly 6 seconds/i);
 assert.match(hdPrompt, /exact opening-frame/i);
 assert.match(hdPrompt, /Preserve the adult face, hair, wardrobe, body proportions/i);
+
+const truncatedDirection = `${"Keep the presenter stable while showing the product from a natural angle ".repeat(12)}and Spoken script: "This is easy to use every day."`;
+const truncatedPrompt = compileVideoWorkbenchPrompt(truncatedDirection, {
+    mode: "commerce",
+    model: "grok-imagine-video-1.5-fast",
+    duration: 6,
+    aspectRatio: "9:16",
+    referenceMode: "i2v",
+    referenceCount: 1,
+    sourcePrompt: "真人带货",
+});
+assert.doesNotMatch(truncatedPrompt, /\band\. Spoken script:/i);
 
 const creativePrompt = compileVideoWorkbenchPrompt("A silent tracking shot follows the adult subject through the scene with only natural surf.", {
     mode: "creative",

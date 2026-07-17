@@ -68,6 +68,9 @@ function workbenchReferenceDirection(mode: GrokVideoReferenceMode, referenceCoun
         return "Use the attached image as the exact opening-frame and identity anchor; start with restrained local motion before any clean cut.";
     }
     if (mode === "r2v") {
+        if (referenceCount === 1) {
+            return "Use the attached image as the exact identity, wardrobe, product, and scene anchor; keep every asset distinct and connect story stages with clean cuts.";
+        }
         return `Use all ${Math.max(1, referenceCount)} images as ordered identity, wardrobe, product, and scene assets; select the right asset per shot, never blend them or treat a collage as the opening frame.`;
     }
     return "Build the opening from the described adult presenter, product, and scene, then preserve their identities and proportions.";
@@ -94,7 +97,8 @@ function compactDirection(value: string) {
     const script = scriptMatch[0];
     const visualDirection = `${normalized.slice(0, scriptMatch.index)} ${normalized.slice(scriptMatch.index + script.length)}`.replace(/\s+/g, " ").trim();
     const visualBudget = Math.max(12, MAX_DIRECTION_WORDS - wordCount(script));
-    return `${limitWords(visualDirection, visualBudget)} ${script}`.trim();
+    const compactVisual = limitWords(visualDirection, visualBudget).replace(/[.!?]+$/, "");
+    return `${compactVisual}. ${script}`.trim();
 }
 
 function limitWords(value: string, maximum: number) {
@@ -104,7 +108,9 @@ function limitWords(value: string, maximum: number) {
         : words
               .slice(0, maximum)
               .join(" ")
-              .replace(/[,:;\-]+$/, "");
+              .replace(/[,:;\-]+$/, "")
+              .replace(/\b(?:and|or|with|while|then|as|to|of|for|the)$/i, "")
+              .trim();
 }
 
 function wordCount(value: string) {
