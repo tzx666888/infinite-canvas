@@ -97,7 +97,10 @@ function compactDirection(value: string) {
     const script = scriptMatch[0];
     const visualDirection = `${normalized.slice(0, scriptMatch.index)} ${normalized.slice(scriptMatch.index + script.length)}`.replace(/\s+/g, " ").trim();
     const visualBudget = Math.max(12, MAX_DIRECTION_WORDS - wordCount(script));
-    const compactVisual = limitWords(visualDirection, visualBudget).replace(/[.!?]+$/, "");
+    const limitedVisual = limitWords(visualDirection, visualBudget);
+    const sentenceEnd = Math.max(limitedVisual.lastIndexOf("."), limitedVisual.lastIndexOf("!"), limitedVisual.lastIndexOf("?"));
+    const completeVisual = wordCount(visualDirection) > visualBudget && sentenceEnd >= limitedVisual.length * 0.55 ? limitedVisual.slice(0, sentenceEnd + 1) : limitedVisual;
+    const compactVisual = trimDanglingDirectionEnd(completeVisual);
     return `${compactVisual}. ${script}`.trim();
 }
 
@@ -108,9 +111,15 @@ function limitWords(value: string, maximum: number) {
         : words
               .slice(0, maximum)
               .join(" ")
-              .replace(/[,:;\-]+$/, "")
-              .replace(/\b(?:and|or|with|while|then|as|to|of|for|the)$/i, "")
-              .trim();
+              .replace(/[,:;\-]+$/, "");
+}
+
+function trimDanglingDirectionEnd(value: string) {
+    return value
+        .replace(/[,:;.!?\-]+$/, "")
+        .replace(/\b(?:and|or|with|while|then|as|to|of|for|the)$/i, "")
+        .replace(/[,:;.!?\-]+$/, "")
+        .trim();
 }
 
 function wordCount(value: string) {

@@ -47,6 +47,7 @@ const previewSingleReferencePrompt = compileVideoWorkbenchPrompt(direction, {
 });
 assert.match(previewSingleReferencePrompt, /attached image as the exact identity, wardrobe, product, and scene anchor/i);
 assert.doesNotMatch(previewSingleReferencePrompt, /all 1 images/i);
+assert.ok(previewSingleReferencePrompt.split(/\s+/).length <= 180);
 
 const hdPrompt = compileVideoWorkbenchPrompt(direction, {
     mode: "commerce",
@@ -72,6 +73,7 @@ const truncatedPrompt = compileVideoWorkbenchPrompt(truncatedDirection, {
     sourcePrompt: "真人带货",
 });
 assert.doesNotMatch(truncatedPrompt, /\band\. Spoken script:/i);
+assert.doesNotMatch(truncatedPrompt, /[,;]\./);
 
 const creativePrompt = compileVideoWorkbenchPrompt("A silent tracking shot follows the adult subject through the scene with only natural surf.", {
     mode: "creative",
