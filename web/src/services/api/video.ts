@@ -43,6 +43,10 @@ type SeedanceTask = {
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string };
 type RequestOptions = { signal?: AbortSignal };
 
+const OPENAI_VIDEO_POLL_MAX_ATTEMPTS = 240;
+const SEEDANCE_VIDEO_POLL_MAX_ATTEMPTS = 120;
+const VIDEO_POLL_TRANSIENT_RETRY_LIMIT = 12;
+
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
@@ -62,12 +66,24 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
     const delayMs = task.provider === "seedance" ? 5000 : 2500;
-    for (let attempt = 0; attempt < 120; attempt += 1) {
+    const maxAttempts = task.provider === "seedance" ? SEEDANCE_VIDEO_POLL_MAX_ATTEMPTS : OPENAI_VIDEO_POLL_MAX_ATTEMPTS;
+    let transientFailures = 0;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-        const state = await pollVideoGenerationTask(config, task, options);
+        let state: VideoGenerationTaskState;
+        try {
+            state = await pollVideoGenerationTask(config, task, options);
+            transientFailures = 0;
+        } catch (error) {
+            if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+            if (!isRetryableVideoPollError(error) || transientFailures >= VIDEO_POLL_TRANSIENT_RETRY_LIMIT) throw error;
+            transientFailures += 1;
+            await delay(delayMs, options?.signal);
+            continue;
+        }
         if (state.status === "completed") return state.result;
         if (state.status === "failed") throw new Error(state.error);
-        if (attempt === 119) throw new Error(`${task.provider === "seedance" ? "Seedance " : ""}视频生成超时，请稍后重试`);
+        if (attempt === maxAttempts - 1) throw new Error(`${task.provider === "seedance" ? "Seedance " : ""}视频生成超时，请稍后重试`);
         await delay(delayMs, options?.signal);
     }
     throw new Error("视频生成超时，请稍后重试");
@@ -326,7 +342,7 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
         if (video.status === "completed" || video.status === "succeeded" || video.status === "done" || video.status === "success" || video.status === "finished") {
             const url = firstVideoUrl(video.video_url, video.result_url, video.url, video.output, video.content?.video_url, video.content?.url, video.video?.url);
-            if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
+            if (url && !isProtectedVideoContentUrl(url)) return { status: "completed", result: await videoResultFromUrl(url, options) };
             const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
             await assertVideoBlob(content.data);
             return { status: "completed", result: { blob: content.data } };
@@ -574,6 +590,11 @@ function normalizeVideoProviderError(message: string, fallback: string) {
         return "Grok 多参考图视频最长支持 10 秒；单图或纯文字视频可按模型选项生成";
     }
     return text || fallback;
+}
+
+function isRetryableVideoPollError(error: unknown) {
+    const text = error instanceof Error ? error.message.toLowerCase() : String(error || "").toLowerCase();
+    return /视频任务查询失败|timeout|timed out|network|failed to fetch|load failed|connection|socket|gateway|upstream|暂时不可用|限流|429|502|503|504/.test(text);
 }
 
 async function assertVideoBlob(blob: Blob) {

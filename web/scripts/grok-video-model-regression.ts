@@ -41,6 +41,9 @@ const videoServiceSource = readFileSync(new URL("../src/services/api/video.ts", 
 const settingsPanelSource = readFileSync(new URL("../src/components/video-settings-panel.tsx", import.meta.url), "utf8");
 const referenceConfigSource = readFileSync(new URL("../src/app/(user)/canvas/utils/video-reference-model.ts", import.meta.url), "utf8");
 assert.match(videoServiceSource, /const fixedResolution = fixedGrokVideoResolution\(model\)/, "request payload must enforce each Grok model's fixed output resolution");
+assert.match(videoServiceSource, /VIDEO_POLL_TRANSIENT_RETRY_LIMIT/, "video polling must survive a short proxy or deployment interruption");
+assert.match(videoServiceSource, /if \(url && !isProtectedVideoContentUrl\(url\)\)/, "protected task results must not be returned directly to the browser");
+assert.match(videoServiceSource, /aiApiUrl\(config, `\/videos\/\$\{task\.id\}\/content`\)/, "completed task content must be downloaded through the authenticated canvas proxy");
 assert.match(settingsPanelSource, /fixedResolution \? null : <ResolutionInput/, "Grok settings must not expose a fake custom-resolution input");
 assert.match(referenceConfigSource, /vquality: fixedGrokVideoResolution/, "reference-video config must preserve 1080p for the 1080p model");
 
