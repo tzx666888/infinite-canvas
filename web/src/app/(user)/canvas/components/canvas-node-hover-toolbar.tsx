@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { App, Dropdown, Modal, Popconfirm, Segmented, Tooltip } from "antd";
 import { Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Pencil, Plus, RefreshCw, Settings2, Trash2, Upload, Video } from "lucide-react";
 
-import { canvasThemes } from "@/lib/canvas-theme";
+import { canvasThemes, type CanvasTheme } from "@/lib/canvas-theme";
 import { formatBytes, getDataUrlByteSize } from "@/lib/image-utils";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -100,6 +100,8 @@ export function CanvasNodeHoverToolbar({
         width: typeof window === "undefined" ? 1440 : window.innerWidth,
         height: typeof window === "undefined" ? 900 : window.innerHeight,
     }));
+    const colorTheme = useThemeStore((state) => state.theme);
+    const theme = canvasThemes[colorTheme];
     const { message } = App.useApp();
     const copyText = useCopyText();
 
@@ -277,8 +279,16 @@ export function CanvasNodeHoverToolbar({
         <>
             <div
                 ref={toolbarRef}
-                className="thin-scrollbar absolute z-[70] flex max-h-[156px] -translate-x-1/2 -translate-y-full flex-wrap items-center gap-x-1 gap-y-1 overflow-x-hidden overflow-y-auto rounded-[18px] border border-black/10 bg-white px-2 py-1.5 text-[14px] leading-none text-[#242529] shadow-[0_8px_28px_rgba(15,23,42,.12)]"
-                style={{ left, top, maxWidth: "min(760px, calc(100vw - 24px))" }}
+                className="thin-scrollbar absolute z-[70] flex max-h-[156px] -translate-x-1/2 -translate-y-full flex-wrap items-center gap-x-1 gap-y-1 overflow-x-hidden overflow-y-auto rounded-[18px] border px-2 py-1.5 text-[14px] leading-none backdrop-blur"
+                style={{
+                    left,
+                    top,
+                    maxWidth: "min(760px, calc(100vw - 24px))",
+                    background: theme.toolbar.panel,
+                    borderColor: theme.toolbar.border,
+                    color: theme.toolbar.activeText,
+                    boxShadow: colorTheme === "dark" ? "0 12px 36px rgba(0,0,0,.34)" : "0 8px 28px rgba(15,23,42,.12)",
+                }}
                 onMouseEnter={() => onKeep(node.id)}
                 onMouseLeave={() => {
                     if (!imageToolSettingsOpen && !imageMoreOpen && !toolbarConfirmOpen) onLeave();
@@ -287,7 +297,7 @@ export function CanvasNodeHoverToolbar({
                 onPointerDown={(event) => event.stopPropagation()}
             >
                 {toolbarTools.map((tool) => (
-                    <ToolbarAction key={tool.id} {...tool} showLabel={true} onConfirmOpenChange={setToolbarConfirmOpen} />
+                    <ToolbarAction key={tool.id} {...tool} theme={theme} showLabel={true} onConfirmOpenChange={setToolbarConfirmOpen} />
                 ))}
                 {hasImage && overflowTools.length ? (
                     <Dropdown
@@ -302,15 +312,15 @@ export function CanvasNodeHoverToolbar({
                         }}
                     >
                         <span>
-                            <ToolbarAction id="more" title="更多图片工具" label="更多" icon={<Ellipsis className="size-4" />} onClick={() => onKeep(nodeId)} showLabel={true} />
+                            <ToolbarAction id="more" title="更多图片工具" label="更多" icon={<Ellipsis className="size-4" />} onClick={() => onKeep(nodeId)} theme={theme} showLabel={true} />
                         </span>
                     </Dropdown>
                 ) : null}
-                {hasImage ? <ToolbarAction id="settings" title="自定义快捷工具" label="工具" icon={<Settings2 className="size-4" />} active={imageToolSettingsOpen} onClick={openImageToolSettings} showLabel={true} /> : null}
+                {hasImage ? <ToolbarAction id="settings" title="自定义快捷工具" label="工具" icon={<Settings2 className="size-4" />} active={imageToolSettingsOpen} onClick={openImageToolSettings} theme={theme} showLabel={true} /> : null}
                 {hasImage && deleteTool ? (
                     <>
-                        <span className="mx-1 h-7 w-px shrink-0 bg-black/10" />
-                        <ToolbarAction {...deleteTool} showLabel={true} onConfirmOpenChange={setToolbarConfirmOpen} />
+                        <span className="mx-1 h-7 w-px shrink-0" style={{ background: theme.toolbar.border }} />
+                        <ToolbarAction {...deleteTool} theme={theme} showLabel={true} onConfirmOpenChange={setToolbarConfirmOpen} />
                     </>
                 ) : null}
             </div>
@@ -383,7 +393,22 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
                     {view === "info" ? (
                         <div className="thin-scrollbar h-full space-y-3 overflow-auto pr-1">
                             <InfoRow label="ID" value={node.id} />
-                            <InfoRow label="类型" value={node.type === CanvasNodeType.Text ? "文本" : node.type === CanvasNodeType.Image ? "图片" : node.type === CanvasNodeType.Video ? "视频" : node.type === CanvasNodeType.Audio ? "音频" : node.type === CanvasNodeType.Director ? "导演台" : "生成配置"} />
+                            <InfoRow
+                                label="类型"
+                                value={
+                                    node.type === CanvasNodeType.Text
+                                        ? "文本"
+                                        : node.type === CanvasNodeType.Image
+                                          ? "图片"
+                                          : node.type === CanvasNodeType.Video
+                                            ? "视频"
+                                            : node.type === CanvasNodeType.Audio
+                                              ? "音频"
+                                              : node.type === CanvasNodeType.Director
+                                                ? "导演台"
+                                                : "生成配置"
+                                }
+                            />
                             <InfoRow label="尺寸" value={`${Math.round(node.width)} x ${Math.round(node.height)}`} />
                             <InfoRow label="位置" value={`${Math.round(node.position.x)}, ${Math.round(node.position.y)}`} />
                             <InfoRow label="状态" value={node.metadata?.status || "idle"} />
@@ -407,11 +432,25 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
     );
 }
 
-function ToolbarAction({ title, label, icon, onClick, showLabel, active = false, danger = false, confirmTitle, confirmDescription, confirmOkText, onConfirmOpenChange }: ToolbarTool & { showLabel: boolean; onConfirmOpenChange?: (open: boolean) => void }) {
+function ToolbarAction({
+    title,
+    label,
+    icon,
+    onClick,
+    theme,
+    showLabel,
+    active = false,
+    danger = false,
+    confirmTitle,
+    confirmDescription,
+    confirmOkText,
+    onConfirmOpenChange,
+}: ToolbarTool & { theme: CanvasTheme; showLabel: boolean; onConfirmOpenChange?: (open: boolean) => void }) {
     const hasText = showLabel && Boolean(label);
+    const actionStyle = { color: danger ? "#ef4444" : active ? theme.toolbar.activeText : theme.toolbar.item, "--canvas-node-tool-hover": theme.toolbar.itemHover } as CSSProperties;
     const button = (
-        <button type="button" className={`group relative flex h-10 shrink-0 items-center whitespace-nowrap px-0.5 ${danger ? "text-[#ef4444]" : ""}`} onClick={confirmTitle ? undefined : onClick} aria-label={title}>
-            <span className={`flex h-8 items-center ${hasText ? "gap-1.5 px-2.5" : "justify-center px-2"} rounded-lg transition group-hover:bg-[#f0f0f1] ${active ? "bg-[#eeeeef]" : ""}`}>
+        <button type="button" className="group relative flex h-10 shrink-0 items-center whitespace-nowrap px-0.5" style={actionStyle} onClick={confirmTitle ? undefined : onClick} aria-label={title}>
+            <span className={`flex h-8 items-center ${hasText ? "gap-1.5 px-2.5" : "justify-center px-2"} rounded-lg transition group-hover:bg-[var(--canvas-node-tool-hover)]`} style={active ? { background: theme.toolbar.activeBg } : undefined}>
                 <span className="shrink-0">{icon}</span>
                 {hasText ? <span className="whitespace-nowrap text-[13px] font-medium">{label}</span> : null}
             </span>
@@ -426,7 +465,7 @@ function ToolbarAction({ title, label, icon, onClick, showLabel, active = false,
     );
 
     return (
-        <Tooltip title={title} placement="top" mouseEnterDelay={0.2} color="#ffffff" styles={{ root: { color: "#242529", boxShadow: "0 8px 24px rgba(15,23,42,.16)", fontSize: 13, fontWeight: 500 } }}>
+        <Tooltip title={title} placement="top" mouseEnterDelay={0.2} color={theme.toolbar.panel} styles={{ root: { color: theme.toolbar.activeText, boxShadow: "0 8px 24px rgba(15,23,42,.16)", fontSize: 13, fontWeight: 500 } }}>
             {action}
         </Tooltip>
     );

@@ -287,8 +287,10 @@ function toolLabel(id: string) {
     if (id === "tool-redo") return "重做";
     if (id === "tool-text") return "文本";
     if (id === "tool-image") return "图片";
+    if (id === "tool-video") return "视频";
     if (id === "tool-audio") return "音频";
     if (id === "tool-config") return "生成配置";
+    if (id === "tool-director") return "导演台";
     if (id === "tool-upload") return "上传素材";
     if (id === "tool-assets") return "我的素材";
     if (id === "tool-style") return "画布外观";
