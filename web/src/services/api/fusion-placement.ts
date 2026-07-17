@@ -1,5 +1,3 @@
-import axios from "axios";
-
 import { buildFusionPlannerMessages } from "@/lib/fusion-plan-prompt";
 import { imageToDataUrl } from "@/services/image-storage";
 import { buildApiUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
@@ -39,23 +37,129 @@ export async function requestFusionPlacementPlan(config: AiConfig, sceneImage: R
 }
 
 async function requestFusionPlacementPlanOnce(config: AiConfig, sceneImage: ReferenceImage, productImages: ReferenceImage[], useResponseFormat: boolean, options?: FusionPlacementRequestOptions) {
-    const response = await axios.post<ChatCompletionResponse>(
-        aiApiUrl(config, "/chat/completions"),
-        {
+    const response = await fetch(aiApiUrl(config, "/chat/completions"), {
+        method: "POST",
+        headers: { ...aiHeaders(config), Accept: "text/event-stream" },
+        body: JSON.stringify({
             model: config.model,
             messages: buildFusionPlannerMessages(sceneImage, productImages, options?.userPrompt),
-            stream: false,
+            stream: true,
             max_tokens: 2400,
             temperature: 0.12,
             ...(useResponseFormat ? { response_format: { type: "json_object" } } : {}),
-        },
-        { headers: aiHeaders(config), signal: options?.signal },
-    );
-    return readPlannerContent(response.data);
+        }),
+        signal: options?.signal,
+    });
+    if (!response.ok) throw new Error(await readPlannerError(response));
+
+    const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+    if (!contentType.includes("text/event-stream")) {
+        const payload = (await response.json()) as ChatCompletionResponse;
+        return readPlannerContent(payload);
+    }
+    return collectStreamedContent(response);
 }
 
+async function collectStreamedContent(response: Response) {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("融图摆放规划失败：无响应流");
+
+    const decoder = new TextDecoder();
+    let content = "";
+    let buffer = "";
+    const consumeEvent = (event: string) => {
+        const dataText = event
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trimStart())
+            .join("\n")
+            .trim();
+        if (!dataText || dataText === "[DONE]") return;
+
+        let payload: ChatCompletionResponse & { choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }> };
+        try {
+            payload = JSON.parse(dataText) as typeof payload;
+        } catch {
+            throw new Error("融图规划流返回格式错误");
+        }
+        if (payload.error?.message) throw new Error(payload.error.message);
+        if (typeof payload.code === "number" && payload.code !== 0) throw new Error(payload.msg || payload.message || "融图摆放规划失败");
+        const choice = payload.choices?.[0];
+        content += choice?.delta?.content || choice?.message?.content || "";
+    };
+
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            buffer += decoder.decode(value, { stream: !done });
+            const events = buffer.split(/\r?\n\r?\n/);
+            buffer = events.pop() || "";
+            events.forEach(consumeEvent);
+            if (done) break;
+        }
+        if (buffer.trim()) consumeEvent(buffer);
+    } finally {
+        reader.releaseLock();
+    }
+
+    if (!content.trim()) throw new Error("融图摆放规划失败：模型未返回内容");
+    return content.trim();
+}
+
+async function readPlannerError(response: Response) {
+    const fallback = `融图摆放规划失败 (${response.status})`;
+    const text = await response.text().catch(() => "");
+    if (!text.trim()) return fallback;
+    try {
+        const payload = JSON.parse(text) as ChatCompletionResponse;
+        return payload.error?.message || payload.msg || payload.message || fallback;
+    } catch {
+        return text.slice(0, 300) || fallback;
+    }
+}
+
+const PLANNER_MAX_DIMENSION = 512;
+
 async function hydrateReferenceImage(image: ReferenceImage): Promise<ReferenceImage> {
-    return { ...image, dataUrl: await imageToDataUrl(image) };
+    const fullDataUrl = await imageToDataUrl(image);
+    return { ...image, dataUrl: await downscaleForPlanner(fullDataUrl) };
+}
+
+function downscaleForPlanner(dataUrl: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.decoding = "async";
+        image.onload = () => {
+            const width = image.naturalWidth;
+            const height = image.naturalHeight;
+            if (!width || !height) {
+                reject(new Error("planner 图片尺寸无效"));
+                return;
+            }
+            if (width <= PLANNER_MAX_DIMENSION && height <= PLANNER_MAX_DIMENSION) {
+                resolve(dataUrl);
+                return;
+            }
+
+            const scale = PLANNER_MAX_DIMENSION / Math.max(width, height);
+            const targetWidth = Math.max(1, Math.round(width * scale));
+            const targetHeight = Math.max(1, Math.round(height * scale));
+            const canvas = document.createElement("canvas");
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+            const context = canvas.getContext("2d");
+            if (!context) {
+                reject(new Error("planner 图片压缩失败"));
+                return;
+            }
+            context.fillStyle = "#ffffff";
+            context.fillRect(0, 0, targetWidth, targetHeight);
+            context.drawImage(image, 0, 0, targetWidth, targetHeight);
+            resolve(canvas.toDataURL("image/jpeg", 0.82));
+        };
+        image.onerror = () => reject(new Error("planner 图片加载失败"));
+        image.src = dataUrl;
+    });
 }
 
 function parseFusionPlacementPlan(content: string, expectedProductCount: number): CanvasFusionPlacementPlan {

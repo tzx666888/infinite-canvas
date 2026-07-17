@@ -126,7 +126,7 @@ async function writeCachedCover(cacheKey: string, body: Buffer, contentType: str
 }
 
 function coverResponse(body: Buffer, contentType: string, cacheStatus: string) {
-    return new Response(body, {
+    return new Response(new Uint8Array(body), {
         headers: {
             "cache-control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=15552000",
             "content-type": contentType,
