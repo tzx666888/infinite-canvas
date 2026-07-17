@@ -2,6 +2,8 @@
 FROM oven/bun:1.3.13 AS web-build
 
 WORKDIR /app/web
+ARG NEXT_PUBLIC_APP_VERSION=dev
+ENV NEXT_PUBLIC_APP_VERSION=${NEXT_PUBLIC_APP_VERSION}
 COPY web/package.json web/bun.lock ./
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile --cache-dir=/root/.bun/install/cache
 COPY VERSION /app/VERSION
