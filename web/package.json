@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-    "version": "3.0.9",
+    "version": "3.0.10",
     "private": true,
     "type": "module",
     "scripts": {
@@ -11,7 +11,8 @@
         "test:fusion-prompts": "bun run scripts/fusion-prompt-regression.ts",
         "test:storyboard-prompts": "bun run scripts/storyboard-prompt-regression.ts",
         "test:grok-video": "bun run scripts/grok-video-model-regression.ts",
-    "test:video-workbench": "node --experimental-strip-types scripts/video-workbench-prompt-regression.ts",
+        "test:video-workbench": "node --experimental-strip-types scripts/video-workbench-prompt-regression.ts",
+        "test:google-image": "node --experimental-strip-types scripts/google-image-model-regression.ts",
         "format": "prettier --write .",
         "format:check": "prettier --check ."
     },

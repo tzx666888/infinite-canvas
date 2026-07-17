@@ -4,6 +4,7 @@ import { buildApiUrl, resolveModelRequestConfig, type AiConfig, type ModelChanne
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText, buildMaskConstrainedImageEditPrompt } from "@/lib/image-reference-prompt";
+import { isTokaxisGoogleImageModel, resolveTokaxisGoogleImageConfig, TOKAXIS_GOOGLE_NATIVE_SIZES, tokaxisGoogleModelForSize } from "@/lib/tokaxis-google-image";
 import { imageToDataUrl } from "@/services/image-storage";
 import type { ReferenceImage } from "@/types/image";
 
@@ -120,8 +121,6 @@ const IMAGE_MAX_EDGE = 3840;
 const IMAGE_MAX_PIXELS = IMAGE_MAX_EDGE * IMAGE_MAX_EDGE;
 const IMAGE_MAX_RATIO = 3;
 const IMAGE_OUTPUT_FORMAT = "png";
-const TOKAXIS_GOOGLE_IMAGE_MODELS = new Set(["gemini-3.1-flash-image"]);
-const GOOGLE_CHAT_IMAGE_OUTPUT_FORMAT = "image/png";
 
 function normalizeQuality(quality: string) {
     const value = quality.trim().toLowerCase();
@@ -178,6 +177,20 @@ function resolveRequestSize(quality: string | undefined, size: string) {
     }
     if (value.includes(":")) return resolveSize(value);
     throw new Error("图像尺寸格式不支持，请使用 auto、9:16 或 1024x1024");
+}
+
+function resolveTokaxisGoogleRequestSize(size: string) {
+    const value = size.trim();
+    if (!value || value.toLowerCase() === "auto") return undefined;
+    if (value in TOKAXIS_GOOGLE_NATIVE_SIZES) return value;
+    const dimensions = parseImageDimensions(value);
+    if (!dimensions) throw new Error("Google 图像尺寸格式不支持，请使用官方比例或像素尺寸");
+    const ratio = Math.max(dimensions.width, dimensions.height) / Math.min(dimensions.width, dimensions.height);
+    if (ratio > 8) throw new Error("Google 图像宽高比不能超过 8:1");
+    if (dimensions.width * dimensions.height > 20_000_000 || Math.max(dimensions.width, dimensions.height) > 12288) {
+        throw new Error("Google 图像尺寸超过原生 4K 上限");
+    }
+    return value;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -263,6 +276,16 @@ function assertUsableImageDataUrl(dataUrl: string) {
     }
 }
 
+function loadBrowserImage(src: string) {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+        image.crossOrigin = "anonymous";
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error("image_load_failed"));
+        image.src = src;
+    });
+}
+
 async function validateDecodedImageResults(images: Array<{ id: string; dataUrl: string }>) {
     await Promise.all(
         images.map(async (image) => {
@@ -317,10 +340,6 @@ function parseImagePayload(payload: ImageApiResponse) {
     return images;
 }
 
-function isTokaxisGoogleImageModel(model: string) {
-    return TOKAXIS_GOOGLE_IMAGE_MODELS.has(model.trim().toLowerCase());
-}
-
 function resolveChatImageDataUrl(item: unknown) {
     if (!item || typeof item !== "object") return null;
     const record = item as Record<string, unknown>;
@@ -351,17 +370,13 @@ function parseChatImagePayload(payload: ChatImageApiResponse) {
     return images;
 }
 
-function imageTargetLabel(size?: string) {
-    const dimensions = size ? parseImageDimensions(size) : null;
-    if (!dimensions) return "";
-    const longEdge = Math.max(dimensions.width, dimensions.height);
-    const resolution = longEdge >= 3600 ? "4K" : longEdge >= 2000 ? "2K" : "high resolution";
-    const aspect = `${dimensions.width}:${dimensions.height}`;
-    return `target size ${dimensions.width}x${dimensions.height}, aspect ratio ${aspect}, ${resolution}`;
+function imageTargetLabel(model: string, size?: string, quality?: string) {
+    const config = resolveTokaxisGoogleImageConfig(model, size, quality);
+    return `native ${config.image_size}, aspect ratio ${config.aspect_ratio}`;
 }
 
-function withTokaxisGoogleImageControls(prompt: string, size?: string, quality?: string, n?: number) {
-    const target = imageTargetLabel(size);
+function withTokaxisGoogleImageControls(model: string, prompt: string, size?: string, quality?: string, n?: number) {
+    const target = imageTargetLabel(model, size, quality);
     const qualityText = quality && quality !== "auto" ? quality : "high";
     const rules = [
         "Image generation constraints:",
@@ -374,96 +389,10 @@ function withTokaxisGoogleImageControls(prompt: string, size?: string, quality?:
     return `${rules.join("\n")}\n\nUser prompt:\n${prompt}`;
 }
 
-function targetImageDimensions(size?: string) {
-    if (!size) return null;
-    const dimensions = parseImageDimensions(size);
-    if (!dimensions) return null;
-    return dimensions;
-}
-
-function loadBrowserImage(src: string) {
-    return new Promise<HTMLImageElement>((resolve, reject) => {
-        const image = new Image();
-        image.crossOrigin = "anonymous";
-        image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error("image_load_failed"));
-        image.src = src;
-    });
-}
-
-function applyLightSharpen(ctx: CanvasRenderingContext2D, width: number, height: number, quality?: string) {
-    const longEdge = Math.max(width, height);
-    const shouldSharpen = longEdge >= 2000 || ["high", "hd", "4k", "2k"].includes((quality || "").toLowerCase());
-    if (!shouldSharpen || width * height > IMAGE_MAX_PIXELS) return;
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const source = new Uint8ClampedArray(imageData.data);
-    const data = imageData.data;
-    const strength = longEdge >= 3600 ? 0.28 : 0.18;
-    for (let y = 1; y < height - 1; y++) {
-        for (let x = 1; x < width - 1; x++) {
-            const i = (y * width + x) * 4;
-            for (let c = 0; c < 3; c++) {
-                const center = source[i + c];
-                const neighbors = source[i - 4 + c] + source[i + 4 + c] + source[i - width * 4 + c] + source[i + width * 4 + c];
-                data[i + c] = Math.max(0, Math.min(255, center * (1 + 4 * strength) - neighbors * strength));
-            }
-        }
-    }
-    ctx.putImageData(imageData, 0, 0);
-}
-
-async function normalizeImageToTarget(dataUrl: string, size?: string, quality?: string) {
-    const target = targetImageDimensions(size);
-    if (!target || typeof document === "undefined") return dataUrl;
-    try {
-        const image = await loadBrowserImage(dataUrl);
-        if (image.naturalWidth === target.width && image.naturalHeight === target.height) return dataUrl;
-        const canvas = document.createElement("canvas");
-        canvas.width = target.width;
-        canvas.height = target.height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return dataUrl;
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
-
-        const sourceRatio = image.naturalWidth / image.naturalHeight;
-        const targetRatio = target.width / target.height;
-        const ratioDrift = Math.abs(sourceRatio - targetRatio) / targetRatio;
-
-        if (ratioDrift > 0.04) {
-            const coverScale = Math.max(target.width / image.naturalWidth, target.height / image.naturalHeight);
-            const coverWidth = image.naturalWidth * coverScale;
-            const coverHeight = image.naturalHeight * coverScale;
-            ctx.filter = "blur(24px) brightness(0.92) saturate(1.04)";
-            ctx.drawImage(image, (target.width - coverWidth) / 2, (target.height - coverHeight) / 2, coverWidth, coverHeight);
-            ctx.filter = "none";
-            const containScale = Math.min(target.width / image.naturalWidth, target.height / image.naturalHeight);
-            const containWidth = image.naturalWidth * containScale;
-            const containHeight = image.naturalHeight * containScale;
-            ctx.drawImage(image, (target.width - containWidth) / 2, (target.height - containHeight) / 2, containWidth, containHeight);
-        } else {
-            ctx.drawImage(image, 0, 0, target.width, target.height);
-        }
-
-        applyLightSharpen(ctx, target.width, target.height, quality);
-        return canvas.toDataURL(GOOGLE_CHAT_IMAGE_OUTPUT_FORMAT);
-    } catch {
-        return dataUrl;
-    }
-}
-
-async function normalizeImagesToTarget(images: Array<{ id: string; dataUrl: string }>, size?: string, quality?: string) {
-    const target = targetImageDimensions(size);
-    if (!target) return images;
-    const normalized: Array<{ id: string; dataUrl: string }> = [];
-    for (const image of images) {
-        normalized.push({ ...image, dataUrl: await normalizeImageToTarget(image.dataUrl, size, quality) });
-    }
-    return normalized;
-}
-
 async function requestTokaxisGoogleChatImages(config: AiConfig, prompt: string, references: ReferenceImage[], n: number, size?: string, quality?: string, options?: RequestOptions) {
-    const controlledPrompt = withTokaxisGoogleImageControls(withSystemPrompt(config, prompt), size, quality, n);
+    const imageConfig = resolveTokaxisGoogleImageConfig(config.model, size, quality);
+    const requestModel = tokaxisGoogleModelForSize(config.model, imageConfig.image_size);
+    const controlledPrompt = withTokaxisGoogleImageControls(requestModel, withSystemPrompt(config, prompt), size, quality, n);
     const content: AiTextMessage["content"] = [
         {
             type: "text",
@@ -479,14 +408,16 @@ async function requestTokaxisGoogleChatImages(config: AiConfig, prompt: string, 
     const response = await axios.post<ChatImageApiResponse>(
         aiApiUrl(config, "/chat/completions"),
         {
-            model: config.model,
+            model: requestModel,
             messages: [{ role: "user", content }],
             temperature: 0.2,
             stream: false,
+            image_config: imageConfig,
+            ...(quality ? { quality } : {}),
         },
         { headers: aiHeaders(config, "application/json"), signal: options?.signal },
     );
-    return normalizeImagesToTarget(parseChatImagePayload(response.data), size, quality);
+    return parseChatImagePayload(response.data);
 }
 
 function readAxiosError(error: unknown, fallback: string) {
@@ -951,7 +882,8 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const quality = normalizeQuality(config.quality);
-    const requestSize = resolveRequestSize(quality, config.size);
+    const tokaxisGoogleImage = isTokaxisGoogleImageModel(requestConfig.model);
+    const requestSize = tokaxisGoogleImage ? resolveTokaxisGoogleRequestSize(config.size) : resolveRequestSize(quality, config.size);
     if (requestConfig.apiFormat === "gemini") {
         try {
             return await requestGeminiImages(requestConfig, prompt, [], n, options);
@@ -959,7 +891,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
             throw new Error(readAxiosError(error, "请求失败"));
         }
     }
-    if (isTokaxisGoogleImageModel(requestConfig.model)) {
+    if (tokaxisGoogleImage) {
         try {
             return await requestTokaxisGoogleChatImages(requestConfig, prompt, [], n, requestSize, quality, options);
         } catch (error) {
@@ -998,7 +930,8 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(mask ? buildMaskConstrainedImageEditPrompt(prompt) : prompt, references);
     const quality = normalizeQuality(config.quality);
-    const requestSize = resolveRequestSize(quality, config.size);
+    const tokaxisGoogleImage = isTokaxisGoogleImageModel(requestConfig.model);
+    const requestSize = tokaxisGoogleImage ? resolveTokaxisGoogleRequestSize(config.size) : resolveRequestSize(quality, config.size);
     if (requestConfig.apiFormat === "gemini") {
         if (mask) throw new Error("Gemini 调用格式暂不支持蒙版编辑");
         try {
@@ -1007,7 +940,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
             throw new Error(readAxiosError(error, "请求失败"));
         }
     }
-    if (isTokaxisGoogleImageModel(requestConfig.model)) {
+    if (tokaxisGoogleImage) {
         if (mask) throw new Error("Google 生图模型暂不支持蒙版编辑");
         try {
             return await requestTokaxisGoogleChatImages(requestConfig, requestPrompt, references, n, requestSize, quality, options);

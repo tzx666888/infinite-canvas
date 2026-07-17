@@ -4,6 +4,7 @@ import { type ReactNode, useState } from "react";
 import { ConfigProvider, Switch } from "antd";
 
 import { type CanvasTheme } from "@/lib/canvas-theme";
+import { isTokaxisGoogleImageModel, TOKAXIS_GOOGLE_NATIVE_SIZES, tokaxisGoogleImageSizeFromModel, tokaxisGoogleModelForSize, type TokaxisGoogleImageSize } from "@/lib/tokaxis-google-image";
 import type { AiConfig } from "@/stores/use-config-store";
 
 const qualityOptions = [
@@ -13,28 +14,38 @@ const qualityOptions = [
     { value: "low", label: "低" },
 ];
 const resolutionOptions = [
-    { value: "1k", label: "默认" },
+    { value: "1k", label: "1K" },
     { value: "2k", label: "2K" },
     { value: "4k", label: "4K" },
 ] as const;
+type Resolution = (typeof resolutionOptions)[number]["value"];
+type NativeSizes = Record<Resolution, string>;
+type AspectOption = { value: string; label: string; size?: string; width: number; height: number; icon: string; nativeOnly?: boolean; nativeSizes?: NativeSizes };
 const DIMENSION_STEP = 16;
 const MAX_IMAGE_EDGE = 3840;
 const MAX_IMAGE_PIXELS = MAX_IMAGE_EDGE * MAX_IMAGE_EDGE;
 
-const aspectOptions = [
-    { value: "1:1", label: "1:1", size: "1024x1024", width: 1024, height: 1024, icon: "square" },
-    { value: "3:2", label: "3:2", size: "1536x1024", width: 1536, height: 1024, icon: "landscape" },
-    { value: "2:3", label: "2:3", size: "1024x1536", width: 1024, height: 1536, icon: "portrait" },
-    { value: "4:3", label: "4:3", size: "1360x1024", width: 1360, height: 1024, icon: "landscape" },
-    { value: "3:4", label: "3:4", size: "1024x1360", width: 1024, height: 1360, icon: "portrait" },
-    { value: "16:9", label: "16:9", size: "1824x1024", width: 1824, height: 1024, icon: "landscape" },
-    { value: "9:16", label: "9:16", size: "1024x1824", width: 1024, height: 1824, icon: "portrait" },
+const aspectOptions: AspectOption[] = [
+    nativeAspect("1:1", "square"),
+    nativeAspect("1:4", "portrait", true),
+    nativeAspect("1:8", "portrait", true),
+    nativeAspect("2:3", "portrait"),
+    nativeAspect("3:2", "landscape"),
+    nativeAspect("3:4", "portrait"),
+    nativeAspect("4:1", "landscape", true),
+    nativeAspect("4:3", "landscape"),
+    nativeAspect("4:5", "portrait", true),
+    nativeAspect("5:4", "landscape", true),
+    nativeAspect("8:1", "landscape", true),
+    nativeAspect("9:16", "portrait"),
+    nativeAspect("16:9", "landscape"),
+    nativeAspect("21:9", "landscape", true),
     { value: "auto", label: "auto", width: 0, height: 0, icon: "auto" },
 ];
 
 type ImageSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "quality" | "size" | "count", value: string) => void;
+    onConfigChange: (key: "quality" | "size" | "count" | "imageModel", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -47,22 +58,33 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const quality = config.quality || "auto";
     const count = Math.max(1, Math.min(maxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
-    const resolution = readResolution(activeSize);
+    const activeModel = config.imageModel || config.model;
+    const usesNativeGoogleSizes = isTokaxisGoogleImageModel(activeModel);
+    const availableAspectOptions = aspectOptions.filter((item) => !item.nativeOnly || usesNativeGoogleSizes);
+    const resolution = googleResolution(activeModel) || readResolution(activeSize);
     const selectedAspect = findSelectedAspect(activeSize);
     const dimensions = readSizeDimensions(activeSize, selectedAspect || aspectOptions[0]);
-    const selectAspect = (value: string) => {
-        const option = aspectOptions.find((item) => item.value === value);
-        onConfigChange("size", option ? sizeForAspect(option, resolution) : "auto");
+    const syncGoogleModel = (nextResolution: Resolution) => {
+        if (!usesNativeGoogleSizes) return;
+        const nextModel = tokaxisGoogleModelForSize(activeModel, nextResolution.toUpperCase() as TokaxisGoogleImageSize);
+        if (nextModel !== activeModel) onConfigChange("imageModel", nextModel);
     };
-    const selectResolution = (value: (typeof resolutionOptions)[number]["value"]) => {
+    const selectAspect = (value: string) => {
+        const option = availableAspectOptions.find((item) => item.value === value);
+        onConfigChange("size", option ? sizeForAspect(option, resolution, usesNativeGoogleSizes) : "auto");
+    };
+    const selectResolution = (value: Resolution) => {
         if (activeSize === "auto") return;
-        onConfigChange("size", selectedAspect ? sizeForAspect(selectedAspect, value) : resizeDimensionsForResolution(dimensions.width, dimensions.height, value));
+        onConfigChange("size", selectedAspect ? sizeForAspect(selectedAspect, value, usesNativeGoogleSizes) : resizeDimensionsForResolution(dimensions.width, dimensions.height, value));
+        syncGoogleModel(value);
     };
     const updateDimension = (key: "width" | "height", value: number | null) => {
         const next = Math.max(1, Math.floor(value || dimensions[key] || 1024));
         const width = key === "width" ? next : dimensions.width;
         const height = key === "height" ? next : dimensions.height;
-        onConfigChange("size", `${alignDimension(width, snapDimensionToStep)}x${alignDimension(height, snapDimensionToStep)}`);
+        const nextSize = `${alignDimension(width, snapDimensionToStep)}x${alignDimension(height, snapDimensionToStep)}`;
+        onConfigChange("size", nextSize);
+        if (usesNativeGoogleSizes) syncGoogleModel(readResolution(nextSize));
     };
 
     return (
@@ -118,7 +140,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 <div className="space-y-2.5">
                     <SettingTitle color={theme.node.muted}>宽高比</SettingTitle>
                     <div className="grid grid-cols-4 gap-2.5">
-                        {aspectOptions.map((item) => (
+                        {availableAspectOptions.map((item) => (
                             <button
                                 key={item.value}
                                 type="button"
@@ -282,7 +304,12 @@ function readParsedDimensions(size: string) {
     return match ? { width: Number(match[1]), height: Number(match[2]) } : null;
 }
 
-function readResolution(size: string): (typeof resolutionOptions)[number]["value"] {
+function readResolution(size: string): Resolution {
+    for (const option of aspectOptions) {
+        if (!option.nativeSizes) continue;
+        const match = (Object.entries(option.nativeSizes) as Array<[Resolution, string]>).find(([, dimensions]) => dimensions === size);
+        if (match) return match[0];
+    }
     const dimensions = readParsedDimensions(size);
     if (!dimensions) return "1k";
     const longEdge = Math.max(dimensions.width, dimensions.height);
@@ -292,13 +319,14 @@ function readResolution(size: string): (typeof resolutionOptions)[number]["value
     return "1k";
 }
 
-function sizeForAspect(option: (typeof aspectOptions)[number], resolution: (typeof resolutionOptions)[number]["value"]) {
+function sizeForAspect(option: AspectOption, resolution: Resolution, usesNativeGoogleSizes = false) {
     if (option.value === "auto") return "auto";
+    if (usesNativeGoogleSizes && option.nativeSizes) return option.nativeSizes[resolution];
     if (resolution === "1k") return option.size || `${option.width}x${option.height}`;
     return resizeDimensionsForResolution(option.width, option.height, resolution);
 }
 
-function resizeDimensionsForResolution(width: number, height: number, resolution: (typeof resolutionOptions)[number]["value"]) {
+function resizeDimensionsForResolution(width: number, height: number, resolution: Resolution) {
     if (resolution === "1k") return `${alignDimension(width, true)}x${alignDimension(height, true)}`;
     const ratio = width / Math.max(1, height);
     const landscape = width >= height;
@@ -309,6 +337,25 @@ function resizeDimensionsForResolution(width: number, height: number, resolution
     const nextWidth = alignDimensionDown(Math.max(1, Math.floor(rawWidth * pixelScale)));
     const nextHeight = alignDimensionDown(Math.max(1, Math.floor(rawHeight * pixelScale)));
     return `${nextWidth}x${nextHeight}`;
+}
+
+function nativeAspect(value: keyof typeof TOKAXIS_GOOGLE_NATIVE_SIZES, icon: string, nativeOnly = false): AspectOption {
+    const sizes = TOKAXIS_GOOGLE_NATIVE_SIZES[value];
+    const [width, height] = sizes["1K"].split("x").map(Number);
+    return {
+        value,
+        label: value,
+        size: sizes["1K"],
+        width,
+        height,
+        icon,
+        nativeOnly,
+        nativeSizes: { "1k": sizes["1K"], "2k": sizes["2K"], "4k": sizes["4K"] },
+    };
+}
+
+function googleResolution(model: string): Resolution | undefined {
+    return tokaxisGoogleImageSizeFromModel(model)?.toLowerCase() as Resolution | undefined;
 }
 
 function alignDimensionDown(value: number) {
