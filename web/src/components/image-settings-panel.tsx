@@ -63,7 +63,8 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const availableAspectOptions = aspectOptions.filter((item) => !item.nativeOnly || usesNativeGoogleSizes);
     const resolution = googleResolution(activeModel) || readResolution(activeSize);
     const selectedAspect = findSelectedAspect(activeSize);
-    const dimensions = readSizeDimensions(activeSize, selectedAspect || aspectOptions[0]);
+    const displayedSize = usesNativeGoogleSizes && selectedAspect ? sizeForAspect(selectedAspect, resolution, true) : activeSize;
+    const dimensions = readSizeDimensions(displayedSize, selectedAspect || aspectOptions[0]);
     const syncGoogleModel = (nextResolution: Resolution) => {
         if (!usesNativeGoogleSizes) return;
         const nextModel = tokaxisGoogleModelForSize(activeModel, nextResolution.toUpperCase() as TokaxisGoogleImageSize);
