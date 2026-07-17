@@ -115,7 +115,13 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     const referenceMode = grokVideoReferenceMode(modelName, requestReferences.length);
     const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode).trim());
 
-    const referenceImages = await Promise.all(requestReferences.map(async (image) => ({ url: await imageToDataUrl(image) })));
+    const referenceImages = await Promise.all(
+        requestReferences.map(async (image, index) => {
+            const url = await imageToDataUrl(image);
+            if (!url) throw new Error(`参考图 ${index + 1} 读取失败，请移除后重新上传`);
+            return { url };
+        }),
+    );
     const body = {
         model: modelName,
         prompt: promptText,

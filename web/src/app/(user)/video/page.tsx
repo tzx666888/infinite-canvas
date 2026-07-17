@@ -187,11 +187,13 @@ export default function VideoPage() {
         let compiledPrompt = snapshot.text;
         try {
             const selectedModel = modelOptionName(snapshot.config.videoModel || snapshot.config.model);
+            let generationReferences = snapshot.references;
             if (isGrokVideoModel(selectedModel)) {
                 setGenerationStage("正在编写口播与镜头");
                 const requestReferences = selectGrokReferenceVideoImages(snapshot.references, selectedModel);
+                generationReferences = await hydrateVideoWorkbenchReferenceImages(requestReferences);
                 const duration = Number(normalizeReferenceVideoSeconds(snapshot.config.videoSeconds, selectedModel, requestReferences.length));
-                const promptReferences = await prepareVideoWorkbenchReferenceImages(requestReferences);
+                const promptReferences = await prepareVideoWorkbenchReferenceImages(generationReferences);
                 compiledPrompt = await optimizeVideoWorkbenchPrompt(
                     snapshot.config,
                     {
@@ -207,7 +209,7 @@ export default function VideoPage() {
                 );
             }
             setGenerationStage("视频生成中");
-            const task = await createVideoGenerationTask(snapshot.config, compiledPrompt, snapshot.references, snapshot.videoReferences, snapshot.audioReferences);
+            const task = await createVideoGenerationTask(snapshot.config, compiledPrompt, generationReferences, snapshot.videoReferences, snapshot.audioReferences);
             const log = buildLog({
                 prompt: snapshot.text,
                 compiledPrompt,
@@ -1026,6 +1028,16 @@ async function prepareVideoWorkbenchReferenceImages(references: ReferenceImage[]
         }),
     );
     return hydrated.filter((item): item is NonNullable<typeof item> => Boolean(item));
+}
+
+async function hydrateVideoWorkbenchReferenceImages(references: ReferenceImage[]) {
+    return Promise.all(
+        references.map(async (reference, index) => {
+            const dataUrl = await imageToDataUrl(reference);
+            if (!dataUrl) throw new Error(`参考图 ${index + 1} 的本地文件已丢失，请移除后重新上传`);
+            return { ...reference, dataUrl };
+        }),
+    );
 }
 
 function downscaleVideoWorkbenchImage(dataUrl: string, maxDimension = 512): Promise<string> {
