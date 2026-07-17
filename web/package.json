@@ -11,6 +11,7 @@
         "test:fusion-prompts": "bun run scripts/fusion-prompt-regression.ts",
         "test:storyboard-prompts": "bun run scripts/storyboard-prompt-regression.ts",
         "test:grok-video": "bun run scripts/grok-video-model-regression.ts",
+        "test:video-workbench": "bun run scripts/video-workbench-prompt-regression.ts",
         "format": "prettier --write .",
         "format:check": "prettier --check ."
     },

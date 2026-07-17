@@ -1,5 +1,6 @@
 import axios from "axios";
 
+import { compileVideoWorkbenchPrompt, hasWorkbenchSpokenScript, requestsNoSpeech, workbenchShotCount, workbenchSpeechWordRange, type VideoWorkbenchPromptContext } from "@/lib/video-workbench-prompt";
 import { buildApiUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasCommerceVideoPlan } from "@/app/(user)/canvas/types";
 
@@ -237,6 +238,28 @@ export const VIDEO_PROMPT_SYSTEM = `角色
 最终检查
 输出应当像“运镜开头 + 场景中的连续关键动作 + 清楚的产品/结果收尾”的短版导演提示词。只输出英文提示词正文。`;
 
+const VIDEO_WORKBENCH_SYSTEM = `你是电商短视频创作台的智能编导。你必须同时读取用户要求、参考图、目标模型、参考模式和时长，输出一段可直接交给 Grok 视频模型的英文导演指令。
+
+硬规则：
+- 只输出 60-85 个英文单词左右的一个自然段，不要标题、列表、JSON、解释或 Negative prompt。把篇幅留给明确的镜头动作和完整口播，不要重复通用安全约束。
+- 先根据参考图锁定真实可见的成年人物、服装、商品、场景和尺寸关系；不得编造参考图中不存在的人物或商品。
+- 画面编排只使用输入中的实体。人体、脸、手、服装和商品从第一帧起就必须稳定；商品是独立的刚性物体，不与身体或服装融合。
+- i2v 必须从首张图的精确构图开始，r2v 必须把各张图作为分工明确的身份/商品/场景素材，用干净硬切连接，不能把多张图熔成一个变形镜头。
+- 按用户语言或其明确指定的市场语言生成口播，不翻译商品上的品牌文字。
+
+真人带货模式：
+- 除非用户明确要求无口播，否则必须生成清晰、自然、像真实创作者的口播，不得生成沉默或只有音乐的视频。
+- 口播必须是一个连贯想法，先是 4-7 个词的自然反应/勾子，一次呼吸后给出一个可见的使用价值和轻柔收尾；不念功能清单，不念镜头说明。
+- 必须原样输出这个字段：Spoken script: "可直接说出的完整口播"。引号内只有台词，不得包含动作或镜头指令。
+- 有真人时，开头先给同一主播一个稳定的脸部可见中景/近景，只说第一个短句；后续产品特写由同一声音做画外音。只在嘴巴清晰可见时做口型。
+- 无真人时用同一个自然画外音，不凭空生成主播。
+
+自由创作模式：
+- 忠实保留用户是否需要对话、画外音、环境音或静音的选择，不自动改成广告。
+
+合规：
+- 不编造价格、折扣、认证、医疗效果、销量、用户证言、品牌文字或看不清的标签内容。`;
+
 const VIDEO_REVERSE_SYSTEM_PROMPT = `你是一位专业的视频分析专家。分析提供的视频关键帧图片，反推出一段可以直接用于 AI 视频生成的英文提示词。
 
 分析维度：
@@ -256,7 +279,7 @@ const VIDEO_REVERSE_SYSTEM_PROMPT = `你是一位专业的视频分析专家。�
 - 只输出提示词，不要解释或分析过程`;
 
 type ChatCompletionResponse = {
-    choices?: Array<{ message?: { content?: string } }>;
+    choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
     error?: { message?: string };
     msg?: string;
     message?: string;
@@ -329,6 +352,108 @@ export function normalizeGeneratedVideoPrompt(raw: string) {
     }, -1);
     if (markerIndex >= 0) prompt = prompt.slice(0, markerIndex).trim();
     return prompt.replace(/[\s,;:—-]+$/, "").trim();
+}
+
+export async function optimizeVideoWorkbenchPrompt(config: AiConfig, context: VideoWorkbenchPromptContext, referenceImages: PolishReferenceImage[] = [], model = DEFAULT_POLISH_MODEL) {
+    const requestConfig = resolveModelRequestConfig(config, model);
+    const [minimumWords, maximumWords] = workbenchSpeechWordRange(context.duration);
+    const shotCount = workbenchShotCount(context.duration);
+    const silent = requestsNoSpeech(context.sourcePrompt);
+    const images = imageContent(referenceImages);
+    const userText = [
+        `User request: ${context.sourcePrompt}`,
+        `Creation mode: ${context.mode === "commerce" ? "real-person ecommerce creator video" : "free creative video"}.`,
+        `Target video model: ${context.model}.`,
+        `Target duration: ${context.duration} seconds; aspect ratio: ${context.aspectRatio}; reference mode: ${context.referenceMode}.`,
+        `Use exactly ${shotCount} readable story stages joined by clean edits.`,
+        context.mode === "commerce" && !silent
+            ? `The Spoken script must fit the duration: ${minimumWords}-${maximumWords} words for a space-delimited language, or an equivalent natural speaking length for Chinese/Japanese/Korean. It must sound spontaneous, warm, and conversational.`
+            : "Respect the user's requested audio treatment. Do not force advertising speech in free-creative mode.",
+        `There are ${images.length} attached reference images in the same order shown to the user. Analyze them internally, but do not mention references, image numbers, model names, or prompt-writing instructions in the output.`,
+    ].join("\n");
+    const response = await fetch(aiApiUrl(requestConfig, "/chat/completions"), {
+        method: "POST",
+        headers: { ...aiHeaders(requestConfig), Accept: "text/event-stream" },
+        body: JSON.stringify({
+            model: requestConfig.model,
+            messages: [
+                { role: "system", content: VIDEO_WORKBENCH_SYSTEM },
+                {
+                    role: "user",
+                    content: images.length ? [{ type: "text" as const, text: userText }, ...images] : userText,
+                },
+            ],
+            stream: true,
+            max_tokens: 900,
+            temperature: 0.25,
+        }),
+    });
+    if (!response.ok) throw new Error(await readVideoWorkbenchPromptError(response));
+    const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+    const content = contentType.includes("text/event-stream") ? await collectVideoWorkbenchPromptStream(response) : readPayloadContent((await response.json()) as ChatCompletionResponse, "视频智能编导失败");
+    const direction = content
+        .replace(/^```(?:text)?\s*/i, "")
+        .replace(/\s*```$/, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (context.mode === "commerce" && !silent && !hasWorkbenchSpokenScript(direction)) {
+        throw new Error("视频智能编导未生成完整口播，请重试");
+    }
+    return compileVideoWorkbenchPrompt(direction, context);
+}
+
+async function collectVideoWorkbenchPromptStream(response: Response) {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("视频智能编导失败：无响应流");
+    const decoder = new TextDecoder();
+    let content = "";
+    let buffer = "";
+    const consumeEvent = (event: string) => {
+        const dataText = event
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trimStart())
+            .join("\n")
+            .trim();
+        if (!dataText || dataText === "[DONE]") return;
+        let payload: ChatCompletionResponse;
+        try {
+            payload = JSON.parse(dataText) as ChatCompletionResponse;
+        } catch {
+            return;
+        }
+        if (payload.error?.message) throw new Error(payload.error.message);
+        if (typeof payload.code === "number" && payload.code !== 0) throw new Error(payload.msg || payload.message || "视频智能编导失败");
+        const choice = payload.choices?.[0];
+        content += choice?.delta?.content || choice?.message?.content || "";
+    };
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            buffer += decoder.decode(value, { stream: !done });
+            const events = buffer.split(/\r?\n\r?\n/);
+            buffer = events.pop() || "";
+            events.forEach(consumeEvent);
+            if (done) break;
+        }
+        if (buffer.trim()) consumeEvent(buffer);
+    } finally {
+        reader.releaseLock();
+    }
+    if (!content.trim()) throw new Error("视频智能编导失败：模型未返回内容");
+    return content.trim();
+}
+
+async function readVideoWorkbenchPromptError(response: Response) {
+    const fallback = `视频智能编导失败 (${response.status})`;
+    const text = await response.text().catch(() => "");
+    if (!text.trim()) return fallback;
+    try {
+        const payload = JSON.parse(text) as ChatCompletionResponse;
+        return payload.error?.message || payload.msg || payload.message || fallback;
+    } catch {
+        return text.slice(0, 300) || fallback;
+    }
 }
 
 export async function analyzeProductBreakdown(config: AiConfig, userPrompt: string, model = DEFAULT_POLISH_MODEL, referenceImages: PolishReferenceImage[] = []): Promise<ProductBreakdownPlan> {
