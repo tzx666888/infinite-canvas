@@ -80,7 +80,8 @@ async function collectStreamedContent(response: Response) {
         try {
             payload = JSON.parse(dataText) as typeof payload;
         } catch {
-            throw new Error("融图规划流返回格式错误");
+            // Some gateways emit plain-text heartbeat events such as `data: ping`.
+            return;
         }
         if (payload.error?.message) throw new Error(payload.error.message);
         if (typeof payload.code === "number" && payload.code !== 0) throw new Error(payload.msg || payload.message || "融图摆放规划失败");

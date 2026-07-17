@@ -1,12 +1,13 @@
 {
     "name": "infinite-canvas",
-    "version": "3.0.7",
+    "version": "3.0.8",
     "private": true,
     "type": "module",
     "scripts": {
         "dev": "next dev --webpack -H 0.0.0.0 -p 3000",
         "build": "next build",
         "start": "next start",
+        "test:fusion-live": "node scripts/fusion-planner-live-smoke.ts",
         "test:fusion-prompts": "bun run scripts/fusion-prompt-regression.ts",
         "test:storyboard-prompts": "bun run scripts/storyboard-prompt-regression.ts",
         "test:grok-video": "bun run scripts/grok-video-model-regression.ts",

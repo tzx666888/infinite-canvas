@@ -4,6 +4,12 @@
 
 + [新增] 渠道兼容Gemini格式。
 
+## v3.0.8 - 2026-07-17
+
++ [修复] 融图 planner 忽略上游 `data: ping` 等非 JSON SSE 心跳，不再误判整轮规划失败。
++ [工程] 移除 Next.js `ignoreBuildErrors`，生产构建恢复强制 TypeScript 类型门禁。
++ [测试] 新增真实 1 场景 + 3 产品融图 planner 流式 smoke 工具，记录首数据块与总耗时并校验摆放计划完整性。
+
 ## v3.0.7 - 2026-07-16
 
 + [修复] 融图场景规划恢复流式视觉分析，避免长请求经过 Cloudflare 时发生 524；同时兼容标准 SSE 与非流式 JSON 返回。
