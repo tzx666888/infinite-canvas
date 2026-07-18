@@ -51,52 +51,37 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
     const mode = resolveStoryboardMode(plan);
     const beats = selectBeatsForDuration(plan.beats, duration) || [];
     const stageRanges = grokStageRanges(beats.length || 1, duration);
+    const stages = beats.length
+        ? beats.map((beat, index) => `${stageRanges[index]} ${compactStoryboardStageAction(beat, plan, 10)}`).join("; hard cut to ")
+        : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), 10)}`;
+    const script = storyboardAudioScriptForDuration(plan, duration);
     const audioPlan = plan.audioPlan;
-    const presenterEvidence = [plan.visualIdentity || "", plan.directorBrief || "", ...beats.map((beat) => beat.description || "")].join(" ");
-    const useContinuousCreatorTake = visiblePresenterPattern.test(presenterEvidence) && audioPlan?.mode !== "ambient-only" && audioPlan?.mode !== "voiceover";
-    const script = useContinuousCreatorTake ? storyboardCreatorAudioScriptForDuration(plan, duration) : storyboardAudioScriptForDuration(plan, duration);
-    const creatorActions = compactContinuousCreatorActions(beats, plan);
-    const stages = useContinuousCreatorTake
-        ? `continuous creator take: ${creatorActions}`
-        : beats.length
-          ? beats.map((beat, index) => `${stageRanges[index]} ${compactStoryboardStageAction(beat, plan, 12)}`).join("; hard cut to ")
-          : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), 12)}`;
     const audioDirection =
         audioPlan?.mode === "ambient-only"
             ? "Audio: natural location sound and restrained music only; no speech."
-            : useContinuousCreatorTake
-              ? [
-                    `Audio: ${compactStoryboardCreatorVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
-                    script ? `Speak this once, naturally: "${script}"` : "Deliver one natural creator-style thought once.",
-                    "After a half-second reaction, use spontaneous UGC rhythm, contractions, varied emphasis, and pauses.",
-                    "Lip-sync only the opening reaction; keep the same foreground voice off-screen for the demo. Do not force mouth movement.",
-                ].join(" ")
-              : [
-                    `Audio: ${compactStoryboardVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
-                    script ? `Say exactly once: "${script}"` : "Deliver one short connected creator-style line once.",
-                    "Pause briefly before the first word. Speak at a relaxed pace, pronounce every word exactly, and never rush, slur, restart, or paraphrase.",
-                    audioPlan?.mode === "on-camera"
-                        ? "Keep the same face readable and lip-synchronized for the entire line."
-                        : audioPlan?.mode === "voiceover"
-                          ? "Keep the voice off-screen while visible people act naturally."
-                          : "Lip-sync the opening sentence, then immediately continue the same voice off-screen.",
-                ].join(" ");
+            : [
+                  `Audio: ${compactStoryboardVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
+                  script ? `Say exactly once: "${script}"` : "Deliver one short connected creator-style line once.",
+                  audioPlan?.mode === "on-camera"
+                      ? "Keep the same face readable and lip-synchronized for the entire line."
+                      : audioPlan?.mode === "voiceover"
+                        ? "Keep the voice off-screen while visible people act naturally."
+                        : "Lip-sync the short opening sentence, then use the same voice off-screen over details.",
+              ].join(" ");
     const identityDirection =
         mode === "product"
-            ? "Lock presenter, product shape, colors, label, count, and scale."
+            ? "Lock the presenter and exact product shape, colors, label layout, count, and scale."
             : mode === "apparel"
-              ? "Lock face, hair, body proportions, garment design, fit, material, and coverage."
-              : "Lock subject identity, wardrobe, body proportions, and visual world.";
+              ? "Lock the adult face, hair, body proportions, garment design, fit, material, and coverage."
+              : "Lock the same subject identity, wardrobe, body proportions, and visual world.";
     const prompt = [
         STORYBOARD_DIRECTED_VIDEO_MARKER,
-        `Create ${duration}s ${context.aspectRatio} footage.`,
-        "Use the clean keyframe as opening and identity anchor.",
+        `Create polished ${duration}s ${context.aspectRatio} footage.`,
+        "Use the clean keyframe as exact opening and identity anchor.",
         `Story: ${stages}.`,
         audioDirection,
         identityDirection,
-        useContinuousCreatorTake
-            ? "No cuts, dissolves, ghosts, morphs, duplicate limbs, or pose swaps. Keep natural head, eye, hand, and torso motion with stable anatomy."
-            : `Use at most ${storyboardShotBudget(duration)} stable shots. Hard cuts only; no dissolves, crossfades, ghosts, morphs, duplicates, anatomy errors, grids, captions, or invented claims.`,
+        `Use at most ${storyboardShotBudget(duration)} stable shots. Hard cuts only; no dissolves, crossfades, ghosts, morphs, duplicates, anatomy errors, grids, captions, or invented claims.`,
     ].join(" ");
     return normalizeSpaces(prompt);
 }
@@ -212,19 +197,6 @@ export function storyboardAudioScriptForDuration(plan: CanvasCommerceVideoPlan |
     }
     const baseScript = audioPlan.script?.trim() || "";
     return baseScript && storyboardScriptFitsDuration(baseScript, audioPlan.language, duration) ? normalizeStoryboardSpeechForProvider(baseScript, audioPlan.language) : "";
-}
-
-function storyboardCreatorAudioScriptForDuration(plan: CanvasCommerceVideoPlan, duration: number) {
-    const audioPlan = plan.audioPlan;
-    if (!audioPlan || audioPlan.mode === "ambient-only") return "";
-    const durationKey = storyboardScriptDurationKey(duration);
-    const beatScript = orderBeats(plan.beats)
-        .map((beat) => beat.spokenLine?.trim())
-        .filter(Boolean)
-        .join(" ");
-    const candidates = [audioPlan.scriptsByDuration?.[durationKey], beatScript, audioPlan.script].filter((value): value is string => Boolean(value?.trim()));
-    const selected = candidates.find((value) => storyboardScriptFitsDuration(value, audioPlan.language, duration)) || candidates.sort((left, right) => speechWordCount(right) - speechWordCount(left))[0] || "";
-    return selected ? normalizeStoryboardCreatorSpeechForProvider(selected, audioPlan.language) : "";
 }
 
 export function hasCompleteStoryboardAudioPlan(plan: CanvasCommerceVideoPlan | null | undefined, duration?: number) {
@@ -396,9 +368,9 @@ function speechWordCount(value: string) {
 }
 
 function storyboardSpeechWordRange(duration: number): [number, number] {
-    if (duration <= 6) return [8, 11];
-    if (duration <= 10) return [15, 19];
-    return [23, 28];
+    if (duration <= 6) return [10, 14];
+    if (duration <= 10) return [18, 24];
+    return [26, 34];
 }
 
 function repairEnglishStoryboardScript(value: string, duration: number) {
@@ -408,7 +380,12 @@ function repairEnglishStoryboardScript(value: string, duration: number) {
     const [minimum, maximum] = storyboardSpeechWordRange(duration);
     const words = normalized.split(/\s+/).filter(Boolean);
     if (words.length >= minimum && words.length <= maximum) return ensureSentenceEnding(normalized);
-    if (words.length < minimum) return fallbackStoryboardScript(duration);
+    if (words.length < minimum) {
+        const suffix = duration <= 6 ? "right now" : duration <= 10 ? "and see the final result" : "so you can see the finished result clearly";
+        const extended = `${normalized.replace(/[,;:.!?\s]+$/g, "")} ${suffix}.`;
+        const extendedWords = speechWordCount(extended);
+        return extendedWords >= minimum && extendedWords <= maximum ? extended : fallbackStoryboardScript(duration);
+    }
 
     let selected = words.slice(0, maximum);
     const connectorPattern = /^(?:and|or|but|before|after|while|because|with|without|to|for|from|as)$/i;
@@ -435,28 +412,13 @@ function normalizeStoryboardSpeechForProvider(value: string, language: string | 
     const normalizedLanguage = (language || "").trim().toLowerCase();
     const looksEnglish = /english|\ben\b/.test(normalizedLanguage) || (!normalizedLanguage && !/[\u3400-\u9fff]/.test(value));
     if (!looksEnglish) return value.trim();
-    return ensureSentenceEnding(
-        normalizeSpaces(
-            value
-                .replace(/[\u2018\u2019]/g, "'")
-                .replace(/\bI'm\b/gi, "I am")
-                .replace(/\bright here\b/gi, "")
-                .replace(/\s+([,.;!?])/g, "$1"),
-        ),
-    );
-}
-
-function normalizeStoryboardCreatorSpeechForProvider(value: string, language: string | undefined) {
-    const normalizedLanguage = (language || "").trim().toLowerCase();
-    const looksEnglish = /english|\ben\b/.test(normalizedLanguage) || (!normalizedLanguage && !/[\u3400-\u9fff]/.test(value));
-    if (!looksEnglish) return value.trim();
     return ensureSentenceEnding(normalizeSpaces(value.replace(/[\u2018\u2019]/g, "'").replace(/\s+([,.;!?])/g, "$1")));
 }
 
 function fallbackStoryboardScript(duration: number) {
     if (duration <= 6) return "See this product in action from start to finish.";
     if (duration <= 10) return "Watch how I use this product step by step, showing each action clearly and ending with the final result.";
-    return "Watch how I use this product step by step, keeping each action clear, the presentation lively, and the final result natural and easy to follow.";
+    return "Watch how I use this product step by step, keeping each action clear, the presentation lively, and the final result natural and easy to follow from start to finish.";
 }
 
 function uniqueReadableLocations(locations: string[]) {
@@ -694,9 +656,9 @@ function storyboardLanguageDirection(explicitLanguage: string | undefined, userD
 }
 
 function speechWordBudget(duration: number) {
-    if (duration <= 6) return "8-11";
-    if (duration <= 10) return "15-19";
-    if (duration <= 15) return "23-28";
+    if (duration <= 6) return "10-14";
+    if (duration <= 10) return "18-24";
+    if (duration <= 15) return "26-34";
     return `${Math.max(18, Math.round(duration * 1.2))}-${Math.max(22, Math.round(duration * 1.5))}`;
 }
 
@@ -726,19 +688,6 @@ function compactStoryboardVoice(value: string | undefined) {
         .replace(/\bfollowed by\b/gi, "then")
         .replace(/\boff-screen narration\b/gi, "narration");
     return limitBeatWords(voice, 10);
-}
-
-function compactStoryboardCreatorVoice(value: string | undefined) {
-    return compactStoryboardVoice(value)
-        .replace(/calm narration/gi, "warm spontaneous UGC delivery")
-        .replace(/lively confident delivery/gi, "warm spontaneous UGC delivery")
-        .replace(/calm/gi, "warm");
-}
-
-function compactContinuousCreatorActions(beats: CommerceVideoBeat[], plan: CanvasCommerceVideoPlan) {
-    if (!beats.length) return limitBeatWords(fallbackActionChain(plan, resolveStoryboardMode(plan), readableText(plan.productCategory, "the referenced subject")), 12);
-    const selected = beats.length <= 3 ? beats : [beats[0], beats[1], beats.at(-1)!];
-    return selected.map((beat) => compactStoryboardStageAction(beat, plan, 12)).join(", then ");
 }
 
 function compactStoryboardStageAction(beat: CommerceVideoBeat, plan: CanvasCommerceVideoPlan, maxWords: number) {
