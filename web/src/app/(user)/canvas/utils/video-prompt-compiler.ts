@@ -51,23 +51,30 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
     const mode = resolveStoryboardMode(plan);
     const beats = selectBeatsForDuration(plan.beats, duration) || [];
     const stageRanges = grokStageRanges(beats.length || 1, duration);
-    const stages = beats.length
-        ? beats.map((beat, index) => `${stageRanges[index]} ${compactStoryboardStageAction(beat, plan, 12)}`).join("; hard cut to ")
-        : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), 12)}`;
     const script = storyboardAudioScriptForDuration(plan, duration);
     const audioPlan = plan.audioPlan;
+    const presenterEvidence = [plan.visualIdentity || "", plan.directorBrief || "", ...beats.map((beat) => beat.description || "")].join(" ");
+    const useContinuousCreatorTake = visiblePresenterPattern.test(presenterEvidence) && audioPlan?.mode !== "ambient-only" && audioPlan?.mode !== "voiceover";
+    const continuousPresentation = mode === "product" ? "hold the product at natural scale" : mode === "apparel" ? "keep the worn garment clearly visible" : "keep the referenced subject clearly visible";
+    const stages = useContinuousCreatorTake
+        ? `one continuous unedited creator take for all ${duration}s: stay upright and face-visible, ${continuousPresentation}, use small relaxed gestures, and end in the same framing`
+        : beats.length
+          ? beats.map((beat, index) => `${stageRanges[index]} ${compactStoryboardStageAction(beat, plan, 12)}`).join("; hard cut to ")
+          : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), 12)}`;
     const audioDirection =
         audioPlan?.mode === "ambient-only"
             ? "Audio: natural location sound and restrained music only; no speech."
             : [
                   `Audio: ${compactStoryboardVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
                   script ? `Say exactly once: "${script}"` : "Deliver one short connected creator-style line once.",
-                  "Speak clearly at a relaxed pace; no slurring.",
-                  audioPlan?.mode === "on-camera"
-                      ? "Keep the same face readable and lip-synchronized for the entire line."
-                      : audioPlan?.mode === "voiceover"
-                        ? "Keep the voice off-screen while visible people act naturally."
-                        : "Lip-sync the opening sentence, then immediately continue the same voice off-screen.",
+                  "Pause briefly before the first word. Speak at a relaxed pace, pronounce every word exactly, and never rush, slur, restart, or paraphrase.",
+                  useContinuousCreatorTake
+                      ? "Keep the same face and mouth readable and naturally lip-synchronized for the complete line."
+                      : audioPlan?.mode === "on-camera"
+                        ? "Keep the same face readable and lip-synchronized for the entire line."
+                        : audioPlan?.mode === "voiceover"
+                          ? "Keep the voice off-screen while visible people act naturally."
+                          : "Lip-sync the opening sentence, then immediately continue the same voice off-screen.",
               ].join(" ");
     const identityDirection =
         mode === "product"
@@ -82,7 +89,9 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
         `Story: ${stages}.`,
         audioDirection,
         identityDirection,
-        `Use at most ${storyboardShotBudget(duration)} stable shots. Hard cuts only; no dissolves, crossfades, ghosts, morphs, duplicates, anatomy errors, grids, captions, or invented claims.`,
+        useContinuousCreatorTake
+            ? "One continuous take: no cuts, transitions, dissolves, ghosts, morphs, camera jumps, scene changes, pose swaps, product handoffs, bending, or large limb motion. Keep face, mouth, hands, torso, and product stable."
+            : `Use at most ${storyboardShotBudget(duration)} stable shots. Hard cuts only; no dissolves, crossfades, ghosts, morphs, duplicates, anatomy errors, grids, captions, or invented claims.`,
     ].join(" ");
     return normalizeSpaces(prompt);
 }
@@ -193,9 +202,11 @@ export function storyboardAudioScriptForDuration(plan: CanvasCommerceVideoPlan |
     if (!audioPlan || audioPlan.mode === "ambient-only") return "";
     const durationKey = storyboardScriptDurationKey(duration);
     const durationScript = audioPlan.scriptsByDuration?.[durationKey]?.trim();
-    if (durationScript && storyboardScriptFitsDuration(durationScript, audioPlan.language, duration)) return durationScript;
+    if (durationScript && storyboardScriptFitsDuration(durationScript, audioPlan.language, duration)) {
+        return normalizeStoryboardSpeechForProvider(durationScript, audioPlan.language);
+    }
     const baseScript = audioPlan.script?.trim() || "";
-    return baseScript && storyboardScriptFitsDuration(baseScript, audioPlan.language, duration) ? baseScript : "";
+    return baseScript && storyboardScriptFitsDuration(baseScript, audioPlan.language, duration) ? normalizeStoryboardSpeechForProvider(baseScript, audioPlan.language) : "";
 }
 
 export function hasCompleteStoryboardAudioPlan(plan: CanvasCommerceVideoPlan | null | undefined, duration?: number) {
@@ -395,6 +406,21 @@ function repairEnglishStoryboardScript(value: string, duration: number) {
 function ensureSentenceEnding(value: string) {
     const trimmed = value.trim();
     return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+function normalizeStoryboardSpeechForProvider(value: string, language: string | undefined) {
+    const normalizedLanguage = (language || "").trim().toLowerCase();
+    const looksEnglish = /english|\ben\b/.test(normalizedLanguage) || (!normalizedLanguage && !/[\u3400-\u9fff]/.test(value));
+    if (!looksEnglish) return value.trim();
+    return ensureSentenceEnding(
+        normalizeSpaces(
+            value
+                .replace(/[\u2018\u2019]/g, "'")
+                .replace(/\bI'm\b/gi, "I am")
+                .replace(/\bright here\b/gi, "")
+                .replace(/\s+([,.;!?])/g, "$1"),
+        ),
+    );
 }
 
 function fallbackStoryboardScript(duration: number) {
