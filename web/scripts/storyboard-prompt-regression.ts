@@ -203,8 +203,9 @@ assert.match(recoveredCompactPrompt, /one continuous stable creator take/i, "sin
 assert.doesNotMatch(recoveredCompactPrompt, /hard cut to/i);
 assert.doesNotMatch(recoveredCompactPrompt, /sprays the removed/i, "an impossible middle state must not be forced into a single-anchor creator take");
 assert.match(recoveredCompactPrompt, /thumbs-up/i, "the stable shots must retain the CTA action");
-assert.match(recoveredCompactPrompt, /warm conversational creator delivery/i, "creator delivery must not be flattened into calm narration");
+assert.match(recoveredCompactPrompt, /warm, lively, conversational, unscripted/i, "creator delivery must not be flattened into calm narration");
 assert.doesNotMatch(recoveredCompactPrompt, /voice with a brief\s*;/i, "voice compaction must not leave a dangling adjective before the language separator");
+assert.doesNotMatch(recoveredCompactPrompt, /with one\s*;/i, "voice compaction must not leave a truncated consistency phrase");
 assert.doesNotMatch(recoveredCompactPrompt, /Following the .* panels|\b(?:a|an|the|and|or|to|of|with)\s*; hard cut/i, "compiled stages must not end in panel-order boilerplate or dangling connector words");
 assert.match(recoveredCompactPrompt, /use only physically plausible local handling/i);
 assert.ok(recoveredCompactPrompt.split(/\s+/).length <= 180, `recovered clean-anchor prompt must remain compact, received ${recoveredCompactPrompt.split(/\s+/).length} words`);

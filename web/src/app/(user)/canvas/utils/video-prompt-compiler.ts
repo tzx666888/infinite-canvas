@@ -718,11 +718,9 @@ function compactStoryboardVoice(value: string | undefined) {
 }
 
 function compactStoryboardCreatorVoice(value: string | undefined) {
-    return compactStoryboardVoice(value)
-        .replace(/surprised opener then calm narration/gi, "warm conversational creator delivery")
-        .replace(/calm narration/gi, "warm conversational creator delivery")
-        .replace(/\bcalm\b/gi, "warm")
-        .replace(/\bnarration\b/gi, "creator delivery");
+    const voice = readableText(value, "Natural adult creator voice");
+    const gender = /\bfemale\b/i.test(voice) ? "female " : /\bmale\b/i.test(voice) ? "male " : "";
+    return `Natural adult ${gender}creator voice: warm, lively, conversational, unscripted`;
 }
 
 function stableCreatorStory(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBeat[], duration: number, wornGarmentTreatmentConflict: boolean) {
