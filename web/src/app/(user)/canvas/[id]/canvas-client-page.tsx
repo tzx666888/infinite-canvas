@@ -49,6 +49,7 @@ import {
     compileVideoPrompt,
     extractCommerceVideoPlan,
     hasCompleteStoryboardAudioPlan,
+    repairStoryboardAudioPlanForDuration,
     resolveStoryboardMode,
     resolveStoryboardVideoPlan,
     storyboardAudioScriptForDuration,
@@ -3528,6 +3529,9 @@ function InfiniteCanvasPage() {
                     const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, directProductLock ? 1 : videoReferenceImages.length);
                     const videoIdentityReferenceCount = Math.min(videoIdentityImages.length, videoReferenceImages.length);
                     let storyboardPlan = resolveStoryboardVideoPlan(nodeId, nodesRef.current, connectionsRef.current, videoPromptSource);
+                    if (usesWholeStoryboardSheet && storyboardPlan?.beats?.length) {
+                        storyboardPlan = repairStoryboardAudioPlanForDuration(storyboardPlan, Number(videoGenerationConfig.videoSeconds));
+                    }
                     if (usesWholeStoryboardSheet && !hasCompleteStoryboardAudioPlan(storyboardPlan, Number(videoGenerationConfig.videoSeconds))) {
                         message.info("正在按当前时长恢复分镜语义与自然口播...");
                         storyboardPlan = await recoverLegacyStoryboardVideoPlan(generationConfig, storyboardReviewSheetImages, videoGenerationConfig.videoSeconds, videoPromptSource, storyboardPlan);
@@ -3973,6 +3977,9 @@ function InfiniteCanvasPage() {
                 }
                 if (node.type === CanvasNodeType.Video) {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
+                    if (retriesWholeStoryboardSheet && retryStoryboardPlan?.beats?.length) {
+                        retryStoryboardPlan = repairStoryboardAudioPlanForDuration(retryStoryboardPlan, Number(generationConfig.videoSeconds));
+                    }
                     if (retriesWholeStoryboardSheet && !hasCompleteStoryboardAudioPlan(retryStoryboardPlan, Number(generationConfig.videoSeconds))) {
                         updateRetryVideoGenerationStage("按当前时长恢复分镜语义与自然口播...");
                         retryStoryboardPlan = await recoverLegacyStoryboardVideoPlan(generationConfig, storyboardRetryWholeImages, generationConfig.videoSeconds, retryVideoPromptSource, retryStoryboardPlan);
@@ -5323,7 +5330,7 @@ async function recoverLegacyStoryboardVideoPlan(config: AiConfig, storyboardImag
             ? `Preserve this saved director direction wherever it agrees with the visible panels: ${limitInlinePrompt(savedDirection, 2200)}`
             : "No saved director direction remains. Infer only the story visibly supported by the ordered panels.",
         legacyPlanText ? `Upgrade this legacy plan without dropping its supported beats or constraints: ${legacyPlanText}` : "Create ordered beats that describe the visible panel story precisely.",
-        "Unless the saved direction explicitly requests another spoken language, use natural English. Supply audioPlan.scriptsByDuration with independent 6, 10, and 15 second scripts of 10-14, 18-24, and 26-34 English words respectively; audioPlan.script must equal the variant for the requested duration.",
+        "Unless the saved direction explicitly requests another spoken language, use natural English. Supply audioPlan.scriptsByDuration with independent 6, 10, and 15 second scripts of 7-10, 12-16, and 18-22 English words respectively; audioPlan.script must equal the variant for the requested duration.",
         "Each duration script must sound like one real creator speaking naturally, not a director or catalog: start with a short 4-7 word reaction or observation, then one connected benefit or invitation after a natural breath. Never write 'from the first ... to the final ...', narrate shot order, list garment geometry, stack feature fragments, or mechanically truncate a longer script.",
         "For a visible adult presenter, use mixed delivery: put the short opening sentence in spokenLine on one stable face-visible medium or close beat, then continue the same voice as off-screen narration over walking, profile, product, detail, or other B-roll. Do not create separate slogans for individual shots or keep the presenter talking through every cut.",
     ].join("\n");
@@ -5337,7 +5344,7 @@ async function recoverLegacyStoryboardVideoPlan(config: AiConfig, storyboardImag
     const recovered = extractCommerceVideoPlan(result);
     if (!recovered?.beats?.length) throw new Error("旧分镜语义恢复失败：优化模型没有返回可用的 CommerceVideoPlan");
     const durationScript = storyboardAudioScriptForDuration(recovered, duration);
-    const enriched: CanvasCommerceVideoPlan = {
+    const enrichedSource: CanvasCommerceVideoPlan = {
         ...recovered,
         directorBrief: savedDirection || recovered.directorBrief || legacyPlan?.directorBrief,
         audioPlan: recovered.audioPlan
@@ -5347,6 +5354,7 @@ async function recoverLegacyStoryboardVideoPlan(config: AiConfig, storyboardImag
               }
             : undefined,
     };
+    const enriched = repairStoryboardAudioPlanForDuration(enrichedSource, duration);
     if (!hasCompleteStoryboardAudioPlan(enriched, duration)) throw new Error("旧分镜语义恢复失败：优化模型没有返回符合当前时长的完整口播脚本");
     return enriched;
 }

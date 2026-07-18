@@ -212,6 +212,41 @@ export function hasCompleteStoryboardAudioPlan(plan: CanvasCommerceVideoPlan | n
     return plan.beats.some((beat) => Boolean(beat.spokenLine?.trim()));
 }
 
+export function repairStoryboardAudioPlanForDuration(plan: CanvasCommerceVideoPlan, duration: number): CanvasCommerceVideoPlan {
+    if (!plan.beats?.length || plan.audioPlan?.mode === "ambient-only" || hasCompleteStoryboardAudioPlan(plan, duration)) return plan;
+
+    const durationKey = storyboardScriptDurationKey(duration);
+    const audioPlan = plan.audioPlan || {};
+    const candidate = [
+        audioPlan.scriptsByDuration?.[durationKey],
+        audioPlan.script,
+        orderBeats(plan.beats)
+            .map((beat) => beat.spokenLine?.trim())
+            .filter(Boolean)
+            .join(" "),
+    ].find((value) => Boolean(value?.trim()));
+    if (!candidate) return plan;
+
+    const repairedScript = repairEnglishStoryboardScript(candidate, duration);
+    if (!repairedScript || !storyboardScriptFitsDuration(repairedScript, audioPlan.language || "English", duration)) return plan;
+
+    const evidence = [plan.visualIdentity || "", ...plan.beats.map((beat) => beat.description || "")].join(" ");
+    return {
+        ...plan,
+        audioPlan: {
+            ...audioPlan,
+            mode: audioPlan.mode || (visiblePresenterPattern.test(evidence) ? "mixed" : "voiceover"),
+            language: audioPlan.language || "English",
+            voice: audioPlan.voice || inferredVoiceDirection(evidence),
+            script: repairedScript,
+            scriptsByDuration: {
+                ...audioPlan.scriptsByDuration,
+                [durationKey]: repairedScript,
+            },
+        },
+    };
+}
+
 export function selectStoryboardLocationsForDuration(plan: CanvasCommerceVideoPlan, duration: number) {
     const selectedBeats = selectBeatsForDuration(plan.beats, duration) || [];
     const beatLocations = uniqueReadableLocations(selectedBeats.map((beat) => beat.eightElements?.scene || ""));
@@ -329,6 +364,42 @@ function storyboardSpeechWordRange(duration: number): [number, number] {
     if (duration <= 6) return [7, 10];
     if (duration <= 10) return [12, 16];
     return [18, 22];
+}
+
+function repairEnglishStoryboardScript(value: string, duration: number) {
+    const normalized = normalizeSpaces(value.replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"'));
+    if (!normalized) return "";
+
+    const [minimum, maximum] = storyboardSpeechWordRange(duration);
+    const words = normalized.split(/\s+/).filter(Boolean);
+    if (words.length >= minimum && words.length <= maximum) return ensureSentenceEnding(normalized);
+    if (words.length < minimum) return fallbackStoryboardScript(duration);
+
+    let selected = words.slice(0, maximum);
+    const connectorPattern = /^(?:and|or|but|before|after|while|because|with|without|to|for|from|as)$/i;
+    const danglingPattern = /^(?:a|an|the|and|or|but|before|after|while|because|with|without|to|for|from|as|then|showing|revealing|presenting)$/i;
+    const tokenText = (word: string) => word.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
+
+    for (let index = selected.length - 1; index >= Math.max(minimum, selected.length - 5); index -= 1) {
+        if (connectorPattern.test(tokenText(selected[index] || "")) && index >= minimum) {
+            selected = selected.slice(0, index);
+            break;
+        }
+    }
+    while (selected.length > minimum && danglingPattern.test(tokenText(selected.at(-1) || ""))) selected.pop();
+    if (selected.length < minimum) return fallbackStoryboardScript(duration);
+    return ensureSentenceEnding(selected.join(" ").replace(/[,;:\s]+$/g, ""));
+}
+
+function ensureSentenceEnding(value: string) {
+    const trimmed = value.trim();
+    return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+function fallbackStoryboardScript(duration: number) {
+    if (duration <= 6) return "See this product in action from start to finish.";
+    if (duration <= 10) return "Watch how I use this product step by step, with each action shown clearly.";
+    return "Watch how I use this product step by step, keeping every action clear and the final presentation natural and easy to follow.";
 }
 
 function uniqueReadableLocations(locations: string[]) {

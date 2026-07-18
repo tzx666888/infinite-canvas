@@ -8,6 +8,7 @@ import {
     compileVideoBeatPrompt,
     compileVideoPrompt,
     hasCompleteStoryboardAudioPlan,
+    repairStoryboardAudioPlanForDuration,
     resolveStoryboardMode,
     resolveStoryboardVideoPlan,
     selectBeatsForDuration,
@@ -209,6 +210,21 @@ assert.equal(hasCompleteStoryboardAudioPlan(apparelPlan), true, "a saved exact w
 assert.equal(hasCompleteStoryboardAudioPlan(apparelPlan, 10), true, "a saved duration-specific script is complete for its matching model duration");
 assert.equal(hasCompleteStoryboardAudioPlan(legacyApparelPlan), false, "legacy plans without a script must be enriched before a billable whole-video request");
 assert.equal(hasCompleteStoryboardAudioPlan({ ...apparelPlan, audioPlan: { ...apparelPlan.audioPlan, scriptsByDuration: undefined } }, 10), false, "a 15-second base script must not be reused by a 10-second model");
+const repairedLegacySpeechPlan = repairStoryboardAudioPlanForDuration(
+    {
+        ...apparelPlan,
+        audioPlan: {
+            ...apparelPlan.audioPlan,
+            script: "That wave came out of nowhere. I'm cleaning the black bikini right here at the shoreline, then rinsing it before showing the fabric, ties, and finished beach look.",
+            scriptsByDuration: undefined,
+        },
+    },
+    15,
+);
+assert.equal(hasCompleteStoryboardAudioPlan(repairedLegacySpeechPlan, 15), true, "saved long speech must be repaired locally instead of blocking video submission");
+assert.equal(repairedLegacySpeechPlan.audioPlan?.script, "That wave came out of nowhere. I'm cleaning the black bikini right here at the shoreline, then rinsing it.");
+assert.equal(repairedLegacySpeechPlan.audioPlan?.scriptsByDuration?.["15"], repairedLegacySpeechPlan.audioPlan?.script, "the repaired script must persist in the active duration slot");
+assert.match(compileStoryboardCleanAnchorVideoPrompt(repairedLegacySpeechPlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" }), /then rinsing it\./i);
 assert.match(storyboardAudioScriptForDuration(apparelPlan, 10), /from shore to pool/i);
 assert.equal(storyboardShotBudget(6), 2);
 assert.equal(storyboardShotBudget(10), 3);
@@ -471,6 +487,10 @@ assert.match(canvasClientSource, /正在按当前时长恢复分镜语义与自�
 assert.match(canvasClientSource, /hasCompleteStoryboardAudioPlan\(storyboardPlan, Number\(videoGenerationConfig\.videoSeconds\)\)/, "a whole-grid request must require a script that fits the actual model duration");
 assert.match(canvasClientSource, /defaultConfig\.textModel \|\| "tokaxis::gpt-5\.6-sol"/, "legacy storyboard recovery must always use the built-in GPT-5.6 Sol optimizer");
 assert.match(canvasClientSource, /audioPlan\.scriptsByDuration with independent 6, 10, and 15 second scripts/, "semantic recovery must prepare independent scripts instead of truncating one master script");
+assert.match(canvasClientSource, /7-10, 12-16, and 18-22 English words/, "legacy recovery must use the same conservative speech budgets as the compiler");
+assert.doesNotMatch(canvasClientSource, /10-14, 18-24, and 26-34 English words/, "legacy recovery must not restore the old overlong speech budgets");
+assert.match(canvasClientSource, /repairStoryboardAudioPlanForDuration\(storyboardPlan/, "saved long storyboard speech must be repaired locally before an optimizer request");
+assert.match(canvasClientSource, /repairStoryboardAudioPlanForDuration\(enrichedSource, duration\)/, "optimizer output must receive deterministic duration repair before validation");
 assert.match(videoPromptCompilerSource, /compileStoryboardCleanAnchorVideoPrompt/, "clean-anchor prompt compilation must remain independently regression-testable");
 assert.match(videoPromptCompilerSource, /Use the attached clean keyframe as the exact opening and identity anchor/, "Grok must receive the bridge as a clean literal opening frame, never as a contact sheet");
 assert.match(videoPromptCompilerSource, /at most \$\{storyboardShotBudget\(duration\)\} stable shots/, "whole-grid execution must enforce a duration-aware stage budget");
