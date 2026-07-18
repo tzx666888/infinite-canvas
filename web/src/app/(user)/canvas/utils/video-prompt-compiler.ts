@@ -51,23 +51,36 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
     const mode = resolveStoryboardMode(plan);
     const beats = selectBeatsForDuration(plan.beats, duration) || [];
     const stageRanges = grokStageRanges(beats.length || 1, duration);
-    const stages = beats.length
-        ? beats.map((beat, index) => `${stageRanges[index]} ${compactStoryboardStageAction(beat, plan, 10)}`).join("; hard cut to ")
-        : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), 10)}`;
-    const script = storyboardAudioScriptForDuration(plan, duration);
     const audioPlan = plan.audioPlan;
+    const presenterEvidence = [plan.visualIdentity || "", plan.directorBrief || "", ...beats.flatMap((beat) => [beat.description || "", beat.eightElements?.subject || ""])].join(" ");
+    const hasCreatorPresenter = mode === "apparel" || mode === "subject" || audioPlan?.mode === "mixed" || audioPlan?.mode === "on-camera" || visiblePresenterPattern.test(presenterEvidence);
+    const useStableCreatorTake = hasCreatorPresenter && audioPlan?.mode !== "ambient-only" && audioPlan?.mode !== "voiceover";
+    const wornGarmentTreatmentConflict = hasWornGarmentTreatmentConflict(plan);
+    const stages = useStableCreatorTake
+        ? stableCreatorStory(plan, beats, duration, wornGarmentTreatmentConflict)
+        : beats.length
+          ? beats.map((beat, index) => `${stageRanges[index]} ${compactStoryboardStageAction(beat, plan, 12)}`).join("; hard cut to ")
+          : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), 12)}`;
+    const script = creatorAudioScriptForDuration(plan, duration, wornGarmentTreatmentConflict);
     const audioDirection =
         audioPlan?.mode === "ambient-only"
             ? "Audio: natural location sound and restrained music only; no speech."
-            : [
-                  `Audio: ${compactStoryboardVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
-                  script ? `Say exactly once: "${script}"` : "Deliver one short connected creator-style line once.",
-                  audioPlan?.mode === "on-camera"
-                      ? "Keep the same face readable and lip-synchronized for the entire line."
-                      : audioPlan?.mode === "voiceover"
-                        ? "Keep the voice off-screen while visible people act naturally."
-                        : "Lip-sync the short opening sentence, then use the same voice off-screen over details.",
-              ].join(" ");
+            : useStableCreatorTake
+              ? [
+                    `Audio: ${compactStoryboardCreatorVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
+                    script ? `Speak this once, naturally: "${script}"` : "Deliver one connected creator-style thought once.",
+                    creatorSpeechTiming(duration),
+                    "Keep one readable face with natural expression and synchronized lips throughout speech.",
+                ].join(" ")
+              : [
+                    `Audio: ${compactStoryboardVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
+                    script ? `Say exactly once: "${script}"` : "Deliver one short connected creator-style line once.",
+                    audioPlan?.mode === "on-camera"
+                        ? "Keep the same face readable and lip-synchronized for the entire line."
+                        : audioPlan?.mode === "voiceover"
+                          ? "Keep the voice off-screen while visible people act naturally."
+                          : "Lip-sync the short opening sentence, then use the same voice off-screen over details.",
+                ].join(" ");
     const identityDirection =
         mode === "product"
             ? "Lock the presenter and exact product shape, colors, label layout, count, and scale."
@@ -76,14 +89,28 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
               : "Lock the same subject identity, wardrobe, body proportions, and visual world.";
     const prompt = [
         STORYBOARD_DIRECTED_VIDEO_MARKER,
-        `Create polished ${duration}s ${context.aspectRatio} footage.`,
+        `Create ${duration}s ${context.aspectRatio} footage.`,
         "Use the clean keyframe as exact opening and identity anchor.",
         `Story: ${stages}.`,
         audioDirection,
         identityDirection,
-        `Use at most ${storyboardShotBudget(duration)} stable shots. Hard cuts only; no dissolves, crossfades, ghosts, morphs, duplicates, anatomy errors, grids, captions, or invented claims.`,
+        useStableCreatorTake
+            ? "Use one continuous medium shot with gentle drift. No cuts, scene changes, full-body reframing, zooms, giant hands, teleports, product/garment duplicates, morphs, or anatomy changes."
+            : `Use at most ${storyboardShotBudget(duration)} stable shots. Hard cuts only; no dissolves, crossfades, ghosts, morphs, duplicates, anatomy errors, grids, captions, or invented claims.`,
     ].join(" ");
     return normalizeSpaces(prompt);
+}
+
+export function hasWornGarmentTreatmentConflict(plan: CanvasCommerceVideoPlan) {
+    if (resolveStoryboardMode(plan) !== "product") return false;
+    const orderedBeats = orderBeats(plan.beats);
+    const openingEvidence = [plan.visualIdentity || "", plan.directorBrief || "", orderedBeats[0]?.description || "", orderedBeats[0]?.eightElements?.action || ""].join(" ");
+    const fullEvidence = [plan.productCategory || "", plan.visualIdentity || "", plan.directorBrief || "", plan.audioPlan?.script || "", ...orderedBeats.flatMap((beat) => [beat.description || "", beat.eightElements?.action || ""])].join(" ");
+    const wearerStartsInTarget = /\b(?:wearing|wears|worn|dressed in|fitted in)\b[^.]{0,80}\b(?:bikini|swimsuit|swimwear|garment|dress|shirt|top|pants|jacket|coat)\b/i.test(openingEvidence);
+    const presenterAndRemovedTarget = visiblePresenterPattern.test(openingEvidence) && /\bremoved\b[^.]{0,60}\b(?:bikini|swimsuit|swimwear|garment|dress|shirt|top|pants|jacket|coat)\b/i.test(fullEvidence);
+    const cleaningProduct = /\b(?:cleaner|detergent|cleaning spray|stain remover|fabric wash|laundry)\b/i.test(fullEvidence);
+    const treatsGarment = /\b(?:spray|clean|brush|scrub|rinse|wash|wipe|treat|remove)\w*\b[^.]{0,100}\b(?:bikini|swimsuit|swimwear|garment|fabric|dress|shirt|top|pants|jacket|coat)\b/i.test(fullEvidence);
+    return (wearerStartsInTarget || presenterAndRemovedTarget) && cleaningProduct && treatsGarment;
 }
 
 export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | undefined, sourcePrompt = "", duration = 15): string {
@@ -688,6 +715,62 @@ function compactStoryboardVoice(value: string | undefined) {
         .replace(/\bfollowed by\b/gi, "then")
         .replace(/\boff-screen narration\b/gi, "narration");
     return limitBeatWords(voice, 10);
+}
+
+function compactStoryboardCreatorVoice(value: string | undefined) {
+    return compactStoryboardVoice(value)
+        .replace(/surprised opener then calm narration/gi, "warm conversational creator delivery")
+        .replace(/calm narration/gi, "warm conversational creator delivery")
+        .replace(/\bcalm\b/gi, "warm")
+        .replace(/\bnarration\b/gi, "creator delivery");
+}
+
+function stableCreatorStory(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBeat[], duration: number, wornGarmentTreatmentConflict: boolean) {
+    const finalStart = duration <= 6 ? 5 : duration <= 10 ? 8 : Math.max(2, duration - 3);
+    const target = wornGarmentTarget(plan);
+    if (wornGarmentTreatmentConflict) {
+        return [
+            `one continuous demo: [0:00-0:02] react and face the camera with the cleaner`,
+            `[0:02-${formatTime(finalStart)}] speak while using it only on one separate unworn ${target} on a waist-high surface`,
+            `[${formatTime(finalStart)}-${formatTime(duration)}] hold the cleaner and ${target} at natural scale`,
+        ].join("; then ");
+    }
+
+    const opening = beats[0] ? compactStoryboardStageAction(beats[0], plan, 12) : "begin from the exact opening pose and address the camera naturally";
+    const endingBeat = beats.at(-1);
+    const ending = endingBeat && endingBeat !== beats[0] ? compactStoryboardStageAction(endingBeat, plan, 12) : "finish with one stable product or subject presentation";
+    return `one continuous stable creator take: ${opening}; use only physically plausible local handling possible from the opening frame; then ${ending}`;
+}
+
+function creatorAudioScriptForDuration(plan: CanvasCommerceVideoPlan, duration: number, wornGarmentTreatmentConflict: boolean) {
+    const script = storyboardAudioScriptForDuration(plan, duration);
+    if (!wornGarmentTreatmentConflict || !looksEnglishStoryboardSpeech(script, plan.audioPlan?.language)) return script;
+    const target = wornGarmentTarget(plan);
+    if (duration <= 6) return "That wave was wild. Good thing this cleaner stays in my beach bag.";
+    if (duration <= 10) return `That wave was wild. I keep this cleaner in my beach bag, then use it on my ${target} after swimming.`;
+    return `That wave came out of nowhere. I keep this cleaner in my beach bag, then use it on my ${target} after swimming before a fresh-water rinse.`;
+}
+
+function creatorSpeechTiming(duration: number) {
+    if (duration <= 6) return "Start near 0.4s, take one natural breath, and finish at 5.2-5.7s; no rushing or long silent tail.";
+    if (duration <= 10) return "Start near 0.5s, take two short breaths, and finish at 9.0-9.6s; no rushing or long silent tail.";
+    return "Start near 0.5s, take two natural breaths, and finish at 13.2-14.2s; no rushing, chanting, or long silent tail.";
+}
+
+function wornGarmentTarget(plan: CanvasCommerceVideoPlan) {
+    const evidence = [plan.productCategory || "", plan.visualIdentity || "", plan.directorBrief || "", plan.audioPlan?.script || "", ...(plan.beats || []).flatMap((beat) => [beat.description || "", beat.eightElements?.action || ""])].join(" ");
+    const color = /\bblack\b/i.test(evidence) ? "black " : "";
+    if (/\bbikini\b/i.test(evidence)) return `${color}bikini`;
+    if (/\b(?:swimsuit|swimwear)\b/i.test(evidence)) return `${color}swimsuit`;
+    if (/\bdress\b/i.test(evidence)) return `${color}dress`;
+    if (/\bshirt\b/i.test(evidence)) return `${color}shirt`;
+    if (/\bjacket\b/i.test(evidence)) return `${color}jacket`;
+    return `${color}garment`;
+}
+
+function looksEnglishStoryboardSpeech(value: string, language: string | undefined) {
+    const normalizedLanguage = (language || "").trim().toLowerCase();
+    return /english|\ben\b/.test(normalizedLanguage) || (!normalizedLanguage && Boolean(value) && !/[\u3400-\u9fff]/.test(value));
 }
 
 function compactStoryboardStageAction(beat: CommerceVideoBeat, plan: CanvasCommerceVideoPlan, maxWords: number) {

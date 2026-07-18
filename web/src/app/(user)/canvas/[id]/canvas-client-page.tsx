@@ -49,6 +49,7 @@ import {
     compileVideoPrompt,
     extractCommerceVideoPlan,
     hasCompleteStoryboardAudioPlan,
+    hasWornGarmentTreatmentConflict,
     repairStoryboardAudioPlanForDuration,
     resolveStoryboardMode,
     resolveStoryboardVideoPlan,
@@ -5613,15 +5614,26 @@ async function createStoryboardVideoBridgeReference(config: AiConfig, context: S
     const firstBeat = [...(context.plan.beats || [])].sort((a, b) => a.index - b.index)[0];
     const mode = resolveStoryboardMode(context.plan);
     const needsPresenter = mode === "apparel" || mode === "subject" || context.plan.audioPlan?.mode === "mixed" || context.plan.audioPlan?.mode === "on-camera";
+    const wornGarmentTreatmentConflict = hasWornGarmentTreatmentConflict(context.plan);
     const referenceRoles = [
-        openingImageNumber ? `Image ${openingImageNumber} is a clean opening candidate. Preserve its visible face, body, wardrobe, product, camera angle, and environment.` : "",
-        identityImageNumbers.length ? `Images ${identityImageNumbers.join(", ")} are the original identity, product, wardrobe, or scene sources. Their visible identities and rigid-object geometry override the storyboard whenever details differ.` : "",
+        openingImageNumber
+            ? wornGarmentTreatmentConflict
+                ? `Image ${openingImageNumber} is a composition and identity candidate. Preserve its face, body proportions, exact cleaner, camera angle, and environment, but do not copy the target garment as clothing on the presenter.`
+                : `Image ${openingImageNumber} is a clean opening candidate. Preserve its visible face, body, wardrobe, product, camera angle, and environment.`
+            : "",
+        identityImageNumbers.length
+            ? wornGarmentTreatmentConflict
+                ? `Images ${identityImageNumbers.join(", ")} lock the original face, hair, body proportions, cleaner geometry, colors, and label layout. Source wardrobe is identity evidence only and must not duplicate the separate garment being cleaned.`
+                : `Images ${identityImageNumbers.join(", ")} are the original identity, product, wardrobe, or scene sources. Their visible identities and rigid-object geometry override the storyboard whenever details differ.`
+            : "",
         storyboardImageNumber ? `Image ${storyboardImageNumber} is the complete storyboard contact sheet. Use it only to understand the recurring presenter, product, environment, and opening action; never copy its grid layout or panel boundaries.` : "",
     ]
         .filter(Boolean)
         .join("\n");
     const presenterDirection = needsPresenter
-        ? "Show one stable face-visible adult presenter in a medium or chest-up composition with the complete head, neck, shoulders, torso, and two separate natural arms. Keep the mouth readable for the opening spoken sentence."
+        ? wornGarmentTreatmentConflict
+            ? "Show one stable face-visible adult presenter wearing a simple beach cover-up, dry top, or other natural non-target outfit. Frame the complete head, mouth, torso, two arms, exact cleaner, and one separate target garment together in a medium waist-up composition."
+            : "Show one stable face-visible adult presenter in a medium or chest-up composition with the complete head, neck, shoulders, torso, and two separate natural arms. Keep the mouth readable for the opening spoken sentence."
         : "Do not invent a presenter when the references and plan are product-only or scene-only.";
     const productDirection =
         mode === "product"
@@ -5630,9 +5642,14 @@ async function createStoryboardVideoBridgeReference(config: AiConfig, context: S
     const bridgePrompt = [
         `Create exactly one clean high-resolution ${videoAspectRatioForSize(bridgeConfig.size)} opening keyframe for the planned short video.`,
         referenceRoles,
-        firstBeat?.description ? `Opening action: ${limitInlinePrompt(firstBeat.description, 500)}` : "Make the planned opening action immediately readable.",
+        wornGarmentTreatmentConflict
+            ? "Opening action: the presenter reacts naturally, faces the camera, and holds the exact cleaner beside one separate unworn target garment laid flat on a stable waist-high surface."
+            : firstBeat?.description
+              ? `Opening action: ${limitInlinePrompt(firstBeat.description, 500)}`
+              : "Make the planned opening action immediately readable.",
         presenterDirection,
         productDirection,
+        wornGarmentTreatmentConflict ? "State lock: the target garment exists exactly once and is never worn; the cleaner bottle exists exactly once. Keep both separate from the presenter's body and from each other." : "",
         buildVideoProductScalePrompt(context.productScaleMode),
         "Preserve realistic anatomy, straight natural posture, clean hands, photographic lighting, and believable contact. Do not stretch, bend, melt, duplicate, average identities, or reconstruct a collage.",
         "Output one polished full-frame photograph only: no grid, split screen, border, caption, subtitle, watermark, UI, price, or offer.",
