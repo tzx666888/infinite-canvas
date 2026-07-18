@@ -3518,6 +3518,8 @@ function InfiniteCanvasPage() {
                     const videoIdentityImages = usesWholeStoryboardSheet ? [] : mergeReferenceImages(generationContext.referenceImages, storyboardIdentityImages);
                     const storyboardVideoImages = usesWholeStoryboardSheet ? wholeStoryboardImages : storyboardReferenceFrames;
                     const allVideoReferenceImages = mergeReferenceImages(videoIdentityImages, storyboardVideoImages);
+                    const videoReferenceVideos = usesWholeStoryboardSheet ? [] : generationContext.referenceVideos;
+                    const videoReferenceAudios = usesWholeStoryboardSheet ? [] : generationContext.referenceAudios;
                     const baseVideoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, allVideoReferenceImages.length);
                     let videoReferenceImages = usesWholeStoryboardSheet ? storyboardVideoImages : selectGrokReferenceVideoImagesWithPriority(videoIdentityImages, storyboardVideoImages, baseVideoGenerationConfig.model);
                     let videoPromptSource = effectivePrompt;
@@ -3573,7 +3575,7 @@ function InfiniteCanvasPage() {
                                   videoAspectRatioForSize(videoGenerationConfig.size),
                                   storyboardPlan || undefined,
                               );
-                    if (!videoPrompt && !videoReferenceImages.length && !generationContext.referenceVideos.length && !generationContext.referenceAudios.length) {
+                    if (!videoPrompt && !videoReferenceImages.length && !videoReferenceVideos.length && !videoReferenceAudios.length) {
                         throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
                     }
                     const spec = nodeSizeFromRatio(videoGenerationConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
@@ -3603,7 +3605,7 @@ function InfiniteCanvasPage() {
                             videoReferenceImages: generationImageReferenceUrls(videoReferenceImages),
                             storyboardVideoAnchorMode: wholeStoryboardAnchorMode,
                             commerceVideoPlan: usesWholeStoryboardSheet ? storyboardPlan || undefined : undefined,
-                            references: generationReferenceUrls({ ...generationContext, referenceImages: videoReferenceImages }),
+                            references: generationReferenceUrls({ referenceImages: videoReferenceImages, referenceVideos: videoReferenceVideos, referenceAudios: videoReferenceAudios }),
                         },
                     };
                     pendingChildIds = [videoId];
@@ -3645,7 +3647,7 @@ function InfiniteCanvasPage() {
                                                   prompt: requestVideoPrompt,
                                                   videoReferenceImages: generationImageReferenceUrls(requestVideoReferenceImages),
                                                   storyboardVideoAnchorMode: "generated-bridge",
-                                                  references: generationReferenceUrls({ ...generationContext, referenceImages: requestVideoReferenceImages }),
+                                                  references: generationReferenceUrls({ referenceImages: requestVideoReferenceImages, referenceVideos: videoReferenceVideos, referenceAudios: videoReferenceAudios }),
                                               },
                                           }
                                         : node,
@@ -3672,7 +3674,7 @@ function InfiniteCanvasPage() {
                                                   ...node.metadata,
                                                   prompt: requestVideoPrompt,
                                                   videoReferenceImages: generationImageReferenceUrls(requestVideoReferenceImages),
-                                                  references: generationReferenceUrls({ ...generationContext, referenceImages: requestVideoReferenceImages }),
+                                                  references: generationReferenceUrls({ referenceImages: requestVideoReferenceImages, referenceVideos: videoReferenceVideos, referenceAudios: videoReferenceAudios }),
                                               },
                                           }
                                         : node,
@@ -3680,9 +3682,7 @@ function InfiniteCanvasPage() {
                             );
                         }
                         updateVideoGenerationStage("视频任务提交/生成中...");
-                        const video = await storeGeneratedVideo(
-                            await requestVideoGeneration(videoGenerationConfig, requestVideoPrompt, requestVideoReferenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal }),
-                        );
+                        const video = await storeGeneratedVideo(await requestVideoGeneration(videoGenerationConfig, requestVideoPrompt, requestVideoReferenceImages, videoReferenceVideos, videoReferenceAudios, { signal: controller.signal }));
                         const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                         setNodes((prev) =>
                             prev.map((node) =>
@@ -3707,7 +3707,7 @@ function InfiniteCanvasPage() {
                                               storyboardVideoAnchorMode:
                                                   usesWholeStoryboardSheet && wholeStoryboardAnchorMode === "bridge-pending" ? "generated-bridge" : usesWholeStoryboardSheet ? wholeStoryboardAnchorMode : node.metadata?.storyboardVideoAnchorMode,
                                               videoReferenceImages: generationImageReferenceUrls(requestVideoReferenceImages),
-                                              references: generationReferenceUrls({ ...generationContext, referenceImages: requestVideoReferenceImages }),
+                                              references: generationReferenceUrls({ referenceImages: requestVideoReferenceImages, referenceVideos: videoReferenceVideos, referenceAudios: videoReferenceAudios }),
                                           },
                                       }
                                     : node,
@@ -3860,6 +3860,8 @@ function InfiniteCanvasPage() {
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
             const storyboardRetryWholeImages = node.type === CanvasNodeType.Video ? storyboardReviewSheetWholeReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const retriesWholeStoryboardSheet = storyboardRetryWholeImages.length > 0;
+            const retryReferenceVideos = retriesWholeStoryboardSheet ? [] : context?.referenceVideos || [];
+            const retryReferenceAudios = retriesWholeStoryboardSheet ? [] : context?.referenceAudios || [];
             const storedVideoReferenceImages = node.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(node.metadata) : [];
             const storyboardRetryIdentityImages = node.type === CanvasNodeType.Video ? await storyboardReviewSheetIdentityReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const storyboardRetryKeyframeImages = node.type === CanvasNodeType.Video && retriesWholeStoryboardSheet ? storyboardReviewSheetKeyframeAnchorReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
@@ -3868,7 +3870,7 @@ function InfiniteCanvasPage() {
             const storyboardRetryImages = node.type === CanvasNodeType.Video && !retriesWholeStoryboardSheet ? await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const hasVideoReferences =
                 node.type === CanvasNodeType.Video &&
-                Boolean(storyboardRetryWholeImages.length || storedVideoReferenceImages.length || storyboardRetryImages.length || context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length);
+                Boolean(storyboardRetryWholeImages.length || storedVideoReferenceImages.length || storyboardRetryImages.length || context?.referenceImages.length || retryReferenceVideos.length || retryReferenceAudios.length);
             if (!prompt && !hasVideoReferences) {
                 message.warning("找不到提示词，无法重试");
                 return;
@@ -4048,7 +4050,7 @@ function InfiniteCanvasPage() {
                                               prompt: videoPrompt,
                                               videoReferenceImages: generationImageReferenceUrls(retryVideoImages),
                                               storyboardVideoAnchorMode: retryWholeStoryboardAnchorMode,
-                                              references: generationReferenceUrls({ referenceImages: retryVideoImages, referenceVideos: context?.referenceVideos || [], referenceAudios: context?.referenceAudios || [] }),
+                                              references: generationReferenceUrls({ referenceImages: retryVideoImages, referenceVideos: retryReferenceVideos, referenceAudios: retryReferenceAudios }),
                                           },
                                       }
                                     : item,
@@ -4068,7 +4070,7 @@ function InfiniteCanvasPage() {
                         );
                     }
                     updateRetryVideoGenerationStage("视频任务提交/生成中...");
-                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryVideoImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
+                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryVideoImages, retryReferenceVideos, retryReferenceAudios, { signal: controller.signal }));
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
                         prev.map((item) =>
@@ -4095,7 +4097,7 @@ function InfiniteCanvasPage() {
                                           videoConstraintVersion: retriesWholeStoryboardSheet || storyboardRetryImages.length ? GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION : undefined,
                                           videoReferenceImages: generationImageReferenceUrls(retryVideoImages).length ? generationImageReferenceUrls(retryVideoImages) : item.metadata?.videoReferenceImages,
                                           storyboardVideoAnchorMode: retryWholeStoryboardAnchorMode,
-                                          references: generationReferenceUrls({ referenceImages: retryVideoImages, referenceVideos: context?.referenceVideos || [], referenceAudios: context?.referenceAudios || [] }),
+                                          references: generationReferenceUrls({ referenceImages: retryVideoImages, referenceVideos: retryReferenceVideos, referenceAudios: retryReferenceAudios }),
                                       },
                                   }
                                 : item,
