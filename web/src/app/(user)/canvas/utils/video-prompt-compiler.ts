@@ -55,6 +55,7 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
     const presenterEvidence = [plan.visualIdentity || "", plan.directorBrief || "", ...beats.flatMap((beat) => [beat.description || "", beat.eightElements?.subject || ""])].join(" ");
     const hasCreatorPresenter = mode === "apparel" || mode === "subject" || audioPlan?.mode === "mixed" || audioPlan?.mode === "on-camera" || visiblePresenterPattern.test(presenterEvidence);
     const useStableCreatorTake = hasCreatorPresenter && audioPlan?.mode !== "ambient-only" && audioPlan?.mode !== "voiceover";
+    const useOpeningLipSync = useStableCreatorTake && audioPlan?.mode === "mixed";
     const wornGarmentTreatmentConflict = hasWornGarmentTreatmentConflict(plan);
     const stages = useStableCreatorTake
         ? stableCreatorStory(plan, beats, duration, wornGarmentTreatmentConflict)
@@ -68,9 +69,9 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
             : useStableCreatorTake
               ? [
                     `Audio: ${compactStoryboardCreatorVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
-                    script ? `Speak this once, naturally: "${script}"` : "Deliver one connected creator-style thought once.",
+                    script ? `Say once, naturally: "${script}"` : "Deliver one connected creator-style thought once.",
                     creatorSpeechTiming(duration),
-                    "Keep one readable face with natural expression and synchronized lips throughout speech.",
+                    useOpeningLipSync ? "Lip-sync the opening sentence only; then look down as the same voice continues smoothly off-screen." : "Keep one readable face with natural expression and synchronized lips throughout speech.",
                 ].join(" ")
               : [
                     `Audio: ${compactStoryboardVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
@@ -83,19 +84,18 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
                 ].join(" ");
     const identityDirection =
         mode === "product"
-            ? "Lock the presenter and exact product shape, colors, label layout, count, and scale."
+            ? "Lock presenter identity and exact product geometry, colors, label, count, and scale."
             : mode === "apparel"
               ? "Lock the adult face, hair, body proportions, garment design, fit, material, and coverage."
               : "Lock the same subject identity, wardrobe, body proportions, and visual world.";
     const prompt = [
         STORYBOARD_DIRECTED_VIDEO_MARKER,
-        `Create ${duration}s ${context.aspectRatio} footage.`,
-        "Use the clean keyframe as exact opening and identity anchor.",
+        `Create ${duration}s ${context.aspectRatio} footage from the clean keyframe as exact opening and identity anchor.`,
         `Story: ${stages}.`,
         audioDirection,
         identityDirection,
         useStableCreatorTake
-            ? "Use one continuous medium shot with gentle drift. No cuts, scene changes, full-body reframing, zooms, giant hands, teleports, product/garment duplicates, morphs, or anatomy changes."
+            ? "Use one continuous medium shot with gentle drift. No cuts, reframing, zooms, giant hands, teleports, duplicates, morphs, or anatomy errors."
             : `Use at most ${storyboardShotBudget(duration)} stable shots. Hard cuts only; no dissolves, crossfades, ghosts, morphs, duplicates, anatomy errors, grids, captions, or invented claims.`,
     ].join(" ");
     return normalizeSpaces(prompt);
@@ -728,10 +728,10 @@ function stableCreatorStory(plan: CanvasCommerceVideoPlan, beats: CommerceVideoB
     const target = wornGarmentTarget(plan);
     if (wornGarmentTreatmentConflict) {
         return [
-            `one continuous demo: [0:00-0:02] react and face the camera with the cleaner`,
-            `[0:02-${formatTime(finalStart)}] speak while using it only on one separate unworn ${target} on a waist-high surface`,
-            `[${formatTime(finalStart)}-${formatTime(duration)}] hold the cleaner and ${target} at natural scale`,
-        ].join("; then ");
+            `one continuous demo: [0:00-0:02.5] face the camera with the cleaner`,
+            `[0:02.5-${formatTime(finalStart)}] look down and spray one separate unworn ${target} on a waist-high surface`,
+            `[${formatTime(finalStart)}-${formatTime(duration)}] look back and present both at natural scale`,
+        ].join("; ");
     }
 
     const opening = beats[0] ? compactStoryboardStageAction(beats[0], plan, 12) : "begin from the exact opening pose and address the camera naturally";
@@ -745,14 +745,14 @@ function creatorAudioScriptForDuration(plan: CanvasCommerceVideoPlan, duration: 
     if (!wornGarmentTreatmentConflict || !looksEnglishStoryboardSpeech(script, plan.audioPlan?.language)) return script;
     const target = wornGarmentTarget(plan);
     if (duration <= 6) return "That wave was wild. Good thing this cleaner stays in my beach bag.";
-    if (duration <= 10) return `That wave was wild. I keep this cleaner in my beach bag, then use it on my ${target} after swimming.`;
-    return `That wave came out of nowhere. I keep this cleaner in my beach bag, then use it on my ${target} after swimming before a fresh-water rinse.`;
+    if (duration <= 10) return `That wave was wild. I keep this cleaner in my beach bag, spray my ${target} after swimming, then rinse it with fresh water.`;
+    return `That wave came out of nowhere. Good thing I keep this cleaner in my beach bag. I spray my ${target} after swimming, rinse it with fresh water, and it is ready for the next beach day.`;
 }
 
 function creatorSpeechTiming(duration: number) {
-    if (duration <= 6) return "Start near 0.4s, take one natural breath, and finish at 5.2-5.7s; no rushing or long silent tail.";
-    if (duration <= 10) return "Start near 0.5s, take two short breaths, and finish at 9.0-9.6s; no rushing or long silent tail.";
-    return "Start near 0.5s, take two natural breaths, and finish at 13.2-14.2s; no rushing, chanting, or long silent tail.";
+    if (duration <= 6) return "Start near 0.4s; flow with pauses under 0.35s and finish at 5.5-5.9s; no silent tail.";
+    if (duration <= 10) return "Start near 0.4s; flow with pauses under 0.35s and finish at 9.4-9.8s; no silent tail.";
+    return "Start near 0.4s; flow with pauses under 0.35s and finish at 14.4-14.8s; no rushing, chanting, or silent tail.";
 }
 
 function wornGarmentTarget(plan: CanvasCommerceVideoPlan) {
