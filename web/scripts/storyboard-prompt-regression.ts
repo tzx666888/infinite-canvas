@@ -427,6 +427,7 @@ const configStoreSource = readFileSync(new URL("../src/stores/use-config-store.t
 const promptPanelSource = readFileSync(new URL("../src/app/(user)/canvas/components/canvas-node-prompt-panel.tsx", import.meta.url), "utf8");
 const videoServiceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
 const videoPromptCompilerSource = readFileSync(new URL("../src/app/(user)/canvas/utils/video-prompt-compiler.ts", import.meta.url), "utf8");
+assert.match(promptPanelSource, /mode !== "video" && storyboardPlan\?\.beats\?\.length/, "a completed video node must resubmit its video request instead of regenerating storyboard review sheets");
 assert.match(canvasClientSource, /storyboardReviewSheetWholeReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "storyboard video generation must detect the selected whole grid before compiling its I2V prompt");
 assert.match(canvasClientSource, /storyboardReviewSheetKeyframeAnchorReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "whole-video generation must prefer the selected review sheet's independent keyframe");
 assert.match(

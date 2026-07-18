@@ -117,7 +117,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             return;
         }
         const storyboardPlan = activeCommerceVideoPlan || extractCommerceVideoPlan(text);
-        if (storyboardPlan?.beats?.length) {
+        if (mode !== "video" && storyboardPlan?.beats?.length) {
             setCommerceVideoPlan(storyboardPlan);
             onConfigChange(node.id, {
                 commerceVideoPlan: storyboardPlan,
