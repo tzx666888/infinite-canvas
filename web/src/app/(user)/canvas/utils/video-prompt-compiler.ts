@@ -69,9 +69,9 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
             : useStableCreatorTake
               ? [
                     `Audio: ${compactStoryboardCreatorVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
-                    script ? `Say once, naturally: "${script}"` : "Deliver one connected creator-style thought once.",
+                    script ? `Say exactly once, naturally and verbatim: "${script}"` : "Deliver one connected creator-style thought once.",
                     creatorSpeechTiming(duration),
-                    useOpeningLipSync ? "Lip-sync the opening sentence only; then look down as the same voice continues smoothly off-screen." : "Keep one readable face with natural expression and synchronized lips throughout speech.",
+                    useOpeningLipSync ? "Lip-sync the opening sentence only; then immediately continue the same voice off-screen while looking down." : "Keep one readable face with natural expression and synchronized lips throughout speech.",
                 ].join(" ")
               : [
                     `Audio: ${compactStoryboardVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
@@ -746,13 +746,13 @@ function creatorAudioScriptForDuration(plan: CanvasCommerceVideoPlan, duration: 
     const target = wornGarmentTarget(plan);
     if (duration <= 6) return "That wave was wild. Good thing this cleaner stays in my beach bag.";
     if (duration <= 10) return `That wave was wild. I keep this cleaner in my beach bag, spray my ${target} after swimming, then rinse it with fresh water.`;
-    return `That wave came out of nowhere. Good thing I keep this cleaner in my beach bag. I spray my ${target} after swimming, rinse it with fresh water, and it is ready for the next beach day.`;
+    return `That wave came out of nowhere. Good thing this cleaner stays in my beach bag. A quick spray, a fresh water rinse, and my ${target} is ready for another beach day.`;
 }
 
 function creatorSpeechTiming(duration: number) {
-    if (duration <= 6) return "Start near 0.4s; flow with pauses under 0.35s and finish at 5.5-5.9s; no silent tail.";
-    if (duration <= 10) return "Start near 0.4s; flow with pauses under 0.35s and finish at 9.4-9.8s; no silent tail.";
-    return "Start near 0.4s; flow with pauses under 0.35s and finish at 14.4-14.8s; no rushing, chanting, or silent tail.";
+    if (duration <= 6) return "Start near 0.4s; no repeats or restarts, pauses under 0.35s, finish at 5.5-5.9s; no silent tail.";
+    if (duration <= 10) return "Start near 0.4s; no repeats or restarts, pauses under 0.35s, finish at 9.4-9.8s; no silent tail.";
+    return "Start near 0.4s; no repeats or restarts, pauses under 0.35s, finish at 14.4-14.8s; no silent tail.";
 }
 
 function wornGarmentTarget(plan: CanvasCommerceVideoPlan) {
