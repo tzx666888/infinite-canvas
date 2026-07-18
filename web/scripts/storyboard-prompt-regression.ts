@@ -35,11 +35,11 @@ const apparelPlan: CanvasCommerceVideoPlan = {
         mode: "mixed",
         language: "English",
         voice: "One natural energetic adult female voice",
-        script: "Wow, that wave was unexpected. This bikini feels so secure, perfect for relaxing in the sun; the ties stay in place all day, so get yours and feel the comfort.",
+        script: "That wave surprised me. This bikini feels secure and comfortable, with ties that stay in place from shoreline to poolside.",
         scriptsByDuration: {
-            "6": "That wave woke me up. This bikini stays comfortable wherever I wander.",
-            "10": "That wave woke me up. This bikini feels secure, moves naturally, and stays comfortable from the shoreline to the pool.",
-            "15": "Wow, that wave was unexpected. This bikini feels so secure, perfect for relaxing in the sun; the ties stay in place all day, so get yours and feel the comfort.",
+            "6": "That wave surprised me. This bikini stays comfortable everywhere.",
+            "10": "That wave surprised me. This bikini feels secure and comfortable from shore to pool.",
+            "15": "That wave surprised me. This bikini feels secure and comfortable, with ties that stay in place from shoreline to poolside.",
         },
     },
     beats: [
@@ -149,8 +149,8 @@ assert.match(wholeAudioDirection, /Mixed delivery:/i);
 assert.match(wholeAudioDirection, /says only the short first sentence/i);
 assert.match(wholeAudioDirection, /After one breath/i);
 assert.match(wholeAudioDirection, /Say this exact script once, conversationally/i);
-assert.match(wholeAudioDirection, /Wow, that wave was unexpected/i);
-assert.doesNotMatch(wholeAudioDirection, /That wave woke me up/i, "15-second generation must use the 15-second script variant");
+assert.match(wholeAudioDirection, /That wave surprised me/i);
+assert.doesNotMatch(wholeAudioDirection, /from shore to pool/i, "15-second generation must use the 15-second script variant");
 assert.doesNotMatch(wholeAudioDirection, /cue timing|speech schedule|\d+(?:\.\d+)?-\d+(?:\.\d+)?s/i);
 
 const cleanAnchorPrompt = compileStoryboardCleanAnchorVideoPrompt(apparelPlan, {
@@ -161,7 +161,7 @@ const cleanAnchorPrompt = compileStoryboardCleanAnchorVideoPrompt(apparelPlan, {
 });
 assert.equal(cleanAnchorPrompt.split(STORYBOARD_DIRECTED_VIDEO_MARKER).length - 1, 1, "clean-anchor prompts must bypass the generic video wrapper exactly once");
 assert.match(cleanAnchorPrompt, /attached clean keyframe as the exact opening and identity anchor/i);
-assert.match(cleanAnchorPrompt, /Wow, that wave was unexpected/i, "the duration-matched script must survive compact prompt compilation");
+assert.match(cleanAnchorPrompt, /That wave surprised me/i, "the duration-matched script must survive compact prompt compilation");
 assert.match(cleanAnchorPrompt, /Lip-sync the opening sentence/i);
 assert.match(cleanAnchorPrompt, /at most 4 stable shots/i);
 assert.match(cleanAnchorPrompt, /Hard cuts only; no dissolves, crossfades, ghosts/i);
@@ -172,18 +172,31 @@ assert.doesNotMatch(cleanAnchorPrompt, /complete storyboard contact sheet|decode
 
 const recoveredVerbosePlan: CanvasCommerceVideoPlan = {
     ...apparelPlan,
+    audioPlan: {
+        ...apparelPlan.audioPlan,
+        voice: "Natural adult female creator voice with a brief surprised opening, followed by calm continuous off-screen narration",
+    },
     beats: apparelPlan.beats?.slice(0, 4).map((item, index) => ({
         ...item,
         description: `Following the ${index === 0 ? "first two visible" : index === 3 ? "final two visible" : "next two"} panels, an overlong panel-order explanation that should never replace the actual visible action.`,
         eightElements: {
             ...item.eightElements,
-            action: ["A wave splashes as the woman reacts naturally", "The woman walks forward and addresses the camera", "Her hands clean and rinse the black bikini", "She presents the finished bikini beside the bottle"][index],
+            action: [
+                "A wave splashes as the woman reacts and reveals the green bottle",
+                "She checks the wet side tie and sprays the removed black bikini",
+                "Her hands clean and rinse the black bikini",
+                "She gives one thumbs-up and finishes on the shoreline product packshot",
+            ][index],
         },
     })),
 };
 const recoveredCompactPrompt = compileStoryboardCleanAnchorVideoPrompt(recoveredVerbosePlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
-assert.match(recoveredCompactPrompt, /A wave splashes as the woman reacts naturally/i, "recovered plans must compile the actual beat action instead of panel-order narration");
+assert.match(recoveredCompactPrompt, /A wave splashes as the woman reacts/i, "recovered plans must compile the actual beat action instead of panel-order narration");
 assert.match(recoveredCompactPrompt, /clean and rinse the black bikini/i);
+assert.match(recoveredCompactPrompt, /reveals the green bottle/i, "compact stages must preserve the acted-on product instead of ending on a bare verb");
+assert.match(recoveredCompactPrompt, /sprays the removed black bikini/i, "compact stages must preserve the garment object instead of truncating after its adjective");
+assert.match(recoveredCompactPrompt, /surprised opener then calm narration/i, "compact voice direction must remain a complete natural performance instruction");
+assert.doesNotMatch(recoveredCompactPrompt, /voice with a brief\s*;/i, "voice compaction must not leave a dangling adjective before the language separator");
 assert.doesNotMatch(recoveredCompactPrompt, /Following the .* panels|\b(?:a|an|the|and|or|to|of|with)\s*; hard cut/i, "compiled stages must not end in panel-order boilerplate or dangling connector words");
 assert.ok(recoveredCompactPrompt.split(/\s+/).length <= 170, `recovered clean-anchor prompt must remain compact, received ${recoveredCompactPrompt.split(/\s+/).length} words`);
 
@@ -196,7 +209,7 @@ assert.equal(hasCompleteStoryboardAudioPlan(apparelPlan), true, "a saved exact w
 assert.equal(hasCompleteStoryboardAudioPlan(apparelPlan, 10), true, "a saved duration-specific script is complete for its matching model duration");
 assert.equal(hasCompleteStoryboardAudioPlan(legacyApparelPlan), false, "legacy plans without a script must be enriched before a billable whole-video request");
 assert.equal(hasCompleteStoryboardAudioPlan({ ...apparelPlan, audioPlan: { ...apparelPlan.audioPlan, scriptsByDuration: undefined } }, 10), false, "a 15-second base script must not be reused by a 10-second model");
-assert.match(storyboardAudioScriptForDuration(apparelPlan, 10), /That wave woke me up/i);
+assert.match(storyboardAudioScriptForDuration(apparelPlan, 10), /from shore to pool/i);
 assert.equal(storyboardShotBudget(6), 2);
 assert.equal(storyboardShotBudget(10), 3);
 assert.equal(storyboardShotBudget(15), 4);
@@ -231,13 +244,13 @@ const legacyAudioDirection = compileStoryboardAudioDirection(legacyApparelPlan, 
 assert.match(legacyAudioDirection, /generate clear commercial speech/i, "saved 3.0 plans without audioPlan must regain speech");
 assert.match(legacyAudioDirection, /Mixed delivery:/i);
 assert.match(legacyAudioDirection, /continue the same voice as off-screen narration over B-roll/i);
-assert.match(legacyAudioDirection, /one evidence-safe 26-34-word English script/i);
+assert.match(legacyAudioDirection, /one evidence-safe 18-22-word English script/i);
 assert.match(legacyAudioDirection, /finish one connected thought/i);
 assert.match(legacyAudioDirection, /Start with a conversational 4-7 word reaction/i);
 assert.doesNotMatch(legacyAudioDirection, /MANDATORY ON-CAMERA SPEECH SCHEDULE|cue timing|Narration timing lock/i);
 assert.doesNotMatch(legacyAudioDirection, /0\.8-3\.8s|4\.2-7\.5s|11\.7-14\.7s/i);
 const tenSecondLegacyAudioDirection = compileStoryboardAudioDirection(legacyApparelPlan, apparelPlan.directorBrief, 10);
-assert.match(tenSecondLegacyAudioDirection, /18-24-word English script/i);
+assert.match(tenSecondLegacyAudioDirection, /12-16-word English script/i);
 assert.doesNotMatch(tenSecondLegacyAudioDirection, /\d+(?:\.\d+)?-\d+(?:\.\d+)?s/i);
 assert.equal(resolveStoryboardMode({ productCategory: "apparel" }), "apparel", "legacy apparel plans without storyboardMode must not receive product-cleaning constraints");
 

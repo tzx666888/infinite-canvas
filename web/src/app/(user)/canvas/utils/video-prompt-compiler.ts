@@ -52,31 +52,31 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
     const beats = selectBeatsForDuration(plan.beats, duration) || [];
     const stageRanges = grokStageRanges(beats.length || 1, duration);
     const stages = beats.length
-        ? beats.map((beat, index) => `${stageRanges[index]} ${compactStoryboardStageAction(beat, plan, 10)}`).join("; hard cut to ")
-        : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), 10)}`;
+        ? beats.map((beat, index) => `${stageRanges[index]} ${compactStoryboardStageAction(beat, plan, 12)}`).join("; hard cut to ")
+        : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), 12)}`;
     const script = storyboardAudioScriptForDuration(plan, duration);
     const audioPlan = plan.audioPlan;
     const audioDirection =
         audioPlan?.mode === "ambient-only"
             ? "Audio: natural location sound and restrained music only; no speech."
             : [
-                  `Audio: ${limitBeatWords((audioPlan?.voice || "one natural presenter-matched voice").replace(/[.!?]+$/g, ""), 8)}; ${audioPlan?.language || "English"}.`,
+                  `Audio: ${compactStoryboardVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
                   script ? `Say exactly once: "${script}"` : "Deliver one short connected creator-style line once.",
                   audioPlan?.mode === "on-camera"
                       ? "Keep the same face readable and lip-synchronized for the entire line."
                       : audioPlan?.mode === "voiceover"
                         ? "Keep the voice off-screen while visible people act naturally."
-                        : "Lip-sync the opening sentence, then immediately continue the same voice off-screen over details.",
+                        : "Lip-sync the opening sentence, then immediately continue the same voice off-screen.",
               ].join(" ");
     const identityDirection =
         mode === "product"
-            ? "Lock the presenter and exact product shape, colors, label layout, count, and scale."
+            ? "Lock presenter, product shape, colors, label, count, and scale."
             : mode === "apparel"
               ? "Lock the adult face, hair, body proportions, garment design, fit, material, and coverage."
               : "Lock the same subject identity, wardrobe, body proportions, and visual world.";
     const prompt = [
         STORYBOARD_DIRECTED_VIDEO_MARKER,
-        `Create exactly ${duration}s of polished ${context.aspectRatio} footage.`,
+        `Create polished ${duration}s ${context.aspectRatio} footage.`,
         "Use the attached clean keyframe as the exact opening and identity anchor.",
         `Story: ${stages}.`,
         audioDirection,
@@ -326,9 +326,9 @@ function storyboardScriptFitsDuration(script: string, language: string | undefin
 }
 
 function storyboardSpeechWordRange(duration: number): [number, number] {
-    if (duration <= 6) return [10, 14];
-    if (duration <= 10) return [18, 24];
-    return [26, 34];
+    if (duration <= 6) return [7, 10];
+    if (duration <= 10) return [12, 16];
+    return [18, 22];
 }
 
 function uniqueReadableLocations(locations: string[]) {
@@ -566,10 +566,10 @@ function storyboardLanguageDirection(explicitLanguage: string | undefined, userD
 }
 
 function speechWordBudget(duration: number) {
-    if (duration <= 6) return "10-14";
-    if (duration <= 10) return "18-24";
-    if (duration <= 15) return "26-34";
-    return `${Math.max(26, Math.round(duration * 1.8))}-${Math.max(34, Math.round(duration * 2.2))}`;
+    if (duration <= 6) return "7-10";
+    if (duration <= 10) return "12-16";
+    if (duration <= 15) return "18-22";
+    return `${Math.max(18, Math.round(duration * 1.2))}-${Math.max(22, Math.round(duration * 1.5))}`;
 }
 
 function compactSpeechText(value: string, maxChars: number) {
@@ -590,6 +590,14 @@ function sanitizeStoryboardBeatDirection(value: string) {
             .replace(/\bpreserve the final (?:\w+|\d+)-panel progression:\s*/gi, "finish with ")
             .replace(/\b(?:visible|numbered|ordered) panel order\b/gi, "planned story order"),
     );
+}
+
+function compactStoryboardVoice(value: string | undefined) {
+    const voice = normalizeSpaces((value || "one natural presenter-matched voice").replace(/[.!?]+$/g, ""))
+        .replace(/\s+with a brief surprised opening,?\s*followed by calm continuous off-screen narration\b/i, ", surprised opener then calm narration")
+        .replace(/\bfollowed by\b/gi, "then")
+        .replace(/\boff-screen narration\b/gi, "narration");
+    return limitBeatWords(voice, 10);
 }
 
 function compactStoryboardStageAction(beat: CommerceVideoBeat, plan: CanvasCommerceVideoPlan, maxWords: number) {
