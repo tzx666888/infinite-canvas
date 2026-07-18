@@ -36,11 +36,11 @@ const apparelPlan: CanvasCommerceVideoPlan = {
         mode: "mixed",
         language: "English",
         voice: "One natural energetic adult female voice",
-        script: "That wave surprised me. This bikini feels secure and comfortable, with ties that stay in place from shoreline to poolside.",
+        script: "That wave surprised me. This bikini feels secure and comfortable, with ties that stay in place from shoreline to poolside while I move through every resort stop.",
         scriptsByDuration: {
             "6": "That wave surprised me. This bikini stays comfortable everywhere.",
-            "10": "That wave surprised me. This bikini feels secure and comfortable from shore to pool.",
-            "15": "That wave surprised me. This bikini feels secure and comfortable, with ties that stay in place from shoreline to poolside.",
+            "10": "That wave surprised me. This bikini feels secure and comfortable from shore to pool all day.",
+            "15": "That wave surprised me. This bikini feels secure and comfortable, with ties that stay in place from shoreline to poolside while I move through every resort stop.",
         },
     },
     beats: [
@@ -163,11 +163,17 @@ const cleanAnchorPrompt = compileStoryboardCleanAnchorVideoPrompt(apparelPlan, {
 assert.equal(cleanAnchorPrompt.split(STORYBOARD_DIRECTED_VIDEO_MARKER).length - 1, 1, "clean-anchor prompts must bypass the generic video wrapper exactly once");
 assert.match(cleanAnchorPrompt, /attached clean keyframe as the exact opening and identity anchor/i);
 assert.match(cleanAnchorPrompt, /That wave surprised me/i, "the duration-matched script must survive compact prompt compilation");
-assert.match(cleanAnchorPrompt, /Pause briefly before the first word/i, "Grok speech must begin after transient location noise instead of masking its first word");
-assert.match(cleanAnchorPrompt, /Speak at a relaxed pace, pronounce every word exactly/i, "Grok speech must explicitly prioritize intelligibility over rushed delivery");
-assert.match(cleanAnchorPrompt, /lip-synchronized for the complete line/i);
-assert.match(cleanAnchorPrompt, /one continuous unedited creator take for all 15s/i);
-assert.match(cleanAnchorPrompt, /One continuous take: no cuts, transitions, dissolves, ghosts/i);
+assert.match(cleanAnchorPrompt, /Start within half a second/i, "creator speech must begin promptly and cover most of the video");
+assert.match(cleanAnchorPrompt, /lively creator cadence/i, "Grok speech must sound like an energetic creator instead of deliberate dictation");
+assert.match(cleanAnchorPrompt, /never sound slow or robotic/i);
+assert.match(cleanAnchorPrompt, /Lip-sync the opening sentence, then continue the same voice through every action/i);
+assert.match(cleanAnchorPrompt, /one continuous unedited creator take/i);
+assert.match(cleanAnchorPrompt, /reacts naturally to a small wave/i);
+assert.match(cleanAnchorPrompt, /faces the camera and speaks while walking naturally/i);
+assert.match(cleanAnchorPrompt, /delivers the final line/i);
+assert.match(cleanAnchorPrompt, /One continuous take: no cuts, dissolves, ghosts/i);
+assert.match(cleanAnchorPrompt, /Use natural head, eye, hand, and torso motion/i);
+assert.doesNotMatch(cleanAnchorPrompt, /small relaxed gestures|stay upright|end in the same framing|pronounce every word exactly/i);
 assert.ok(cleanAnchorPrompt.split(/\s+/).length <= 170, `clean-anchor Grok prompt must remain compact, received ${cleanAnchorPrompt.split(/\s+/).length} words`);
 const cleanAnchorProviderPrompt = `${cleanAnchorPrompt} ${buildCompactVideoProductScalePrompt("handheld")}`.trim();
 assert.ok(cleanAnchorProviderPrompt.split(/\s+/).length <= 180, `clean-anchor prompt plus explicit scale lock must stay concise, received ${cleanAnchorProviderPrompt.split(/\s+/).length} words`);
@@ -195,8 +201,10 @@ const recoveredVerbosePlan: CanvasCommerceVideoPlan = {
 };
 const recoveredCompactPrompt = compileStoryboardCleanAnchorVideoPrompt(recoveredVerbosePlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
 assert.match(recoveredCompactPrompt, /one continuous unedited creator take/i, "spoken presenter videos must favor one stable creator take over replaying contact-sheet actions");
-assert.doesNotMatch(recoveredCompactPrompt, /hard cut to|sprays the removed black bikini|clean and rinse the black bikini/i, "the creator take must not squeeze multi-shot choreography into one identity-critical generation");
-assert.match(recoveredCompactPrompt, /surprised opener then calm narration/i, "compact voice direction must remain a complete natural performance instruction");
+assert.doesNotMatch(recoveredCompactPrompt, /hard cut to/i, "the creator take must perform planned actions without edits");
+assert.match(recoveredCompactPrompt, /sprays the removed black bikini/i, "the creator take must preserve the visible demonstration action");
+assert.match(recoveredCompactPrompt, /thumbs-up/i, "the creator take must retain its CTA action");
+assert.match(recoveredCompactPrompt, /surprised opener then lively confident delivery/i, "compact voice direction must restore energetic creator performance");
 assert.doesNotMatch(recoveredCompactPrompt, /voice with a brief\s*;/i, "voice compaction must not leave a dangling adjective before the language separator");
 assert.doesNotMatch(recoveredCompactPrompt, /Following the .* panels|\b(?:a|an|the|and|or|to|of|with)\s*; hard cut/i, "compiled stages must not end in panel-order boilerplate or dangling connector words");
 assert.ok(recoveredCompactPrompt.split(/\s+/).length <= 170, `recovered clean-anchor prompt must remain compact, received ${recoveredCompactPrompt.split(/\s+/).length} words`);
@@ -237,14 +245,40 @@ const repairedLegacySpeechPlan = repairStoryboardAudioPlanForDuration(
     15,
 );
 assert.equal(hasCompleteStoryboardAudioPlan(repairedLegacySpeechPlan, 15), true, "saved long speech must be repaired locally instead of blocking video submission");
-assert.equal(repairedLegacySpeechPlan.audioPlan?.script, "That wave came out of nowhere. I'm cleaning the black bikini right here at the shoreline, then rinsing it.");
-assert.equal(repairedLegacySpeechPlan.audioPlan?.scriptsByDuration?.["15"], repairedLegacySpeechPlan.audioPlan?.script, "the repaired script must persist in the active duration slot");
+assert.equal(repairedLegacySpeechPlan.audioPlan?.script, "That wave came out of nowhere. I'm cleaning the black bikini right here at the shoreline, then rinsing it before showing the fabric, ties, and finished beach look.");
+assert.equal(repairedLegacySpeechPlan.audioPlan?.scriptsByDuration?.["15"], undefined, "a complete duration-safe base script does not need a duplicate active slot");
 assert.equal(
     storyboardAudioScriptForDuration(repairedLegacySpeechPlan, 15),
-    "That wave came out of nowhere. I am cleaning the black bikini at the shoreline, then rinsing it.",
+    "That wave came out of nowhere. I am cleaning the black bikini at the shoreline, then rinsing it before showing the fabric, ties, and finished beach look.",
     "provider speech must expand the contraction and remove filler without changing the saved plan",
 );
-assert.match(compileStoryboardCleanAnchorVideoPrompt(repairedLegacySpeechPlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" }), /then rinsing it\./i);
+assert.match(compileStoryboardCleanAnchorVideoPrompt(repairedLegacySpeechPlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" }), /then rinsing it before showing the fabric/i);
+
+const stalledCreatorPlan: CanvasCommerceVideoPlan = {
+    ...recoveredVerbosePlan,
+    audioPlan: {
+        ...recoveredVerbosePlan.audioPlan,
+        script: "That wave came out of nowhere. I'm cleaning the black bikini right here at the shoreline, then rinsing it.",
+        scriptsByDuration: {
+            ...recoveredVerbosePlan.audioPlan?.scriptsByDuration,
+            "15": "That wave came out of nowhere. I'm cleaning the black bikini right here at the shoreline, then rinsing it.",
+        },
+    },
+    beats: recoveredVerbosePlan.beats?.map((item, index) => ({
+        ...item,
+        spokenLine: ["That wave came out of nowhere.", "I'm cleaning the black bikini right here at the shoreline,", "then rinsing it", "before showing the fabric, ties,"][index],
+    })),
+};
+assert.equal(hasCompleteStoryboardAudioPlan(stalledCreatorPlan, 15), false, "the short v3.0.21 script must be upgraded before another 15-second billable request");
+const repairedStalledCreatorPlan = repairStoryboardAudioPlanForDuration(stalledCreatorPlan, 15);
+assert.equal(hasCompleteStoryboardAudioPlan(repairedStalledCreatorPlan, 15), true, "saved beat fragments must restore full-duration creator speech locally");
+assert.match(repairedStalledCreatorPlan.audioPlan?.script || "", /before showing the fabric, ties/i);
+const repairedStalledCreatorPrompt = compileStoryboardCleanAnchorVideoPrompt(repairedStalledCreatorPlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
+assert.match(repairedStalledCreatorPrompt, /lively creator cadence/i);
+assert.match(repairedStalledCreatorPrompt, /sprays the removed black bikini/i);
+assert.doesNotMatch(repairedStalledCreatorPrompt, /small relaxed gestures|stay upright|end in the same framing|pronounce every word exactly/i);
+assert.ok(repairedStalledCreatorPrompt.split(/\s+/).length <= 170, `upgraded creator prompt must remain compact, received ${repairedStalledCreatorPrompt.split(/\s+/).length} words`);
+
 assert.match(storyboardAudioScriptForDuration(apparelPlan, 10), /from shore to pool/i);
 assert.equal(storyboardShotBudget(6), 2);
 assert.equal(storyboardShotBudget(10), 3);
@@ -280,13 +314,13 @@ const legacyAudioDirection = compileStoryboardAudioDirection(legacyApparelPlan, 
 assert.match(legacyAudioDirection, /generate clear commercial speech/i, "saved 3.0 plans without audioPlan must regain speech");
 assert.match(legacyAudioDirection, /Mixed delivery:/i);
 assert.match(legacyAudioDirection, /continue the same voice as off-screen narration over B-roll/i);
-assert.match(legacyAudioDirection, /one evidence-safe 18-22-word English script/i);
+assert.match(legacyAudioDirection, /one evidence-safe 23-28-word English script/i);
 assert.match(legacyAudioDirection, /finish one connected thought/i);
 assert.match(legacyAudioDirection, /Start with a conversational 4-7 word reaction/i);
 assert.doesNotMatch(legacyAudioDirection, /MANDATORY ON-CAMERA SPEECH SCHEDULE|cue timing|Narration timing lock/i);
 assert.doesNotMatch(legacyAudioDirection, /0\.8-3\.8s|4\.2-7\.5s|11\.7-14\.7s/i);
 const tenSecondLegacyAudioDirection = compileStoryboardAudioDirection(legacyApparelPlan, apparelPlan.directorBrief, 10);
-assert.match(tenSecondLegacyAudioDirection, /12-16-word English script/i);
+assert.match(tenSecondLegacyAudioDirection, /15-19-word English script/i);
 assert.doesNotMatch(tenSecondLegacyAudioDirection, /\d+(?:\.\d+)?-\d+(?:\.\d+)?s/i);
 assert.equal(resolveStoryboardMode({ productCategory: "apparel" }), "apparel", "legacy apparel plans without storyboardMode must not receive product-cleaning constraints");
 
@@ -476,6 +510,7 @@ const configStoreSource = readFileSync(new URL("../src/stores/use-config-store.t
 const promptPanelSource = readFileSync(new URL("../src/app/(user)/canvas/components/canvas-node-prompt-panel.tsx", import.meta.url), "utf8");
 const videoServiceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
 const videoPromptCompilerSource = readFileSync(new URL("../src/app/(user)/canvas/utils/video-prompt-compiler.ts", import.meta.url), "utf8");
+const promptPolishSource = readFileSync(new URL("../src/services/api/prompt-polish.ts", import.meta.url), "utf8");
 assert.match(promptPanelSource, /mode !== "video" && storyboardPlan\?\.beats\?\.length/, "a completed video node must resubmit its video request instead of regenerating storyboard review sheets");
 assert.match(canvasClientSource, /storyboardReviewSheetWholeReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "storyboard video generation must detect the selected whole grid before compiling its I2V prompt");
 assert.match(canvasClientSource, /storyboardReviewSheetKeyframeAnchorReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "whole-video generation must prefer the selected review sheet's independent keyframe");
@@ -512,7 +547,9 @@ assert.match(canvasClientSource, /正在按当前时长恢复分镜语义与自�
 assert.match(canvasClientSource, /hasCompleteStoryboardAudioPlan\(storyboardPlan, Number\(videoGenerationConfig\.videoSeconds\)\)/, "a whole-grid request must require a script that fits the actual model duration");
 assert.match(canvasClientSource, /defaultConfig\.textModel \|\| "tokaxis::gpt-5\.6-sol"/, "legacy storyboard recovery must always use the built-in GPT-5.6 Sol optimizer");
 assert.match(canvasClientSource, /audioPlan\.scriptsByDuration with independent 6, 10, and 15 second scripts/, "semantic recovery must prepare independent scripts instead of truncating one master script");
-assert.match(canvasClientSource, /7-10, 12-16, and 18-22 English words/, "legacy recovery must use the same conservative speech budgets as the compiler");
+assert.match(canvasClientSource, /8-11, 15-19, and 23-28 English words/, "legacy recovery must use the same energetic speech budgets as the compiler");
+assert.match(promptPolishSource, /8-11、15-19、23-28 词/, "new storyboard plans must use the energetic duration-specific speech budgets");
+assert.match(promptPolishSource, /简单、易发音的日常词和短从句/, "new storyboard speech must favor simple pronounceable language");
 assert.doesNotMatch(canvasClientSource, /10-14, 18-24, and 26-34 English words/, "legacy recovery must not restore the old overlong speech budgets");
 assert.match(canvasClientSource, /repairStoryboardAudioPlanForDuration\(storyboardPlan/, "saved long storyboard speech must be repaired locally before an optimizer request");
 assert.match(canvasClientSource, /repairStoryboardAudioPlanForDuration\(enrichedSource, duration\)/, "optimizer output must receive deterministic duration repair before validation");
