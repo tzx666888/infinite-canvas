@@ -57,7 +57,7 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
     const script = useContinuousCreatorTake ? storyboardCreatorAudioScriptForDuration(plan, duration) : storyboardAudioScriptForDuration(plan, duration);
     const creatorActions = compactContinuousCreatorActions(beats, plan);
     const stages = useContinuousCreatorTake
-        ? `one continuous creator take: ${creatorActions}`
+        ? `continuous creator take: ${creatorActions}`
         : beats.length
           ? beats.map((beat, index) => `${stageRanges[index]} ${compactStoryboardStageAction(beat, plan, 12)}`).join("; hard cut to ")
           : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), 12)}`;
@@ -67,7 +67,7 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
             : useContinuousCreatorTake
               ? [
                     `Audio: ${compactStoryboardCreatorVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
-                    script ? `Speak this meaning once, naturally: "${script}"` : "Deliver one natural creator-style thought once.",
+                    script ? `Speak this once, naturally: "${script}"` : "Deliver one natural creator-style thought once.",
                     "After a half-second reaction, use spontaneous UGC rhythm, contractions, varied emphasis, and pauses.",
                     "Lip-sync only the opening reaction; keep the same foreground voice off-screen for the demo. Do not force mouth movement.",
                 ].join(" ")
@@ -90,7 +90,7 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
     const prompt = [
         STORYBOARD_DIRECTED_VIDEO_MARKER,
         `Create ${duration}s ${context.aspectRatio} footage.`,
-        "Use the clean keyframe as the exact opening and identity anchor.",
+        "Use the clean keyframe as opening and identity anchor.",
         `Story: ${stages}.`,
         audioDirection,
         identityDirection,

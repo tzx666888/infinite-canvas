@@ -161,14 +161,14 @@ const cleanAnchorPrompt = compileStoryboardCleanAnchorVideoPrompt(apparelPlan, {
     referenceMode: "i2v",
 });
 assert.equal(cleanAnchorPrompt.split(STORYBOARD_DIRECTED_VIDEO_MARKER).length - 1, 1, "clean-anchor prompts must bypass the generic video wrapper exactly once");
-assert.match(cleanAnchorPrompt, /clean keyframe as the exact opening and identity anchor/i);
+assert.match(cleanAnchorPrompt, /clean keyframe as opening and identity anchor/i);
 assert.match(cleanAnchorPrompt, /That wave surprised me/i, "the duration-matched script must survive compact prompt compilation");
 assert.match(cleanAnchorPrompt, /After a half-second reaction/i, "creator speech needs a natural reaction beat before the hook");
 assert.match(cleanAnchorPrompt, /spontaneous UGC rhythm, contractions, varied emphasis/i, "Grok speech must sound spontaneous instead of deliberate dictation");
 assert.match(cleanAnchorPrompt, /Lip-sync only the opening reaction/i);
 assert.match(cleanAnchorPrompt, /same foreground voice off-screen for the demo/i);
 assert.match(cleanAnchorPrompt, /Do not force mouth movement/i);
-assert.match(cleanAnchorPrompt, /one continuous creator take/i);
+assert.match(cleanAnchorPrompt, /continuous creator take/i);
 assert.match(cleanAnchorPrompt, /reacts naturally to a small wave/i);
 assert.match(cleanAnchorPrompt, /faces the camera and speaks while walking naturally/i);
 assert.match(cleanAnchorPrompt, /delivers the final line/i);
@@ -201,7 +201,7 @@ const recoveredVerbosePlan: CanvasCommerceVideoPlan = {
     })),
 };
 const recoveredCompactPrompt = compileStoryboardCleanAnchorVideoPrompt(recoveredVerbosePlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
-assert.match(recoveredCompactPrompt, /one continuous creator take/i, "spoken presenter videos must favor one stable creator take over replaying contact-sheet actions");
+assert.match(recoveredCompactPrompt, /continuous creator take/i, "spoken presenter videos must favor one stable creator take over replaying contact-sheet actions");
 assert.doesNotMatch(recoveredCompactPrompt, /hard cut to/i, "the creator take must perform planned actions without edits");
 assert.match(recoveredCompactPrompt, /sprays the removed black bikini/i, "the creator take must preserve the visible demonstration action");
 assert.match(recoveredCompactPrompt, /thumbs-up/i, "the creator take must retain its CTA action");
@@ -223,7 +223,7 @@ const voiceoverProductPrompt = compileStoryboardCleanAnchorVideoPrompt(
 assert.match(voiceoverProductPrompt, /hard cut to/i, "product voiceover videos must retain their planned multi-shot action sequence");
 assert.match(voiceoverProductPrompt, /sprays the removed black bikini/i);
 assert.match(voiceoverProductPrompt, /at most 4 stable shots/i);
-assert.doesNotMatch(voiceoverProductPrompt, /one continuous creator take/i);
+assert.doesNotMatch(voiceoverProductPrompt, /continuous creator take/i);
 
 const legacyApparelPlan: CanvasCommerceVideoPlan = {
     ...apparelPlan,
@@ -560,8 +560,8 @@ assert.doesNotMatch(canvasClientSource, /10-14, 18-24, and 26-34 English words/,
 assert.match(canvasClientSource, /repairStoryboardAudioPlanForDuration\(storyboardPlan/, "saved long storyboard speech must be repaired locally before an optimizer request");
 assert.match(canvasClientSource, /repairStoryboardAudioPlanForDuration\(enrichedSource, duration\)/, "optimizer output must receive deterministic duration repair before validation");
 assert.match(videoPromptCompilerSource, /compileStoryboardCleanAnchorVideoPrompt/, "clean-anchor prompt compilation must remain independently regression-testable");
-assert.match(videoPromptCompilerSource, /Use the clean keyframe as the exact opening and identity anchor/, "Grok must receive the bridge as a clean literal opening frame, never as a contact sheet");
-assert.match(videoPromptCompilerSource, /one continuous creator take/, "spoken presenter execution must use one continuous identity-safe take");
+assert.match(videoPromptCompilerSource, /Use the clean keyframe as opening and identity anchor/, "Grok must receive the bridge as a clean literal opening frame, never as a contact sheet");
+assert.match(videoPromptCompilerSource, /continuous creator take/, "spoken presenter execution must use one continuous identity-safe take");
 assert.match(videoPromptCompilerSource, /at most \$\{storyboardShotBudget\(duration\)\} stable shots/, "non-presenter execution must retain a duration-aware stage budget");
 assert.match(videoPromptCompilerSource, /Say this exact script once, conversationally/, "storyboard speech must be one coherent performance");
 assert.match(videoPromptCompilerSource, /storyboardAudioScriptForDuration/, "storyboard speech must select the script matching the normalized model duration");
