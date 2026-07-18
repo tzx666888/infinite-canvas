@@ -3495,13 +3495,25 @@ function InfiniteCanvasPage() {
                     const usesWholeStoryboardSheet = storyboardReviewSheetImages.length > 0;
                     const storyboardIdentityImages = await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current);
                     const storyboardKeyframeAnchorImages = usesWholeStoryboardSheet ? storyboardReviewSheetKeyframeAnchorReferences(nodeId, nodesRef.current, connectionsRef.current) : [];
+                    const storedStoryboardAnchorImages = usesWholeStoryboardSheet && sourceNode?.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(sourceNode.metadata) : [];
+                    const hasReusableStoredStoryboardAnchor = storedStoryboardAnchorImages.length > 0 && (sourceNode?.metadata?.storyboardVideoAnchorMode === "generated-bridge" || sourceNode?.metadata?.storyboardVideoAnchorMode === "keyframe");
                     const storyboardReferenceFrames = usesWholeStoryboardSheet ? [] : await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current);
                     // A contact sheet is planning material, never a literal I2V frame.
                     // Rebuild one clean anchor whenever original identity/product
                     // references exist, or when no independent keyframe is available.
-                    const needsStoryboardBridge = usesWholeStoryboardSheet && (!storyboardKeyframeAnchorImages.length || storyboardIdentityImages.length > 0);
-                    const wholeStoryboardImages = usesWholeStoryboardSheet ? mergeReferenceImages(storyboardKeyframeAnchorImages, storyboardReviewSheetImages).slice(0, 1) : [];
-                    const wholeStoryboardAnchorMode = usesWholeStoryboardSheet ? (needsStoryboardBridge ? ("bridge-pending" as const) : ("keyframe" as const)) : undefined;
+                    const needsStoryboardBridge = usesWholeStoryboardSheet && !hasReusableStoredStoryboardAnchor && (!storyboardKeyframeAnchorImages.length || storyboardIdentityImages.length > 0);
+                    const wholeStoryboardImages = usesWholeStoryboardSheet
+                        ? hasReusableStoredStoryboardAnchor
+                            ? storedStoryboardAnchorImages.slice(0, 1)
+                            : mergeReferenceImages(storyboardKeyframeAnchorImages, storyboardReviewSheetImages).slice(0, 1)
+                        : [];
+                    const wholeStoryboardAnchorMode = usesWholeStoryboardSheet
+                        ? hasReusableStoredStoryboardAnchor
+                            ? sourceNode.metadata?.storyboardVideoAnchorMode
+                            : needsStoryboardBridge
+                              ? ("bridge-pending" as const)
+                              : ("keyframe" as const)
+                        : undefined;
                     const videoIdentityImages = usesWholeStoryboardSheet ? [] : mergeReferenceImages(generationContext.referenceImages, storyboardIdentityImages);
                     const storyboardVideoImages = usesWholeStoryboardSheet ? wholeStoryboardImages : storyboardReferenceFrames;
                     const allVideoReferenceImages = mergeReferenceImages(videoIdentityImages, storyboardVideoImages);
@@ -3688,7 +3700,8 @@ function InfiniteCanvasPage() {
                                               generateAudio: videoGenerationConfig.videoGenerateAudio,
                                               watermark: videoGenerationConfig.videoWatermark,
                                               statusMessage: undefined,
-                                              storyboardVideoAnchorMode: usesWholeStoryboardSheet ? (needsStoryboardBridge ? "generated-bridge" : "keyframe") : node.metadata?.storyboardVideoAnchorMode,
+                                              storyboardVideoAnchorMode:
+                                                  usesWholeStoryboardSheet && wholeStoryboardAnchorMode === "bridge-pending" ? "generated-bridge" : usesWholeStoryboardSheet ? wholeStoryboardAnchorMode : node.metadata?.storyboardVideoAnchorMode,
                                               videoReferenceImages: generationImageReferenceUrls(requestVideoReferenceImages),
                                               references: generationReferenceUrls({ ...generationContext, referenceImages: requestVideoReferenceImages }),
                                           },

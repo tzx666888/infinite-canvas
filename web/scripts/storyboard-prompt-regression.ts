@@ -431,13 +431,15 @@ assert.match(canvasClientSource, /storyboardReviewSheetWholeReferences\(nodeId, 
 assert.match(canvasClientSource, /storyboardReviewSheetKeyframeAnchorReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "whole-video generation must prefer the selected review sheet's independent keyframe");
 assert.match(
     canvasClientSource,
-    /const needsStoryboardBridge = usesWholeStoryboardSheet && \(!storyboardKeyframeAnchorImages\.length \|\| storyboardIdentityImages\.length > 0\)/,
+    /const needsStoryboardBridge = usesWholeStoryboardSheet && !hasReusableStoredStoryboardAnchor && \(!storyboardKeyframeAnchorImages\.length \|\| storyboardIdentityImages\.length > 0\)/,
     "whole-video generation must rebuild a clean anchor when identity or product sources need to be preserved",
 );
 assert.match(canvasClientSource, /createStoryboardVideoBridgeReference/, "whole-video generation must build a clean full-frame anchor before I2V");
 assert.match(canvasClientSource, /identityReferences: storyboardIdentityImages/, "the bridge must retain original product and identity references");
 assert.match(canvasClientSource, /storyboardReference: storyboardReviewSheetImages\[0\]/, "the complete storyboard must remain planning evidence for the clean bridge");
 assert.match(canvasClientSource, /storyboardVideoAnchorMode: "generated-bridge"/, "successful bridge generation must persist the actual clean anchor for retry");
+assert.match(canvasClientSource, /hasReusableStoredStoryboardAnchor/, "successful whole-video regeneration must reuse its persisted clean anchor instead of billing another bridge image");
+assert.match(canvasClientSource, /storedStoryboardAnchorImages\.slice\(0, 1\)/, "normal regeneration must submit the stored clean anchor as the only I2V reference");
 assert.doesNotMatch(canvasClientSource, /STORYBOARD_VIDEO_OPENING_PANEL_INDEX|storyboardReviewSheetVideoAnchorReferences|composeDataUrlGrid\(\[openingPanel\]/, "whole-video generation must never crop a hard-coded contact-sheet panel into an I2V frame");
 assert.match(canvasClientSource, /VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS/, "clean-anchor generation must have a declared fallback model order");
 assert.match(canvasClientSource, /requestVideoBridgeImageAttempt\(fallbackConfig/, "clean-anchor generation must retry transient primary-model failures with an available fallback");
