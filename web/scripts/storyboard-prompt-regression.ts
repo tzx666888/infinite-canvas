@@ -162,12 +162,30 @@ const cleanAnchorPrompt = compileStoryboardCleanAnchorVideoPrompt(apparelPlan, {
 assert.equal(cleanAnchorPrompt.split(STORYBOARD_DIRECTED_VIDEO_MARKER).length - 1, 1, "clean-anchor prompts must bypass the generic video wrapper exactly once");
 assert.match(cleanAnchorPrompt, /attached clean keyframe as the exact opening and identity anchor/i);
 assert.match(cleanAnchorPrompt, /Wow, that wave was unexpected/i, "the duration-matched script must survive compact prompt compilation");
-assert.match(cleanAnchorPrompt, /Lip-sync only the short opening sentence/i);
+assert.match(cleanAnchorPrompt, /Lip-sync the opening sentence/i);
 assert.match(cleanAnchorPrompt, /at most 4 stable shots/i);
-assert.ok(cleanAnchorPrompt.split(/\s+/).length <= 190, `clean-anchor Grok prompt must remain compact, received ${cleanAnchorPrompt.split(/\s+/).length} words`);
+assert.match(cleanAnchorPrompt, /Hard cuts only; no dissolves, crossfades, ghosts/i);
+assert.ok(cleanAnchorPrompt.split(/\s+/).length <= 170, `clean-anchor Grok prompt must remain compact, received ${cleanAnchorPrompt.split(/\s+/).length} words`);
 const cleanAnchorProviderPrompt = `${cleanAnchorPrompt} ${buildCompactVideoProductScalePrompt("handheld")}`.trim();
-assert.ok(cleanAnchorProviderPrompt.split(/\s+/).length <= 200, `clean-anchor prompt plus explicit scale lock must stay concise, received ${cleanAnchorProviderPrompt.split(/\s+/).length} words`);
+assert.ok(cleanAnchorProviderPrompt.split(/\s+/).length <= 180, `clean-anchor prompt plus explicit scale lock must stay concise, received ${cleanAnchorProviderPrompt.split(/\s+/).length} words`);
 assert.doesNotMatch(cleanAnchorPrompt, /complete storyboard contact sheet|decode its panels|animate the grid/i);
+
+const recoveredVerbosePlan: CanvasCommerceVideoPlan = {
+    ...apparelPlan,
+    beats: apparelPlan.beats?.slice(0, 4).map((item, index) => ({
+        ...item,
+        description: `Following the ${index === 0 ? "first two visible" : index === 3 ? "final two visible" : "next two"} panels, an overlong panel-order explanation that should never replace the actual visible action.`,
+        eightElements: {
+            ...item.eightElements,
+            action: ["A wave splashes as the woman reacts naturally", "The woman walks forward and addresses the camera", "Her hands clean and rinse the black bikini", "She presents the finished bikini beside the bottle"][index],
+        },
+    })),
+};
+const recoveredCompactPrompt = compileStoryboardCleanAnchorVideoPrompt(recoveredVerbosePlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
+assert.match(recoveredCompactPrompt, /A wave splashes as the woman reacts naturally/i, "recovered plans must compile the actual beat action instead of panel-order narration");
+assert.match(recoveredCompactPrompt, /clean and rinse the black bikini/i);
+assert.doesNotMatch(recoveredCompactPrompt, /Following the .* panels|\b(?:a|an|the|and|or|to|of|with)\s*; hard cut/i, "compiled stages must not end in panel-order boilerplate or dangling connector words");
+assert.ok(recoveredCompactPrompt.split(/\s+/).length <= 170, `recovered clean-anchor prompt must remain compact, received ${recoveredCompactPrompt.split(/\s+/).length} words`);
 
 const legacyApparelPlan: CanvasCommerceVideoPlan = {
     ...apparelPlan,

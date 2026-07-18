@@ -59,11 +59,11 @@ export function buildCompactVideoProductScalePrompt(value?: string) {
     const mode = normalizeVideoProductScaleMode(value);
     if (mode === "auto") return "";
     const directions: Record<Exclude<VideoProductScaleMode, "auto">, string> = {
-        handheld: "Scale lock: keep the product a small one- or two-hand item at the opening keyframe's apparent size; never enlarge it into a prop.",
-        tabletop: "Scale lock: keep the product a medium tabletop or two-hand item at the opening keyframe's apparent size.",
-        floor: "Scale lock: keep the product floor-standing beside the presenter; never make it handheld or miniature.",
-        wearable: "Scale lock: keep the wearable fitted naturally to the correct body part at the opening keyframe's scale.",
-        oversized: "Scale lock: keep the product oversized relative to people, doors, furniture, or the surrounding environment; never make it handheld.",
+        handheld: "Scale lock: keep the product hand-sized as shown in the keyframe; never enlarge it.",
+        tabletop: "Scale lock: keep the product at its shown medium tabletop or two-hand size.",
+        floor: "Scale lock: keep the product floor-standing; never make it handheld or miniature.",
+        wearable: "Scale lock: keep the wearable naturally fitted to the correct body part.",
+        oversized: "Scale lock: keep the product oversized beside people, doors, furniture, or its environment.",
     };
     return directions[mode];
 }

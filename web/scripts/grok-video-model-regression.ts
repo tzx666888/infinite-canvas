@@ -38,7 +38,7 @@ assert.equal(selectGrokReferenceVideoImages(references, fast).length, 7);
 assert.deepEqual(selectGrokReferenceVideoImagesWithPriority(references, [], fast), references, "direct Fast references must not be silently truncated before validation");
 assert.deepEqual(selectGrokReferenceVideoImagesWithPriority(references.slice(0, 2), [], hd), references.slice(0, 2), "direct 1080p references must reach exact-one validation");
 assert.equal(buildCompactVideoProductScalePrompt("auto"), "");
-assert.match(buildCompactVideoProductScalePrompt("handheld"), /small one- or two-hand item/i);
+assert.match(buildCompactVideoProductScalePrompt("handheld"), /hand-sized as shown in the keyframe/i);
 assert.ok(buildCompactVideoProductScalePrompt("handheld").split(/\s+/).length < 30, "compiled video prompts need a compact scale lock");
 
 const videoServiceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");

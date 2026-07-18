@@ -51,38 +51,37 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
     const mode = resolveStoryboardMode(plan);
     const beats = selectBeatsForDuration(plan.beats, duration) || [];
     const stageRanges = grokStageRanges(beats.length || 1, duration);
-    const stageWordBudget = Math.max(7, Math.min(9, Math.floor(30 / Math.max(1, beats.length))));
     const stages = beats.length
-        ? beats.map((beat, index) => `${stageRanges[index]} ${limitBeatWords(sanitizeStoryboardBeatDirection(describeBeat(beat, plan)), stageWordBudget)}`).join("; hard cut to ")
-        : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), stageWordBudget)}`;
+        ? beats.map((beat, index) => `${stageRanges[index]} ${compactStoryboardStageAction(beat, plan, 10)}`).join("; hard cut to ")
+        : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), 10)}`;
     const script = storyboardAudioScriptForDuration(plan, duration);
     const audioPlan = plan.audioPlan;
     const audioDirection =
         audioPlan?.mode === "ambient-only"
             ? "Audio: natural location sound and restrained music only; no speech."
             : [
-                  `Audio: ${(audioPlan?.voice || "one natural presenter-matched voice").replace(/[.!?]+$/g, "")}, ${audioPlan?.language || "English"}.`,
+                  `Audio: ${limitBeatWords((audioPlan?.voice || "one natural presenter-matched voice").replace(/[.!?]+$/g, ""), 8)}; ${audioPlan?.language || "English"}.`,
                   script ? `Say exactly once: "${script}"` : "Deliver one short connected creator-style line once.",
                   audioPlan?.mode === "on-camera"
-                      ? "Keep the same readable face visible with synchronized lips for the complete line."
+                      ? "Keep the same face readable and lip-synchronized for the entire line."
                       : audioPlan?.mode === "voiceover"
                         ? "Keep the voice off-screen while visible people act naturally."
-                        : "Lip-sync only the short opening sentence on the same readable face, then continue the same voice off-screen over detail shots.",
+                        : "Lip-sync the opening sentence, then immediately continue the same voice off-screen over details.",
               ].join(" ");
     const identityDirection =
         mode === "product"
-            ? "Keep the same presenter and exact product shape, closure, colors, label layout, object count, and natural scale throughout."
+            ? "Lock the presenter and exact product shape, colors, label layout, count, and scale."
             : mode === "apparel"
-              ? "Keep the same adult face, hair, body proportions, garment design, fit, material, and coverage throughout."
-              : "Keep the same subject identity, wardrobe, body proportions, and visual world throughout.";
+              ? "Lock the adult face, hair, body proportions, garment design, fit, material, and coverage."
+              : "Lock the same subject identity, wardrobe, body proportions, and visual world.";
     const prompt = [
         STORYBOARD_DIRECTED_VIDEO_MARKER,
-        `Create exactly ${duration} seconds of polished ${aspectText(context.aspectRatio)} footage.`,
-        "Use the attached clean keyframe as the exact opening and identity anchor; begin with natural local motion.",
+        `Create exactly ${duration}s of polished ${context.aspectRatio} footage.`,
+        "Use the attached clean keyframe as the exact opening and identity anchor.",
         `Story: ${stages}.`,
         audioDirection,
         identityDirection,
-        `Use at most ${storyboardShotBudget(duration)} stable shots and hard cuts. No morphs, duplicates, anatomy errors, grid, captions, or invented claims.`,
+        `Use at most ${storyboardShotBudget(duration)} stable shots. Hard cuts only; no dissolves, crossfades, ghosts, morphs, duplicates, anatomy errors, grids, captions, or invented claims.`,
     ].join(" ");
     return normalizeSpaces(prompt);
 }
@@ -586,10 +585,17 @@ function compactSpeechText(value: string, maxChars: number) {
 function sanitizeStoryboardBeatDirection(value: string) {
     return normalizeSpaces(
         value
+            .replace(/^Following\b[^,]{0,160},\s*/i, "")
             .replace(/\bContinue in the visible panel order as\b/gi, "")
             .replace(/\bpreserve the final (?:\w+|\d+)-panel progression:\s*/gi, "finish with ")
             .replace(/\b(?:visible|numbered|ordered) panel order\b/gi, "planned story order"),
     );
+}
+
+function compactStoryboardStageAction(beat: CommerceVideoBeat, plan: CanvasCommerceVideoPlan, maxWords: number) {
+    const action = readableText(beat.eightElements?.action, "");
+    const description = readableText(beat.description, fallbackBeatDescription(beat, plan));
+    return limitBeatWords(sanitizeStoryboardBeatDirection(action || description), maxWords);
 }
 
 function parsePlan(value: string): CanvasCommerceVideoPlan | null {
@@ -645,7 +651,7 @@ function limitBeatWords(value: string, maxWords: number) {
     if (words.length <= maxWords) return value;
     const selected = words.slice(0, maxWords);
     const danglingWord = /^(?:a|an|the|as|and|or|but|to|of|for|with|from|in|on|at|into|while|then|her|his|their|its)$/i;
-    while (selected.length > Math.max(8, Math.floor(maxWords * 0.7)) && danglingWord.test(selected[selected.length - 1] || "")) selected.pop();
+    while (selected.length > Math.max(3, Math.floor(maxWords * 0.6)) && danglingWord.test(selected[selected.length - 1] || "")) selected.pop();
     return selected.join(" ").replace(/[,:;\-]+$/, "");
 }
 
