@@ -3493,7 +3493,7 @@ function InfiniteCanvasPage() {
                 if (mode === "video") {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
                     const storyboardReviewSheetImages = storyboardReviewSheetWholeReferences(nodeId, nodesRef.current, connectionsRef.current);
-                    const usesWholeStoryboardSheet = storyboardReviewSheetImages.length > 0;
+                    const usesWholeStoryboardSheet = storyboardReviewSheetImages.length > 0 || isStoredWholeStoryboardVideo(sourceNode);
                     const storyboardIdentityImages = await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current);
                     const storyboardKeyframeAnchorImages = usesWholeStoryboardSheet ? storyboardReviewSheetKeyframeAnchorReferences(nodeId, nodesRef.current, connectionsRef.current) : [];
                     const storedStoryboardAnchorImages = usesWholeStoryboardSheet && sourceNode?.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(sourceNode.metadata) : [];
@@ -3859,7 +3859,7 @@ function InfiniteCanvasPage() {
             const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, retryBasePrompt));
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
             const storyboardRetryWholeImages = node.type === CanvasNodeType.Video ? storyboardReviewSheetWholeReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
-            const retriesWholeStoryboardSheet = storyboardRetryWholeImages.length > 0;
+            const retriesWholeStoryboardSheet = storyboardRetryWholeImages.length > 0 || isStoredWholeStoryboardVideo(node);
             const retryReferenceVideos = retriesWholeStoryboardSheet ? [] : context?.referenceVideos || [];
             const retryReferenceAudios = retriesWholeStoryboardSheet ? [] : context?.referenceAudios || [];
             const storedVideoReferenceImages = node.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(node.metadata) : [];
@@ -5388,6 +5388,10 @@ async function storyboardReviewSheetIdentityReferences(nodeId: string, nodes: Ca
 
 function isStoryboardReviewSheetNode(node: CanvasNodeData) {
     return node.type === CanvasNodeType.Image && node.metadata?.storyboardRole === "review-sheet";
+}
+
+function isStoredWholeStoryboardVideo(node: CanvasNodeData | null | undefined) {
+    return node?.type === CanvasNodeType.Video && Boolean(node.metadata?.commerceVideoPlan?.beats?.length) && (node.metadata?.storyboardVideoAnchorMode === "generated-bridge" || node.metadata?.storyboardVideoAnchorMode === "keyframe");
 }
 
 async function splitStoryboardReviewSheetNode(node: CanvasNodeData): Promise<ReferenceImage[]> {

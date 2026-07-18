@@ -473,6 +473,7 @@ assert.match(canvasClientSource, /hasReusableStoredStoryboardAnchor/, "successfu
 assert.match(canvasClientSource, /storedStoryboardAnchorImages\.slice\(0, 1\)/, "normal regeneration must submit the stored clean anchor as the only I2V reference");
 assert.match(canvasClientSource, /const videoReferenceVideos = usesWholeStoryboardSheet \? \[\] : generationContext\.referenceVideos/, "whole-storyboard regeneration must not inherit an upstream generated video as a Grok reference");
 assert.match(canvasClientSource, /const videoReferenceAudios = usesWholeStoryboardSheet \? \[\] : generationContext\.referenceAudios/, "whole-storyboard regeneration must not inherit unrelated upstream audio");
+assert.match(canvasClientSource, /storyboardReviewSheetImages\.length > 0 \|\| isStoredWholeStoryboardVideo\(sourceNode\)/, "a refreshed successful video must retain whole-storyboard behavior from its own saved plan and anchor metadata");
 assert.doesNotMatch(canvasClientSource, /STORYBOARD_VIDEO_OPENING_PANEL_INDEX|storyboardReviewSheetVideoAnchorReferences|composeDataUrlGrid\(\[openingPanel\]/, "whole-video generation must never crop a hard-coded contact-sheet panel into an I2V frame");
 assert.match(canvasClientSource, /VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS/, "clean-anchor generation must have a declared fallback model order");
 assert.match(canvasClientSource, /requestVideoBridgeImageAttempt\(fallbackConfig/, "clean-anchor generation must retry transient primary-model failures with an available fallback");
@@ -483,6 +484,7 @@ assert.match(canvasClientSource, /hasReusableStoredStoryboardAnchor/, "whole-vid
 assert.match(canvasClientSource, /storyboardVideoAnchorMode === "generated-bridge" \|\| node\.metadata\?\.storyboardVideoAnchorMode === "keyframe"/, "retry must reject obsolete raw-sheet and panel anchors");
 assert.match(canvasClientSource, /needsRetryStoryboardBridge/, "whole-video retry must rebuild unsafe legacy anchors before resubmission");
 assert.match(canvasClientSource, /const retryReferenceVideos = retriesWholeStoryboardSheet \? \[\]/, "whole-storyboard retry must discard graph-derived video references");
+assert.match(canvasClientSource, /storyboardRetryWholeImages\.length > 0 \|\| isStoredWholeStoryboardVideo\(node\)/, "retry must recognize a persisted whole-storyboard video without requiring a directly connected review sheet");
 assert.match(canvasClientSource, /retriesWholeStoryboardSheet \? retryWholeStoryboardAnchors : selectGrokReferenceVideoImagesWithPriority/, "whole-grid retry must keep exactly one model-specific review-sheet anchor");
 assert.match(canvasClientSource, /compileStoryboardCleanAnchorVideoPrompt\(storyboardPlan/, "whole-grid I2V must use the compact clean-anchor compiler");
 assert.doesNotMatch(canvasClientSource, /buildWholeStoryboardI2VPrompt|buildWholeStoryboardLegacyI2VDirection/, "the markerless legacy whole-grid wrapper must stay removed");
