@@ -1,4 +1,4 @@
-export const GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION = "commerce-v13-clean-source-natural-voice";
+export const GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION = "commerce-v14-clean-anchor-natural-voice";
 export const STORYBOARD_DIRECTED_VIDEO_MARKER = "STORYBOARD-DIRECTED VIDEO.";
 
 type StoryboardVideoConstraintInput = {

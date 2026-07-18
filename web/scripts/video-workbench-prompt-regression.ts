@@ -97,7 +97,7 @@ assert.equal(workbenchShotCount(15), 4);
 const videoServiceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
 const workbenchPageSource = readFileSync(new URL("../src/app/(user)/video/page.tsx", import.meta.url), "utf8");
 const polishSource = readFileSync(new URL("../src/services/api/prompt-polish.ts", import.meta.url), "utf8");
-assert.match(videoServiceSource, /rawPrompt\.includes\(VIDEO_WORKBENCH_PROMPT_MARKER\)/, "complete workbench prompts must bypass the legacy generic wrapper");
+assert.match(videoServiceSource, /prompt\.includes\(VIDEO_WORKBENCH_PROMPT_MARKER\)/, "complete workbench prompts must bypass the legacy generic wrapper");
 assert.match(workbenchPageSource, /optimizeVideoWorkbenchPrompt\(/, "the workbench must run intelligent direction before submitting a Grok task");
 assert.match(workbenchPageSource, /\{ label: "真人带货", value: "commerce" \}/, "real-person commerce must remain an enabled workbench mode");
 assert.match(workbenchPageSource, /\{ label: "自由创作", value: "creative" \}/, "free creative generation must remain available");

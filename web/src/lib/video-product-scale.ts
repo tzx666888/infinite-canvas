@@ -42,11 +42,7 @@ export function buildVideoProductScalePrompt(value?: string) {
             "- A person stands beside it or interacts naturally with it; do not let anyone hold it like a small object.",
         );
     } else if (mode === "wearable") {
-        shared.push(
-            "- Product size class: wearable item.",
-            "- Preserve scale relative to the correct body part; keep the item worn, carried, or fitted naturally.",
-            "- Do not turn it into a tabletop prop, oversized object, or unrelated accessory.",
-        );
+        shared.push("- Product size class: wearable item.", "- Preserve scale relative to the correct body part; keep the item worn, carried, or fitted naturally.", "- Do not turn it into a tabletop prop, oversized object, or unrelated accessory.");
     } else if (mode === "oversized") {
         shared.push(
             "- Product size class: oversized equipment, vehicle, furniture, or installation.",
@@ -54,10 +50,20 @@ export function buildVideoProductScalePrompt(value?: string) {
             "- The product should dominate the scene naturally and must never become handheld or miniature.",
         );
     } else {
-        shared.push(
-            "- Product size class: infer from the product reference and scene; choose the realistic physical scale.",
-            "- If scale is ambiguous, keep the scale shown in the opening/reference frame instead of inventing a new one.",
-        );
+        shared.push("- Product size class: infer from the product reference and scene; choose the realistic physical scale.", "- If scale is ambiguous, keep the scale shown in the opening/reference frame instead of inventing a new one.");
     }
     return shared.join("\n");
+}
+
+export function buildCompactVideoProductScalePrompt(value?: string) {
+    const mode = normalizeVideoProductScaleMode(value);
+    if (mode === "auto") return "";
+    const directions: Record<Exclude<VideoProductScaleMode, "auto">, string> = {
+        handheld: "Scale lock: keep the product a small one- or two-hand item at the opening keyframe's apparent size; never enlarge it into a prop.",
+        tabletop: "Scale lock: keep the product a medium tabletop or two-hand item at the opening keyframe's apparent size.",
+        floor: "Scale lock: keep the product floor-standing beside the presenter; never make it handheld or miniature.",
+        wearable: "Scale lock: keep the wearable fitted naturally to the correct body part at the opening keyframe's scale.",
+        oversized: "Scale lock: keep the product oversized relative to people, doors, furniture, or the surrounding environment; never make it handheld.",
+    };
+    return directions[mode];
 }

@@ -214,7 +214,7 @@ export type CanvasNodeMetadata = {
     videoSourcePrompt?: string;
     videoConstraintVersion?: string;
     videoReferenceImages?: string[];
-    storyboardVideoAnchorMode?: "review-sheet" | "review-sheet-panel" | "keyframe" | "source";
+    storyboardVideoAnchorMode?: "review-sheet" | "review-sheet-panel" | "bridge-pending" | "generated-bridge" | "keyframe" | "source";
     storageKey?: string;
     mimeType?: string;
     bytes?: number;

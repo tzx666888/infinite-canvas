@@ -1,4 +1,5 @@
 import type { CanvasCommerceVideoPlan, CanvasConnection, CanvasNodeData } from "../types";
+import { STORYBOARD_DIRECTED_VIDEO_MARKER } from "@/lib/storyboard-video-constraints";
 
 export type VideoTargetModel = "grok" | "veo";
 
@@ -28,6 +29,7 @@ export function compileVideoBeatPrompt(plan: CanvasCommerceVideoPlan, beat: Comm
     const shotType = readableText(beat.shotType, "medium shot");
     const cameraMove = readableText(beat.cameraMove, "controlled camera movement");
     const prompt = [
+        STORYBOARD_DIRECTED_VIDEO_MARKER,
         `Create one ${context.duration}-second ${aspectText(context.aspectRatio)} clip for this storyboard beat only.`,
         `${shotType}, ${cameraMove}: ${describeBeat(beat, plan)}.`,
         "Animate only the action in this beat. Do not replay the opening, demonstration, ending, or any other beat from the full storyboard.",
@@ -42,6 +44,47 @@ export function compileVideoBeatPrompt(plan: CanvasCommerceVideoPlan, beat: Comm
         .filter(Boolean)
         .join(" ");
     return normalizeSpaces(limitWords(prompt, 180));
+}
+
+export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVideoPlan, context: VideoPromptContext): string {
+    const duration = Math.max(1, Math.floor(context.duration || 15));
+    const mode = resolveStoryboardMode(plan);
+    const beats = selectBeatsForDuration(plan.beats, duration) || [];
+    const stageRanges = grokStageRanges(beats.length || 1, duration);
+    const stageWordBudget = Math.max(7, Math.min(9, Math.floor(30 / Math.max(1, beats.length))));
+    const stages = beats.length
+        ? beats.map((beat, index) => `${stageRanges[index]} ${limitBeatWords(sanitizeStoryboardBeatDirection(describeBeat(beat, plan)), stageWordBudget)}`).join("; hard cut to ")
+        : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), stageWordBudget)}`;
+    const script = storyboardAudioScriptForDuration(plan, duration);
+    const audioPlan = plan.audioPlan;
+    const audioDirection =
+        audioPlan?.mode === "ambient-only"
+            ? "Audio: natural location sound and restrained music only; no speech."
+            : [
+                  `Audio: ${(audioPlan?.voice || "one natural presenter-matched voice").replace(/[.!?]+$/g, "")}, ${audioPlan?.language || "English"}.`,
+                  script ? `Say exactly once: "${script}"` : "Deliver one short connected creator-style line once.",
+                  audioPlan?.mode === "on-camera"
+                      ? "Keep the same readable face visible with synchronized lips for the complete line."
+                      : audioPlan?.mode === "voiceover"
+                        ? "Keep the voice off-screen while visible people act naturally."
+                        : "Lip-sync only the short opening sentence on the same readable face, then continue the same voice off-screen over detail shots.",
+              ].join(" ");
+    const identityDirection =
+        mode === "product"
+            ? "Keep the same presenter and exact product shape, closure, colors, label layout, object count, and natural scale throughout."
+            : mode === "apparel"
+              ? "Keep the same adult face, hair, body proportions, garment design, fit, material, and coverage throughout."
+              : "Keep the same subject identity, wardrobe, body proportions, and visual world throughout.";
+    const prompt = [
+        STORYBOARD_DIRECTED_VIDEO_MARKER,
+        `Create exactly ${duration} seconds of polished ${aspectText(context.aspectRatio)} footage.`,
+        "Use the attached clean keyframe as the exact opening and identity anchor; begin with natural local motion.",
+        `Story: ${stages}.`,
+        audioDirection,
+        identityDirection,
+        `Use at most ${storyboardShotBudget(duration)} stable shots and hard cuts. No morphs, duplicates, anatomy errors, grid, captions, or invented claims.`,
+    ].join(" ");
+    return normalizeSpaces(prompt);
 }
 
 export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | undefined, sourcePrompt = "", duration = 15): string {
@@ -241,9 +284,7 @@ function compileGrokPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBe
         .filter(Boolean)
         .map((text) => limitBeatWords(text, beatWordBudget));
     const stageRanges = grokStageRanges(beatText.length, context.duration);
-    const actionChain = beatText.length
-        ? beatText.map((text, index) => `${index === 0 ? "" : "hard cut to "}${stageRanges[index]} ${text}`).join("; ")
-        : fallbackActionChain(plan, mode, category);
+    const actionChain = beatText.length ? beatText.map((text, index) => `${index === 0 ? "" : "hard cut to "}${stageRanges[index]} ${text}`).join("; ") : fallbackActionChain(plan, mode, category);
     const plannedLocations = selectStoryboardLocationsForDuration(plan, context.duration);
     const locationDirection =
         resolveLocationStrategy(plan, mode) === "single-location"

@@ -15,7 +15,7 @@ import {
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { buildVideoProductScalePrompt } from "@/lib/video-product-scale";
+import { buildCompactVideoProductScalePrompt, buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
 import { buildApiUrl, modelOptionName, requiresClientApiKey, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
@@ -195,8 +195,8 @@ function buildReferenceVideoPrompt(
     referenceMode: ReturnType<typeof grokVideoReferenceMode> = requestReferenceCount ? "i2v" : "t2v",
 ) {
     const rawPrompt = prompt.trim();
+    if (isCompiledVideoPrompt(rawPrompt)) return [rawPrompt, buildCompactVideoProductScalePrompt(productScaleMode)].filter(Boolean).join("\n");
     const explicitProductScalePrompt = productScaleMode !== "auto" ? buildVideoProductScalePrompt(productScaleMode) : "";
-    if (rawPrompt.includes("STORYBOARD-DIRECTED VIDEO.") || rawPrompt.includes(VIDEO_WORKBENCH_PROMPT_MARKER)) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
     if (!requestReferenceCount) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
     const direction = canonicalizeVideoReferencePrompt(rawPrompt);
     const duration = normalizeDurationNumber(seconds);
@@ -240,6 +240,10 @@ function buildReferenceVideoPrompt(
     ]
         .filter(Boolean)
         .join("\n");
+}
+
+function isCompiledVideoPrompt(prompt: string) {
+    return prompt.includes("STORYBOARD-DIRECTED VIDEO.") || prompt.includes(VIDEO_WORKBENCH_PROMPT_MARKER) || prompt.includes("PRODUCT-LOCKED KEYFRAME VIDEO.");
 }
 
 function normalizeDurationNumber(value: string) {

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { CanvasNodeType, type CanvasCommerceVideoPlan, type CanvasConnection, type CanvasNodeData } from "../src/app/(user)/canvas/types";
 import {
     compileStoryboardAudioDirection,
+    compileStoryboardCleanAnchorVideoPrompt,
     compileVideoBeatPrompt,
     compileVideoPrompt,
     hasCompleteStoryboardAudioPlan,
@@ -16,6 +17,7 @@ import {
 } from "../src/app/(user)/canvas/utils/video-prompt-compiler";
 import { buildStoryboardVideoConstraintPrompt, GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, STORYBOARD_DIRECTED_VIDEO_MARKER, unwrapStoryboardVideoUserDirection } from "../src/lib/storyboard-video-constraints";
 import { grokVideoReferenceMode, selectGrokReferenceVideoImagesWithPriority, supportsGrokVideoReferenceCount, videoAspectRatioForSize } from "../src/lib/video-model-settings";
+import { buildCompactVideoProductScalePrompt } from "../src/lib/video-product-scale";
 import { buildStoryboardReviewSheetPrompt, normalizeGeneratedVideoPrompt, VIDEO_PROMPT_SYSTEM } from "../src/services/api/prompt-polish";
 
 const apparelPlan: CanvasCommerceVideoPlan = {
@@ -137,6 +139,7 @@ assert.match(waterfallClipPrompt, /do not make a visible presenter fake the narr
 assert.match(firstClipPrompt, /generate clear audible speech/i);
 assert.match(firstClipPrompt, /That wave surprised me!/i);
 assert.match(firstClipPrompt, /synchronized lips/i);
+assert.equal(firstClipPrompt.split(STORYBOARD_DIRECTED_VIDEO_MARKER).length - 1, 1, "Phase 6 beat prompts must bypass the generic video wrapper exactly once");
 
 const wholeAudioDirection = compileStoryboardAudioDirection(apparelPlan, apparelPlan.directorBrief, 15);
 assert.match(wholeAudioDirection, /never return silent or music-only video/i);
@@ -149,6 +152,22 @@ assert.match(wholeAudioDirection, /Say this exact script once, conversationally/
 assert.match(wholeAudioDirection, /Wow, that wave was unexpected/i);
 assert.doesNotMatch(wholeAudioDirection, /That wave woke me up/i, "15-second generation must use the 15-second script variant");
 assert.doesNotMatch(wholeAudioDirection, /cue timing|speech schedule|\d+(?:\.\d+)?-\d+(?:\.\d+)?s/i);
+
+const cleanAnchorPrompt = compileStoryboardCleanAnchorVideoPrompt(apparelPlan, {
+    model: "grok",
+    duration: 15,
+    aspectRatio: "9:16",
+    referenceMode: "i2v",
+});
+assert.equal(cleanAnchorPrompt.split(STORYBOARD_DIRECTED_VIDEO_MARKER).length - 1, 1, "clean-anchor prompts must bypass the generic video wrapper exactly once");
+assert.match(cleanAnchorPrompt, /attached clean keyframe as the exact opening and identity anchor/i);
+assert.match(cleanAnchorPrompt, /Wow, that wave was unexpected/i, "the duration-matched script must survive compact prompt compilation");
+assert.match(cleanAnchorPrompt, /Lip-sync only the short opening sentence/i);
+assert.match(cleanAnchorPrompt, /at most 4 stable shots/i);
+assert.ok(cleanAnchorPrompt.split(/\s+/).length <= 190, `clean-anchor Grok prompt must remain compact, received ${cleanAnchorPrompt.split(/\s+/).length} words`);
+const cleanAnchorProviderPrompt = `${cleanAnchorPrompt} ${buildCompactVideoProductScalePrompt("handheld")}`.trim();
+assert.ok(cleanAnchorProviderPrompt.split(/\s+/).length <= 200, `clean-anchor prompt plus explicit scale lock must stay concise, received ${cleanAnchorProviderPrompt.split(/\s+/).length} words`);
+assert.doesNotMatch(cleanAnchorPrompt, /complete storyboard contact sheet|decode its panels|animate the grid/i);
 
 const legacyApparelPlan: CanvasCommerceVideoPlan = {
     ...apparelPlan,
@@ -232,7 +251,7 @@ const channel28ConstraintPrompt = buildStoryboardVideoConstraintPrompt({
     aspectRatio: "16:9",
     audioDirection: "Audio lock: use one consistent adult female voice.",
 });
-assert.equal(GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, "commerce-v13-clean-source-natural-voice");
+assert.equal(GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, "commerce-v14-clean-anchor-natural-voice");
 assert.equal(channel28ConstraintPrompt.split(STORYBOARD_DIRECTED_VIDEO_MARKER).length - 1, 1, "constraint template must be emitted once");
 assert.match(channel28ConstraintPrompt, /<IMAGE_1> is the exact product\/source identity lock/);
 assert.match(channel28ConstraintPrompt, /<IMAGE_2> through <IMAGE_7> are ordered timeline anchors/);
@@ -390,59 +409,57 @@ const configStoreSource = readFileSync(new URL("../src/stores/use-config-store.t
 const promptPanelSource = readFileSync(new URL("../src/app/(user)/canvas/components/canvas-node-prompt-panel.tsx", import.meta.url), "utf8");
 const videoServiceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
 const videoPromptCompilerSource = readFileSync(new URL("../src/app/(user)/canvas/utils/video-prompt-compiler.ts", import.meta.url), "utf8");
-const canvasImageDataSource = readFileSync(new URL("../src/app/(user)/canvas/utils/canvas-image-data.ts", import.meta.url), "utf8");
 assert.match(canvasClientSource, /storyboardReviewSheetWholeReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "storyboard video generation must detect the selected whole grid before compiling its I2V prompt");
-assert.match(canvasClientSource, /storyboardReviewSheetVideoAnchorReferences\(storyboardReviewSheetImages, generationConfig\.model\)/, "single-image Grok I2V must use a deterministic review-sheet anchor");
-assert.match(canvasClientSource, /STORYBOARD_VIDEO_OPENING_PANEL_INDEX = 4/, "the clean I2V anchor must use the tested face-visible, full-body movement panel");
-assert.match(canvasClientSource, /composeDataUrlGrid\(\[openingPanel\], \{ rows: 1, columns: 1, width: 720, height: 1280 \}\)/, "the Fast anchor must be a full-frame center crop without stretching or repainting");
-assert.match(canvasClientSource, /wholeStoryboardAnchorMode = usesWholeStoryboardSheet \? storyboardVideoAnchorMode\(generationConfig\.model\)/, "whole-video metadata must record whether the direct sheet or deterministic clean panel anchor was used");
-assert.doesNotMatch(canvasClientSource, /storyboardReviewSheetOpeningPanelReferences|createStoryboardVideoBridgeReference|generated-bridge|bridge-pending/, "whole-video generation must never regenerate or repaint the presenter identity");
-assert.doesNotMatch(canvasClientSource, /VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS|requestVideoBridgeImageAttempt\(fallbackConfig|首帧服务繁忙，正在切换备用模型/, "image bridge generation must never silently switch identity models");
+assert.match(canvasClientSource, /storyboardReviewSheetKeyframeAnchorReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "whole-video generation must prefer the selected review sheet's independent keyframe");
+assert.match(
+    canvasClientSource,
+    /const needsStoryboardBridge = usesWholeStoryboardSheet && \(!storyboardKeyframeAnchorImages\.length \|\| storyboardIdentityImages\.length > 0\)/,
+    "whole-video generation must rebuild a clean anchor when identity or product sources need to be preserved",
+);
+assert.match(canvasClientSource, /createStoryboardVideoBridgeReference/, "whole-video generation must build a clean full-frame anchor before I2V");
+assert.match(canvasClientSource, /identityReferences: storyboardIdentityImages/, "the bridge must retain original product and identity references");
+assert.match(canvasClientSource, /storyboardReference: storyboardReviewSheetImages\[0\]/, "the complete storyboard must remain planning evidence for the clean bridge");
+assert.match(canvasClientSource, /storyboardVideoAnchorMode: "generated-bridge"/, "successful bridge generation must persist the actual clean anchor for retry");
+assert.doesNotMatch(canvasClientSource, /STORYBOARD_VIDEO_OPENING_PANEL_INDEX|storyboardReviewSheetVideoAnchorReferences|composeDataUrlGrid\(\[openingPanel\]/, "whole-video generation must never crop a hard-coded contact-sheet panel into an I2V frame");
+assert.match(canvasClientSource, /VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS/, "clean-anchor generation must have a declared fallback model order");
+assert.match(canvasClientSource, /requestVideoBridgeImageAttempt\(fallbackConfig/, "clean-anchor generation must retry transient primary-model failures with an available fallback");
+assert.match(canvasClientSource, /首帧服务繁忙，正在切换备用模型/, "the UI must disclose clean-anchor fallback instead of silently changing models");
 assert.match(canvasClientSource, /const storyboardVideoImages = usesWholeStoryboardSheet \? wholeStoryboardImages : storyboardReferenceFrames/, "whole-video generation must use the model-specific opening anchor while the plan carries the full story");
 assert.match(canvasClientSource, /referenceMode: grokVideoReferenceMode\(videoGenerationConfig\.model, videoReferenceImages\.length\)/, "whole-grid prompt compilation must describe each model's actual I2V or R2V contract");
-assert.match(canvasClientSource, /hasReusableStoredStoryboardSheet/, "whole-video retry must trust only explicit review-sheet metadata");
-assert.match(canvasClientSource, /mergeReferenceImages\(rebuiltWholeStoryboardAnchors, hasReusableStoredStoryboardSheet \? storedVideoReferenceImages : \[\]\)\.slice\(0, 1\)/, "whole-video retry must rebuild or restore the same model-specific review-sheet anchor");
+assert.match(canvasClientSource, /hasReusableStoredStoryboardAnchor/, "whole-video retry must trust only an independent keyframe or generated bridge");
+assert.match(canvasClientSource, /storyboardVideoAnchorMode === "generated-bridge" \|\| node\.metadata\?\.storyboardVideoAnchorMode === "keyframe"/, "retry must reject obsolete raw-sheet and panel anchors");
+assert.match(canvasClientSource, /needsRetryStoryboardBridge/, "whole-video retry must rebuild unsafe legacy anchors before resubmission");
 assert.match(canvasClientSource, /retriesWholeStoryboardSheet \? retryWholeStoryboardAnchors : selectGrokReferenceVideoImagesWithPriority/, "whole-grid retry must keep exactly one model-specific review-sheet anchor");
-assert.match(canvasClientSource, /buildWholeStoryboardI2VPrompt/, "whole-grid I2V must use the compact task-245-style prompt path");
-assert.match(canvasClientSource, /referenceMode === "i2v"\) return buildWholeStoryboardLegacyI2VDirection/, "single-image Grok video must restore the proven task-245 request wrapper");
-assert.match(canvasClientSource, /Show a clean full-frame face-visible presenter from frame one/, "single-image Grok video must begin speech on the clean panel anchor");
-assert.match(canvasClientSource, /Say exactly once:/, "the compact task-245 direction must keep the exact duration-matched script ahead of truncation");
-assert.match(canvasClientSource, /stagedStory\.matchAll/, "the compact task-245 direction must preserve all timed stages within the transport budget");
-assert.match(canvasClientSource, /<IMAGE_1> is a visual reference sheet for identity, wardrobe, setting, and shot choices/, "whole-grid I2V must treat the review sheet as evidence rather than a frame-by-frame animation path");
-assert.match(canvasClientSource, /Visible people, garments, products, props, actions, and environments in <IMAGE_1> override stale category wording/, "the visible grid must outrank stale legacy category wording");
-assert.match(canvasClientSource, /one coherent short video/, "whole-grid video must request one continuous narrative rather than independent speech windows");
+assert.match(canvasClientSource, /compileStoryboardCleanAnchorVideoPrompt\(storyboardPlan/, "whole-grid I2V must use the compact clean-anchor compiler");
+assert.doesNotMatch(canvasClientSource, /buildWholeStoryboardI2VPrompt|buildWholeStoryboardLegacyI2VDirection/, "the markerless legacy whole-grid wrapper must stay removed");
 assert.match(canvasClientSource, /recoverLegacyStoryboardVideoPlan/, "legacy whole-grid videos must recover lost semantic direction before submission");
 assert.match(canvasClientSource, /正在按当前时长恢复分镜语义与自然口播/, "the canvas must disclose duration-specific semantic recovery");
 assert.match(canvasClientSource, /hasCompleteStoryboardAudioPlan\(storyboardPlan, Number\(videoGenerationConfig\.videoSeconds\)\)/, "a whole-grid request must require a script that fits the actual model duration");
 assert.match(canvasClientSource, /defaultConfig\.textModel \|\| "tokaxis::gpt-5\.6-sol"/, "legacy storyboard recovery must always use the built-in GPT-5.6 Sol optimizer");
 assert.match(canvasClientSource, /audioPlan\.scriptsByDuration with independent 6, 10, and 15 second scripts/, "semantic recovery must prepare independent scripts instead of truncating one master script");
-assert.match(canvasClientSource, /Use at most.*stable full-frame story stages/, "whole-grid execution must enforce a duration-aware stage budget");
-assert.match(canvasClientSource, /never rapidly cycle through similar panels or turn adjacent poses into separate shots/, "whole-grid execution must not replay same-location micro poses");
-assert.match(canvasClientSource, /Move through the related locations\[\\s\\S\]\*\$\/i/, "the compact whole-grid direction must remove location and identity text already enforced by the wrapper");
-assert.match(canvasClientSource, /never start on a headless crop, back view, or transition/, "presenter-led grids must begin on a complete stable face when one is available");
-assert.match(canvasClientSource, /fullPrompt\.length <= 3500/, "whole-grid prompts must use the proven service capacity without reaching the 3600-character transport cap");
+assert.match(videoPromptCompilerSource, /compileStoryboardCleanAnchorVideoPrompt/, "clean-anchor prompt compilation must remain independently regression-testable");
+assert.match(videoPromptCompilerSource, /Use the attached clean keyframe as the exact opening and identity anchor/, "Grok must receive the bridge as a clean literal opening frame, never as a contact sheet");
+assert.match(videoPromptCompilerSource, /at most \$\{storyboardShotBudget\(duration\)\} stable shots/, "whole-grid execution must enforce a duration-aware stage budget");
 assert.match(videoPromptCompilerSource, /Say this exact script once, conversationally/, "storyboard speech must be one coherent performance");
 assert.match(videoPromptCompilerSource, /storyboardAudioScriptForDuration/, "storyboard speech must select the script matching the normalized model duration");
 assert.match(videoPromptCompilerSource, /Mixed delivery: open on one stable face-visible/, "storyboard speech must restore the proven short presenter line followed by voiceover rhythm");
 assert.match(videoPromptCompilerSource, /Hold each stage continuously/, "Grok whole-video direction must preserve stable stage duration");
 assert.match(videoPromptCompilerSource, /\[0:00-0:03\].*\[0:03-0:08\].*\[0:08-0:13\]/s, "15-second Grok direction must restore the proven four-stage cadence");
-assert.match(canvasImageDataSource, /const targetAspect = cellWidth \/ cellHeight/, "3x3 anchor composition must center-crop panels without stretching people");
 assert.match(videoPromptCompilerSource, /never infer language from visible labels/, "visible Chinese labels must not silently switch an English storyboard to Mandarin");
 assert.doesNotMatch(videoPromptCompilerSource, /MANDATORY ON-CAMERA SPEECH SCHEDULE|On-camera cue timing|Narration timing lock/, "storyboard speech must never restore fixed timing windows");
 assert.doesNotMatch(canvasClientSource, /wholeStoryboardGrid: true/, "whole-video I2V must not route through the obsolete grid template");
-assert.match(canvasClientSource, /preserve this location order:/, "whole-grid prompt must preserve structured location order when it agrees with the visible grid");
-assert.match(canvasClientSource, /do not collapse all visible locations into the opening background/, "whole-grid prompt must keep visible planned locations distinct");
-assert.match(canvasClientSource, /compileStoryboardAudioDirection\(plan, text, duration\)/, "whole-grid I2V must inject the duration-aware audio lock before submission");
 assert.match(canvasClientSource, /compileVideoBeatPrompt\(plan, beat, videoPromptContext\)/, "Phase 6 must compile a distinct prompt for each beat");
 assert.match(canvasClientSource, /nodeOwnsVideoTiming = node\?\.type === CanvasNodeType\.Video \|\| node\?\.type === CanvasNodeType\.Config/, "image and storyboard nodes must use the active video duration instead of stale image metadata");
 assert.match(hoverToolbarSource, /label: "生成整片"/, "review sheets must expose the full-video workflow");
 assert.match(hoverToolbarSource, /label: "生成分段"/, "plan nodes must distinguish clip generation from full-video generation");
 assert.match(configStoreSource, /textModel: "tokaxis::gpt-5\.6-sol"/, "built-in text optimization model must default to GPT-5.6 Sol");
 assert.match(configStoreSource, /shouldMigrateTokaxisDefaults \? defaultConfig\.textModel/, "existing persisted defaults must migrate to GPT-5.6 Sol");
-assert.match(configStoreSource, /shouldMigrateTextModel \? \["gpt-5\.6-sol"\]/, "legacy channel model lists must receive GPT-5.6 Sol during migration");
+assert.match(configStoreSource, /shouldMigrateTextModel \? \["gpt-5\.6-sol", \.\.\.Object\.values\(TOKAXIS_GOOGLE_IMAGE_MODELS\)\]/, "legacy channel model lists must receive GPT-5.6 Sol during migration");
 assert.doesNotMatch(promptPanelSource, /tokaxis::gpt-5\.5/, "prompt polish UI must not retain a GPT-5.5 fallback");
 assert.match(videoServiceSource, /referenceMode === "i2v" \? \{ image: referenceImages\[0\] \}/, "Fast single-image mode must send the explicit image field");
 assert.match(videoServiceSource, /referenceMode === "r2v" \? \{ reference_images: referenceImages \}/, "reference-to-video mode must preserve reference_images");
+assert.match(videoServiceSource, /if \(isCompiledVideoPrompt\(rawPrompt\)\)/, "compiled storyboard, workbench, and product-lock prompts must bypass the generic wrapper");
+assert.match(videoServiceSource, /prompt\.includes\("PRODUCT-LOCKED KEYFRAME VIDEO\."\)/, "product bridge prompts must not be wrapped a second time");
 assert.match(videoServiceSource, /Visible speech rule: when a visible presenter is speaking, keep the face clearly visible for the complete line/i, "single-image I2V must preserve the task-245 visible-speech contract");
 assert.doesNotMatch(videoServiceSource, /Use off-screen voiceover by default/, "single-image I2V must not regress to detached narration");
 assert.doesNotMatch(videoServiceSource, /reference_images:\s*referenceImages,\s*\n\s*};/, "video requests must not force every image input into reference_images");
