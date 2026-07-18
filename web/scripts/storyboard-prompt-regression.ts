@@ -163,6 +163,7 @@ const cleanAnchorPrompt = compileStoryboardCleanAnchorVideoPrompt(apparelPlan, {
 assert.equal(cleanAnchorPrompt.split(STORYBOARD_DIRECTED_VIDEO_MARKER).length - 1, 1, "clean-anchor prompts must bypass the generic video wrapper exactly once");
 assert.match(cleanAnchorPrompt, /attached clean keyframe as the exact opening and identity anchor/i);
 assert.match(cleanAnchorPrompt, /That wave surprised me/i, "the duration-matched script must survive compact prompt compilation");
+assert.match(cleanAnchorPrompt, /Speak clearly at a relaxed pace; no slurring/i, "Grok speech must explicitly prioritize intelligibility over rushed delivery");
 assert.match(cleanAnchorPrompt, /Lip-sync the opening sentence/i);
 assert.match(cleanAnchorPrompt, /at most 4 stable shots/i);
 assert.match(cleanAnchorPrompt, /Hard cuts only; no dissolves, crossfades, ghosts/i);

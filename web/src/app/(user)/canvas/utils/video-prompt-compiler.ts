@@ -62,6 +62,7 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
             : [
                   `Audio: ${compactStoryboardVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
                   script ? `Say exactly once: "${script}"` : "Deliver one short connected creator-style line once.",
+                  "Speak clearly at a relaxed pace; no slurring.",
                   audioPlan?.mode === "on-camera"
                       ? "Keep the same face readable and lip-synchronized for the entire line."
                       : audioPlan?.mode === "voiceover"
