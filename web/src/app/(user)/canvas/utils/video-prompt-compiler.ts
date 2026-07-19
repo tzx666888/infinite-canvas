@@ -69,7 +69,7 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
             : useStableCreatorTake
               ? [
                     `Audio: ${compactStoryboardCreatorVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
-                    script ? `Say once in one connected conversational flow: "${script}"` : "Deliver one connected creator-style thought once.",
+                    script ? `Say once in a connected conversational flow: "${script}"` : "Deliver one connected creator-style thought once.",
                     creatorSpeechTiming(duration),
                     useOpeningLipSync ? "Lip-sync the opening; continue off-screen in the same voice." : "Keep one readable face with natural expression and synchronized lips throughout speech.",
                 ].join(" ")
@@ -746,13 +746,13 @@ function creatorAudioScriptForDuration(plan: CanvasCommerceVideoPlan, duration: 
     const target = wornGarmentTarget(plan);
     if (duration <= 6) return "That wave was wild. Good thing this cleaner stays in my beach bag.";
     if (duration <= 10) return `That wave was wild. I keep this cleaner in my beach bag, spray my ${target} after swimming, then rinse it with fresh water.`;
-    return `That wave came out of nowhere, so I always keep this cleaner in my beach bag and use one quick spray on my ${target} to clear the salty spots before I get right back in the water.`;
+    return `That wave came out of nowhere and soaked my beach bag. I keep this cleaner right here, so one quick spray clears the salty spots from my ${target} while I'm still at the beach. Now I can get straight back in the water.`;
 }
 
 function creatorSpeechTiming(duration: number) {
-    const continuity = "Use only brief natural breaths; no restart, repeated phrase, invented filler, forced pause, or stretched word.";
+    const continuity = "Brief natural breaths only; no restart, repetition, invented filler, forced pause, or stretched words.";
     if (duration <= 10) return continuity;
-    return `${continuity} Let natural location ambience and low music continue after the line ends.`;
+    return `${continuity} Continue location ambience and low music after the line.`;
 }
 
 function wornGarmentTarget(plan: CanvasCommerceVideoPlan) {
