@@ -69,9 +69,17 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
             : useStableCreatorTake
               ? [
                     `Audio: ${compactStoryboardCreatorVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
-                    script ? `Say once in a connected conversational flow: "${script}"` : "Deliver one connected creator-style thought once.",
-                    creatorSpeechTiming(duration),
-                    useOpeningLipSync ? "Lip-sync the opening; continue off-screen in the same voice." : "Keep one readable face with natural expression and synchronized lips throughout speech.",
+                    script
+                        ? wornGarmentTreatmentConflict
+                            ? `Say this one sentence once, brisk but relaxed: "${script}"`
+                            : `Say once in a connected conversational flow: "${script}"`
+                        : "Deliver one connected creator-style thought once.",
+                    creatorSpeechTiming(duration, wornGarmentTreatmentConflict),
+                    useOpeningLipSync
+                        ? wornGarmentTreatmentConflict
+                            ? "Keep natural lip-sync whenever the face is visible, including while looking down."
+                            : "Lip-sync the opening; continue off-screen in the same voice."
+                        : "Keep one readable face with natural expression and synchronized lips throughout speech.",
                 ].join(" ")
               : [
                     `Audio: ${compactStoryboardVoice(audioPlan?.voice)}; ${audioPlan?.language || "English"}.`,
@@ -744,12 +752,16 @@ function creatorAudioScriptForDuration(plan: CanvasCommerceVideoPlan, duration: 
     const script = storyboardAudioScriptForDuration(plan, duration);
     if (!wornGarmentTreatmentConflict || !looksEnglishStoryboardSpeech(script, plan.audioPlan?.language)) return script;
     const target = wornGarmentTarget(plan);
+    const spokenTarget = /\b(?:bikini|swimsuit|swimwear)\b/i.test(target) ? "swimsuit" : target.replace(/^black\s+/i, "");
     if (duration <= 6) return "That wave was wild. Good thing this cleaner stays in my beach bag.";
     if (duration <= 10) return `That wave was wild. I keep this cleaner in my beach bag, spray my ${target} after swimming, then rinse it with fresh water.`;
-    return `That wave came out of nowhere and soaked my beach bag, so I keep this cleaner with me and one quick spray clears the salty spots from my ${target} while I'm at the beach. I'm ready to enjoy more time in the water.`;
+    return `That wave soaked everything, but I always keep this little cleaner in my beach bag, so one quick spray takes care of the salty marks on my ${spokenTarget} and I can enjoy more time by the water.`;
 }
 
-function creatorSpeechTiming(duration: number) {
+function creatorSpeechTiming(duration: number, wornGarmentTreatmentConflict = false) {
+    if (wornGarmentTreatmentConflict && duration > 10) {
+        return "Start immediately, finish once by 0:13.5, then continue natural ambience; never restart, repeat, add words, force pauses, or stretch pronunciation.";
+    }
     const continuity = "Brief natural breaths only; no restart, repetition, invented filler, forced pause, or stretched words.";
     if (duration <= 10) return continuity;
     return `${continuity} Continue location ambience and low music after the line.`;
