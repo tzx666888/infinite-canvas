@@ -746,13 +746,13 @@ function creatorAudioScriptForDuration(plan: CanvasCommerceVideoPlan, duration: 
     const target = wornGarmentTarget(plan);
     if (duration <= 6) return "That wave was wild. Good thing this cleaner stays in my beach bag.";
     if (duration <= 10) return `That wave was wild. I keep this cleaner in my beach bag, spray my ${target} after swimming, then rinse it with fresh water.`;
-    return `That wave came out of nowhere, so this cleaner stays in my beach bag, and when my ${target} gets covered in salt and sand, a few quick sprays make cleanup easy so I can get back to the beach.`;
+    return `That wave came out of nowhere, but I always keep this cleaner in my beach bag. I spray the ${target}, work over the salty spots, and finish the cleanup so I can get straight back in the water.`;
 }
 
 function creatorSpeechTiming(duration: number) {
     if (duration <= 6) return "Start near 0.4s; one connected 125-135 wpm flow, no repeats or restarts, finish at 5.5-5.9s.";
     if (duration <= 10) return "Start near 0.4s; one connected 140-150 wpm flow, no repeats or restarts, finish at 9.4-9.8s.";
-    return "Start near 0.4s; one connected flow with micro-pauses under 0.35s, no repeats or restarts, speak through 14.4-14.8s.";
+    return "Start near 0.4s; two fluent sentences with one natural breath under 0.4s between them, no repeats or restarts, finish at 14.4-14.8s.";
 }
 
 function wornGarmentTarget(plan: CanvasCommerceVideoPlan) {
