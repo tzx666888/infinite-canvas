@@ -118,7 +118,8 @@ export function hasWornGarmentTreatmentConflict(plan: CanvasCommerceVideoPlan) {
     const presenterAndRemovedTarget = visiblePresenterPattern.test(openingEvidence) && /\bremoved\b[^.]{0,60}\b(?:bikini|swimsuit|swimwear|garment|dress|shirt|top|pants|jacket|coat)\b/i.test(fullEvidence);
     const cleaningProduct = /\b(?:cleaner|detergent|cleaning spray|stain remover|fabric wash|laundry)\b/i.test(fullEvidence);
     const treatsGarment = /\b(?:spray|clean|brush|scrub|rinse|wash|wipe|treat|remove)\w*\b[^.]{0,100}\b(?:bikini|swimsuit|swimwear|garment|fabric|dress|shirt|top|pants|jacket|coat)\b/i.test(fullEvidence);
-    return (wearerStartsInTarget || presenterAndRemovedTarget) && cleaningProduct && treatsGarment;
+    const presenterGarmentDemo = visiblePresenterPattern.test(openingEvidence) && cleaningProduct && treatsGarment;
+    return (wearerStartsInTarget || presenterAndRemovedTarget || presenterGarmentDemo) && cleaningProduct && treatsGarment;
 }
 
 export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | undefined, sourcePrompt = "", duration = 15): string {

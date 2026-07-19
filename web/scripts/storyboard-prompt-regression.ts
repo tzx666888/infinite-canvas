@@ -247,6 +247,28 @@ assert.match(mixedCleanerPrompt, /No cuts.*duplicates/i);
 const mixedCleanerProviderPrompt = `${mixedCleanerPrompt} ${buildCompactVideoProductScalePrompt("handheld")}`.trim();
 assert.ok(mixedCleanerProviderPrompt.split(/\s+/).length <= 180, `conflict-safe creator prompt plus scale lock must stay within 180 words, received ${mixedCleanerProviderPrompt.split(/\s+/).length}`);
 
+const separateSwimwearCleanerPlan: CanvasCommerceVideoPlan = {
+    ...mixedCleanerPlan,
+    visualIdentity: "An adult woman in a white beach cover-up holds a green cleaner bottle while a separate black swimsuit lies on a waist-high table.",
+    directorBrief: "Keep the same adult woman, white cover-up, green cleaner, table, and beach throughout the creator demonstration.",
+    beats: [
+        {
+            index: 1,
+            description: "The adult woman reacts to a wave and presents the green cleaner.",
+            eightElements: { action: "The adult woman addresses the camera with the cleaner visible." },
+        },
+        {
+            index: 2,
+            description: "She treats the separate black swimsuit on the table.",
+            eightElements: { action: "She sprays the separate black swimsuit once and presents the result." },
+        },
+    ],
+};
+assert.equal(hasWornGarmentTreatmentConflict(separateSwimwearCleanerPlan), true, "separate-garment presenter demos must not drift back to the generic mixed-audio template");
+const separateSwimwearPrompt = compileStoryboardCleanAnchorVideoPrompt(separateSwimwearCleanerPlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
+assert.match(separateSwimwearPrompt, /Say this one sentence once, brisk but relaxed/i);
+assert.match(separateSwimwearPrompt, /Keep natural lip-sync whenever the face is visible/i);
+
 const legacyApparelPlan: CanvasCommerceVideoPlan = {
     ...apparelPlan,
     audioPlan: undefined,
