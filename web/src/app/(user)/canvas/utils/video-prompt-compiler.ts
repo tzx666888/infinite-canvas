@@ -84,18 +84,18 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
                 ].join(" ");
     const identityDirection =
         mode === "product"
-            ? "Lock presenter identity and exact product geometry, colors, label, count, and scale."
+            ? "Lock presenter identity and product geometry, colors, label, count, scale."
             : mode === "apparel"
               ? "Lock the adult face, hair, body proportions, garment design, fit, material, and coverage."
               : "Lock the same subject identity, wardrobe, body proportions, and visual world.";
     const prompt = [
         STORYBOARD_DIRECTED_VIDEO_MARKER,
-        `Create ${duration}s ${context.aspectRatio} footage from the clean keyframe as exact opening and identity anchor.`,
+        `Create ${duration}s ${context.aspectRatio} from the clean keyframe as the exact identity anchor.`,
         `Story: ${stages}.`,
         audioDirection,
         identityDirection,
         useStableCreatorTake
-            ? "Use one continuous medium shot with gentle drift. No cuts, reframing, zooms, giant hands, teleports, duplicates, morphs, or anatomy errors."
+            ? "One continuous medium shot, gentle drift. No cuts, reframing, zooms, giant hands, duplicates, morphs, or anatomy errors."
             : `Use at most ${storyboardShotBudget(duration)} stable shots. Hard cuts only; no dissolves, crossfades, ghosts, morphs, duplicates, anatomy errors, grids, captions, or invented claims.`,
     ].join(" ");
     return normalizeSpaces(prompt);
@@ -728,9 +728,9 @@ function stableCreatorStory(plan: CanvasCommerceVideoPlan, beats: CommerceVideoB
     const target = wornGarmentTarget(plan);
     if (wornGarmentTreatmentConflict) {
         return [
-            `one continuous demo: [0:00-0:02.5] face the camera with the cleaner`,
-            `[0:02.5-${formatTime(finalStart)}] look down and spray one separate unworn ${target} on a waist-high surface`,
-            `[${formatTime(finalStart)}-${formatTime(duration)}] look back and present both at natural scale`,
+            `continuous demo: [0:00-0:02.5] address camera, cleaner visible`,
+            `[0:02.5-${formatTime(finalStart)}] look down and spray one separate unworn ${target} on a waist-high table`,
+            `[${formatTime(finalStart)}-${formatTime(duration)}] look up and present both at true scale`,
         ].join("; ");
     }
 
@@ -746,13 +746,13 @@ function creatorAudioScriptForDuration(plan: CanvasCommerceVideoPlan, duration: 
     const target = wornGarmentTarget(plan);
     if (duration <= 6) return "That wave was wild. Good thing this cleaner stays in my beach bag.";
     if (duration <= 10) return `That wave was wild. I keep this cleaner in my beach bag, spray my ${target} after swimming, then rinse it with fresh water.`;
-    return `That wave came out of nowhere, so I keep this cleaner in my beach bag, and one quick spray plus a fresh water rinse gets my ${target} ready for another beach day.`;
+    return `That wave came out of nowhere, so this cleaner stays in my beach bag, and when my ${target} gets covered in salt and sand, a few quick sprays make cleanup easy so I can get back to the beach.`;
 }
 
 function creatorSpeechTiming(duration: number) {
     if (duration <= 6) return "Start near 0.4s; one connected 125-135 wpm flow, no repeats or restarts, finish at 5.5-5.9s.";
     if (duration <= 10) return "Start near 0.4s; one connected 140-150 wpm flow, no repeats or restarts, finish at 9.4-9.8s.";
-    return "Start near 0.4s; one connected 135-145 wpm flow, no repeats or restarts, finish at 14.4-14.8s.";
+    return "Start near 0.4s; one connected flow with micro-pauses under 0.35s, no repeats or restarts, speak through 14.4-14.8s.";
 }
 
 function wornGarmentTarget(plan: CanvasCommerceVideoPlan) {
