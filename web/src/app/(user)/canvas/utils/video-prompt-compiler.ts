@@ -746,7 +746,7 @@ function creatorAudioScriptForDuration(plan: CanvasCommerceVideoPlan, duration: 
     const target = wornGarmentTarget(plan);
     if (duration <= 6) return "That wave was wild. Good thing this cleaner stays in my beach bag.";
     if (duration <= 10) return `That wave was wild. I keep this cleaner in my beach bag, spray my ${target} after swimming, then rinse it with fresh water.`;
-    return `That wave came out of nowhere and soaked my beach bag, so I keep this cleaner handy and one quick spray clears the salty spots from my ${target} while I'm still at the beach. I'm ready to get straight back in the water.`;
+    return `That wave came out of nowhere and soaked my beach bag, so I keep this cleaner with me and one quick spray clears the salty spots from my ${target} while I'm at the beach. I'm ready to get straight back in the water.`;
 }
 
 function creatorSpeechTiming(duration: number) {

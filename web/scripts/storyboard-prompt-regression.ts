@@ -235,6 +235,7 @@ const mixedCleanerPlan: CanvasCommerceVideoPlan = {
 const mixedCleanerPrompt = compileStoryboardCleanAnchorVideoPrompt(mixedCleanerPlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
 assert.match(mixedCleanerPrompt, /one separate unworn black bikini on a waist-high table/i);
 assert.match(mixedCleanerPrompt, /soaked my beach bag/i, "conflicting saved narration must be replaced by a physically coherent creator line");
+assert.match(mixedCleanerPrompt, /I keep this cleaner with me/i);
 assert.match(mixedCleanerPrompt, /one quick spray clears the salty spots from my black bikini/i);
 assert.match(mixedCleanerPrompt, /I'm ready to get straight back in the water/i);
 assert.doesNotMatch(mixedCleanerPrompt, /I'm cleaning the black bikini right here|spraying the removed|hard cut to/i);
