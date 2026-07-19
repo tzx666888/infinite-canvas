@@ -249,13 +249,14 @@ assert.ok(mixedCleanerProviderPrompt.split(/\s+/).length <= 180, `conflict-safe 
 
 const separateSwimwearCleanerPlan: CanvasCommerceVideoPlan = {
     ...mixedCleanerPlan,
-    visualIdentity: "An adult woman in a white beach cover-up holds a green cleaner bottle while a separate black swimsuit lies on a waist-high table.",
-    directorBrief: "Keep the same adult woman, white cover-up, green cleaner, table, and beach throughout the creator demonstration.",
+    productCategory: "green spray",
+    visualIdentity: "An adult woman in a white beach cover-up holds a green spray bottle while a separate black swimsuit lies on a waist-high table.",
+    directorBrief: "Keep the same adult woman, white cover-up, green spray, table, and beach throughout the creator demonstration.",
     beats: [
         {
             index: 1,
-            description: "The adult woman reacts to a wave and presents the green cleaner.",
-            eightElements: { action: "The adult woman addresses the camera with the cleaner visible." },
+            description: "The adult woman reacts to a wave and presents the green spray.",
+            eightElements: { action: "The adult woman addresses the camera with the spray visible." },
         },
         {
             index: 2,
