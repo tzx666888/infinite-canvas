@@ -236,7 +236,7 @@ const mixedCleanerPrompt = compileStoryboardCleanAnchorVideoPrompt(mixedCleanerP
 assert.match(mixedCleanerPrompt, /one separate unworn black bikini on a waist-high table/i);
 assert.match(mixedCleanerPrompt, /soaked my beach bag/i, "conflicting saved narration must be replaced by a physically coherent creator line");
 assert.match(mixedCleanerPrompt, /one quick spray clears the salty spots from my black bikini/i);
-assert.match(mixedCleanerPrompt, /Now I can get straight back in the water/i);
+assert.match(mixedCleanerPrompt, /I'm ready to get straight back in the water/i);
 assert.doesNotMatch(mixedCleanerPrompt, /I'm cleaning the black bikini right here|spraying the removed|hard cut to/i);
 assert.match(mixedCleanerPrompt, /no restart, repetition, invented filler, forced pause, or stretched words/i);
 assert.match(mixedCleanerPrompt, /Say once in a connected conversational flow/i);
