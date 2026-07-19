@@ -8,7 +8,6 @@ import {
     compileVideoBeatPrompt,
     compileVideoPrompt,
     hasCompleteStoryboardAudioPlan,
-    hasWornGarmentTreatmentConflict,
     repairStoryboardAudioPlanForDuration,
     resolveStoryboardMode,
     resolveStoryboardVideoPlan,
@@ -20,7 +19,7 @@ import {
 import { buildStoryboardVideoConstraintPrompt, GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, STORYBOARD_DIRECTED_VIDEO_MARKER, unwrapStoryboardVideoUserDirection } from "../src/lib/storyboard-video-constraints";
 import { grokVideoReferenceMode, selectGrokReferenceVideoImagesWithPriority, supportsGrokVideoReferenceCount, videoAspectRatioForSize } from "../src/lib/video-model-settings";
 import { buildCompactVideoProductScalePrompt } from "../src/lib/video-product-scale";
-import { buildStoryboardReviewSheetPrompt, normalizeGeneratedVideoPrompt, VIDEO_PROMPT_SYSTEM } from "../src/services/api/prompt-polish";
+import { buildStoryboardKeyframePrompt, buildStoryboardReviewSheetPrompt, normalizeGeneratedVideoPrompt, VIDEO_PROMPT_SYSTEM } from "../src/services/api/prompt-polish";
 
 const apparelPlan: CanvasCommerceVideoPlan = {
     productCategory: "apparel",
@@ -82,6 +81,19 @@ assert.equal(
     false,
     "apparel panel instructions must not contain cleaning actions",
 );
+
+const selectedKeyframePrompt = buildStoryboardKeyframePrompt(apparelPlan, apparelPlan.beats![0], {
+    selectedReviewSheet: true,
+    selectedReviewPanelIndex: 1,
+    identityReferenceCount: 1,
+});
+assert.match(selectedKeyframePrompt, /IMAGE 1 is the cropped approved storyboard panel 1/i);
+assert.match(selectedKeyframePrompt, /Copy its composition, framing, presenter, face, body, wardrobe, product placement, environment, lighting, and action exactly/i);
+assert.match(selectedKeyframePrompt, /IMAGE 2 lock original person and product identity only/i);
+assert.match(selectedKeyframePrompt, /never let them override IMAGE 1's approved wardrobe, composition, action, or setting/i);
+assert.match(selectedKeyframePrompt, /black string bikini/i);
+assert.match(selectedKeyframePrompt, /Forbidden additions: cleaner bottle, spray trigger, packaging, cleaning tools/i);
+assert.doesNotMatch(selectedKeyframePrompt, /white beach cover-up|waist-high table|separate unworn/i);
 
 const grokPrompt = compileVideoPrompt(apparelPlan, {
     model: "grok",
@@ -162,24 +174,23 @@ const cleanAnchorPrompt = compileStoryboardCleanAnchorVideoPrompt(apparelPlan, {
     referenceMode: "i2v",
 });
 assert.equal(cleanAnchorPrompt.split(STORYBOARD_DIRECTED_VIDEO_MARKER).length - 1, 1, "clean-anchor prompts must bypass the generic video wrapper exactly once");
-assert.match(cleanAnchorPrompt, /clean keyframe as the exact identity anchor/i);
+assert.match(cleanAnchorPrompt, /Exact first frame: clean keyframe/i);
 assert.match(cleanAnchorPrompt, /That wave surprised me/i, "the duration-matched script must survive compact prompt compilation");
-assert.match(cleanAnchorPrompt, /Say once in a connected conversational flow/i);
-assert.match(cleanAnchorPrompt, /no restart, repetition, invented filler, forced pause, or stretched words/i, "creator speech must reject repetition, gibberish, and time stretching");
-assert.match(cleanAnchorPrompt, /Brief natural breaths only/i, "creator speech must remain connected without imposing a synthetic reading speed");
-assert.match(cleanAnchorPrompt, /Continue location ambience and low music after the line/i, "creator speech must end in a deliberate product hold instead of being stretched across the clip");
-assert.doesNotMatch(cleanAnchorPrompt, /finish at 14\.4-14\.8s|175-185 wpm|finish near 13s|Do not fill 15s with speech/i);
-assert.match(cleanAnchorPrompt, /Lip-sync the opening/i);
-assert.match(cleanAnchorPrompt, /continue off-screen in the same voice/i);
-assert.doesNotMatch(cleanAnchorPrompt, /hard cut to/i);
-assert.match(cleanAnchorPrompt, /reacts naturally to a small wave/i);
-assert.match(cleanAnchorPrompt, /delivers the final line/i);
-assert.match(cleanAnchorPrompt, /one continuous medium shot/i);
-assert.match(cleanAnchorPrompt, /No cuts, reframing, zooms/i);
-assert.doesNotMatch(cleanAnchorPrompt, /at most 4 stable shots|Hard cuts only/i);
-assert.ok(cleanAnchorPrompt.split(/\s+/).length <= 180, `clean-anchor Grok prompt must remain compact, received ${cleanAnchorPrompt.split(/\s+/).length} words`);
+assert.match(cleanAnchorPrompt, /Say exactly once, naturally/i);
+assert.match(cleanAnchorPrompt, /No repeats, filler, stretched words, voice changes/i, "creator speech must reject repetition, gibberish, and time stretching");
+assert.match(cleanAnchorPrompt, /Lip-sync opening sentence/i);
+assert.match(cleanAnchorPrompt, /same voice off-screen/i);
+assert.match(cleanAnchorPrompt, /cut to/i);
+assert.match(cleanAnchorPrompt, /reacts to small wave/i);
+assert.match(cleanAnchorPrompt, /delivers final line/i);
+assert.match(cleanAnchorPrompt, /At most 4 hard-cut shots/i);
+assert.match(cleanAnchorPrompt, /No wardrobe changes or unplanned furniture/i);
+assert.match(cleanAnchorPrompt, /black string bikini/i);
+assert.doesNotMatch(cleanAnchorPrompt, /continuous creator take|one continuous medium shot|No cuts, reframing, zooms/i);
+assert.doesNotMatch(cleanAnchorPrompt, /beach cover-up|dry top|waist-high table|separate unworn/i);
+assert.ok(cleanAnchorPrompt.split(/\s+/).length <= 180, `clean-anchor Grok prompt must remain within the 180-word provider target, received ${cleanAnchorPrompt.split(/\s+/).length} words`);
 const cleanAnchorProviderPrompt = `${cleanAnchorPrompt} ${buildCompactVideoProductScalePrompt("handheld")}`.trim();
-assert.ok(cleanAnchorProviderPrompt.split(/\s+/).length <= 190, `clean-anchor prompt plus explicit scale lock must stay concise, received ${cleanAnchorProviderPrompt.split(/\s+/).length} words`);
+assert.ok(cleanAnchorProviderPrompt.split(/\s+/).length <= 180, `clean-anchor prompt plus explicit scale lock must stay within the 180-word provider target, received ${cleanAnchorProviderPrompt.split(/\s+/).length} words`);
 assert.doesNotMatch(cleanAnchorPrompt, /complete storyboard contact sheet|decode its panels|animate the grid/i);
 
 const recoveredVerbosePlan: CanvasCommerceVideoPlan = {
@@ -195,7 +206,7 @@ const recoveredVerbosePlan: CanvasCommerceVideoPlan = {
             ...item.eightElements,
             action: [
                 "A wave splashes as the woman reacts and reveals the green bottle",
-                "She checks the wet side tie and sprays the removed black bikini",
+                "She sprays the removed black bikini beside the wet tie",
                 "Her hands clean and rinse the black bikini",
                 "She gives one thumbs-up and finishes on the shoreline product packshot",
             ][index],
@@ -203,49 +214,45 @@ const recoveredVerbosePlan: CanvasCommerceVideoPlan = {
     })),
 };
 const recoveredCompactPrompt = compileStoryboardCleanAnchorVideoPrompt(recoveredVerbosePlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
-assert.match(recoveredCompactPrompt, /one continuous stable creator take/i, "single-anchor presenter videos must not rebuild the person across editorial cuts");
-assert.doesNotMatch(recoveredCompactPrompt, /hard cut to/i);
-assert.doesNotMatch(recoveredCompactPrompt, /sprays the removed/i, "an impossible middle state must not be forced into a single-anchor creator take");
+assert.match(recoveredCompactPrompt, /cut to/i, "whole-storyboard video must preserve the ordered edited story instead of collapsing to one take");
+assert.match(recoveredCompactPrompt, /sprays (?:the )?removed black bikini/i, "the selected storyboard demonstration action must survive compilation");
 assert.match(recoveredCompactPrompt, /thumbs-up/i, "the stable shots must retain the CTA action");
-assert.match(recoveredCompactPrompt, /warm, lively, conversational, unscripted/i, "creator delivery must not be flattened into calm narration");
+assert.match(recoveredCompactPrompt, /surprised/i, "the saved voice direction must remain attached to the saved script");
 assert.doesNotMatch(recoveredCompactPrompt, /voice with a brief\s*;/i, "voice compaction must not leave a dangling adjective before the language separator");
 assert.doesNotMatch(recoveredCompactPrompt, /with one\s*;/i, "voice compaction must not leave a truncated consistency phrase");
-assert.doesNotMatch(recoveredCompactPrompt, /Following the .* panels|\b(?:a|an|the|and|or|to|of|with)\s*; hard cut/i, "compiled stages must not end in panel-order boilerplate or dangling connector words");
-assert.match(recoveredCompactPrompt, /use only physically plausible local handling/i);
-assert.ok(recoveredCompactPrompt.split(/\s+/).length <= 180, `recovered clean-anchor prompt must remain compact, received ${recoveredCompactPrompt.split(/\s+/).length} words`);
+assert.doesNotMatch(recoveredCompactPrompt, /Following the .* panels|\b(?:a|an|the|and|or|to|of|with)\s*; cut/i, "compiled stages must not end in panel-order boilerplate or dangling connector words");
+assert.doesNotMatch(recoveredCompactPrompt, /cut to \[[^\]]+\] (?:hard )?cut to/i, "beat wording must not duplicate the compiler's cut transition");
+assert.doesNotMatch(recoveredCompactPrompt, /continuous creator take|one continuous medium shot/i);
+assert.ok(recoveredCompactPrompt.split(/\s+/).length <= 180, `recovered clean-anchor prompt must remain within the 180-word provider target, received ${recoveredCompactPrompt.split(/\s+/).length} words`);
 
 const voiceoverProductPlan: CanvasCommerceVideoPlan = {
     ...recoveredVerbosePlan,
     storyboardMode: "product",
     productCategory: "fabric cleaner",
-    visualIdentity: "The same green cleaner bottle and black garment remain unchanged.",
+    visualIdentity: "The same adult woman, face, hair, body proportions, black bikini, green cleaner bottle, beach, and product label remain unchanged.",
     audioPlan: { ...recoveredVerbosePlan.audioPlan, mode: "voiceover" },
 };
 const voiceoverProductPrompt = compileStoryboardCleanAnchorVideoPrompt(voiceoverProductPlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
-assert.match(voiceoverProductPrompt, /hard cut to/i, "product voiceover videos must retain their planned multi-shot action sequence");
-assert.match(voiceoverProductPrompt, /sprays the removed black bikini/i, "stage compaction must retain the complete action object");
-assert.match(voiceoverProductPrompt, /at most 4 stable shots/i);
+assert.match(voiceoverProductPrompt, /cut to/i, "product voiceover videos must retain their planned multi-shot action sequence");
+assert.match(voiceoverProductPrompt, /sprays (?:the )?removed black bikini/i, "stage compaction must retain the complete action object");
+assert.match(voiceoverProductPrompt, /at most 4 hard-cut shots/i);
 assert.doesNotMatch(voiceoverProductPrompt, /continuous creator take/i);
-assert.equal(hasWornGarmentTreatmentConflict(voiceoverProductPlan), true, "a cleaner plan must detect when its target garment starts on the presenter");
+assert.match(voiceoverProductPrompt, /same adult woman.*black bikini.*green cleaner bottle/i, "product mode must preserve the plan's explicit presenter wardrobe and product identity");
 
 const mixedCleanerPlan: CanvasCommerceVideoPlan = {
     ...voiceoverProductPlan,
     audioPlan: { ...voiceoverProductPlan.audioPlan, mode: "mixed" },
 };
 const mixedCleanerPrompt = compileStoryboardCleanAnchorVideoPrompt(mixedCleanerPlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
-assert.match(mixedCleanerPrompt, /one separate unworn black bikini on a waist-high table/i);
-assert.match(mixedCleanerPrompt, /That wave soaked everything/i, "conflicting saved narration must be replaced by a physically coherent creator line");
-assert.match(mixedCleanerPrompt, /I always keep this little cleaner in my beach bag/i);
-assert.match(mixedCleanerPrompt, /one quick spray takes care of the salty marks on my swimsuit/i);
-assert.match(mixedCleanerPrompt, /I can enjoy more time by the water/i);
-assert.doesNotMatch(mixedCleanerPrompt, /I'm cleaning the black bikini right here|spraying the removed|hard cut to/i);
-assert.match(mixedCleanerPrompt, /never restart, repeat, add words, force pauses, or stretch pronunciation/i);
-assert.match(mixedCleanerPrompt, /Say this one sentence once, brisk but relaxed/i);
-assert.match(mixedCleanerPrompt, /Start immediately, finish once by 0:13\.5/i);
-assert.match(mixedCleanerPrompt, /Keep natural lip-sync whenever the face is visible/i);
-assert.match(mixedCleanerPrompt, /No cuts.*duplicates/i);
+assert.match(mixedCleanerPrompt, /black bikini/i);
+assert.match(mixedCleanerPrompt, /sprays (?:the )?removed black bikini/i);
+assert.match(mixedCleanerPrompt, /That wave surprised me/i, "the saved storyboard script must not be silently replaced by a category template");
+assert.match(mixedCleanerPrompt, /cut to/i);
+assert.match(mixedCleanerPrompt, /No wardrobe changes or unplanned furniture/i);
+assert.doesNotMatch(mixedCleanerPrompt, /That wave soaked everything|beach bag|one quick spray takes care|beach cover-up|dry top|waist-high table|separate unworn/i);
+assert.doesNotMatch(mixedCleanerPrompt, /continuous creator take|one continuous medium shot/i);
 const mixedCleanerProviderPrompt = `${mixedCleanerPrompt} ${buildCompactVideoProductScalePrompt("handheld")}`.trim();
-assert.ok(mixedCleanerProviderPrompt.split(/\s+/).length <= 180, `conflict-safe creator prompt plus scale lock must stay within 180 words, received ${mixedCleanerProviderPrompt.split(/\s+/).length}`);
+assert.ok(mixedCleanerProviderPrompt.split(/\s+/).length <= 180, `storyboard-faithful creator prompt plus scale lock must stay within the 180-word provider target, received ${mixedCleanerProviderPrompt.split(/\s+/).length}`);
 
 const separateSwimwearCleanerPlan: CanvasCommerceVideoPlan = {
     ...mixedCleanerPlan,
@@ -261,14 +268,14 @@ const separateSwimwearCleanerPlan: CanvasCommerceVideoPlan = {
         {
             index: 2,
             description: "She treats the separate black swimsuit on the table.",
-            eightElements: { action: "She sprays the separate black swimsuit once and presents the result." },
+            eightElements: { action: "She sprays the separate black swimsuit on a waist-high table, then presents the result." },
         },
     ],
 };
-assert.equal(hasWornGarmentTreatmentConflict(separateSwimwearCleanerPlan), true, "separate-garment presenter demos must not drift back to the generic mixed-audio template");
 const separateSwimwearPrompt = compileStoryboardCleanAnchorVideoPrompt(separateSwimwearCleanerPlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
-assert.match(separateSwimwearPrompt, /Say this one sentence once, brisk but relaxed/i);
-assert.match(separateSwimwearPrompt, /Keep natural lip-sync whenever the face is visible/i);
+assert.match(separateSwimwearPrompt, /white beach cover-up/i, "an outfit explicitly approved by the plan must remain allowed");
+assert.match(separateSwimwearPrompt, /waist-high table/i, "furniture explicitly approved by the plan must remain allowed");
+assert.match(separateSwimwearPrompt, /Say exactly once, naturally/i);
 
 const legacyApparelPlan: CanvasCommerceVideoPlan = {
     ...apparelPlan,
@@ -321,15 +328,14 @@ assert.equal(hasCompleteStoryboardAudioPlan(repairedStalledCreatorPlan, 15), tru
 assert.match(repairedStalledCreatorPlan.audioPlan?.script || "", /before showing the fabric, ties/i);
 const repairedStalledCreatorPrompt = compileStoryboardCleanAnchorVideoPrompt(repairedStalledCreatorPlan, { model: "grok", duration: 15, aspectRatio: "9:16", referenceMode: "i2v" });
 assert.match(repairedStalledCreatorPrompt, /I'm cleaning the black bikini right here/i, "creator speech must preserve natural contractions and conversational filler");
-assert.doesNotMatch(repairedStalledCreatorPrompt, /sprays the removed|hard cut to/i);
-assert.match(repairedStalledCreatorPrompt, /Say once in a connected conversational flow/i);
-assert.match(repairedStalledCreatorPrompt, /Lip-sync the opening/i);
+assert.match(repairedStalledCreatorPrompt, /sprays (?:the )?removed black bikini|cut to/i);
+assert.match(repairedStalledCreatorPrompt, /Say exactly once, naturally/i);
+assert.match(repairedStalledCreatorPrompt, /Lip-sync opening sentence/i);
 assert.doesNotMatch(repairedStalledCreatorPrompt, /finish near 13s|175-185 wpm/i);
-assert.match(repairedStalledCreatorPrompt, /Brief natural breaths only/i);
-assert.match(repairedStalledCreatorPrompt, /Continue location ambience and low music after the line/i);
-assert.ok(repairedStalledCreatorPrompt.split(/\s+/).length <= 180, `upgraded creator prompt must remain compact, received ${repairedStalledCreatorPrompt.split(/\s+/).length} words`);
+assert.match(repairedStalledCreatorPrompt, /No repeats, filler, stretched words, voice changes/i);
+assert.ok(repairedStalledCreatorPrompt.split(/\s+/).length <= 180, `upgraded creator prompt must remain within the 180-word provider target, received ${repairedStalledCreatorPrompt.split(/\s+/).length} words`);
 const repairedStalledProviderPrompt = `${repairedStalledCreatorPrompt} ${buildCompactVideoProductScalePrompt("handheld")}`.trim();
-assert.ok(repairedStalledProviderPrompt.split(/\s+/).length <= 190, `upgraded creator prompt plus scale lock must remain compact, received ${repairedStalledProviderPrompt.split(/\s+/).length} words`);
+assert.ok(repairedStalledProviderPrompt.split(/\s+/).length <= 180, `upgraded creator prompt plus scale lock must remain within the 180-word provider target, received ${repairedStalledProviderPrompt.split(/\s+/).length} words`);
 
 assert.match(storyboardAudioScriptForDuration(apparelPlan, 10), /from shore to pool/i);
 assert.equal(storyboardShotBudget(6), 2);
@@ -404,7 +410,7 @@ const channel28ConstraintPrompt = buildStoryboardVideoConstraintPrompt({
     aspectRatio: "16:9",
     audioDirection: "Audio lock: use one consistent adult female voice.",
 });
-assert.equal(GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, "commerce-v14-clean-anchor-natural-voice");
+assert.equal(GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, "commerce-v15-storyboard-authority");
 assert.equal(channel28ConstraintPrompt.split(STORYBOARD_DIRECTED_VIDEO_MARKER).length - 1, 1, "constraint template must be emitted once");
 assert.match(channel28ConstraintPrompt, /<IMAGE_1> is the exact product\/source identity lock/);
 assert.match(channel28ConstraintPrompt, /<IMAGE_2> through <IMAGE_7> are ordered timeline anchors/);
@@ -566,11 +572,15 @@ const promptPolishSource = readFileSync(new URL("../src/services/api/prompt-poli
 assert.match(promptPanelSource, /mode !== "video" && storyboardPlan\?\.beats\?\.length/, "a completed video node must resubmit its video request instead of regenerating storyboard review sheets");
 assert.match(canvasClientSource, /storyboardReviewSheetWholeReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "storyboard video generation must detect the selected whole grid before compiling its I2V prompt");
 assert.match(canvasClientSource, /storyboardReviewSheetKeyframeAnchorReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "whole-video generation must prefer the selected review sheet's independent keyframe");
+assert.match(canvasClientSource, /const reviewPanels = await splitStoryboardReviewSheetNode\(reviewNode\)/, "independent keyframes must use cropped storyboard panels instead of the complete grid");
+assert.match(canvasClientSource, /storyboardRepresentativePanelIndex\(beatPosition, beats\.length, reviewPanels\.length\)/, "each beat must receive its own chronological storyboard panel");
+assert.match(canvasClientSource, /references = mergeReferenceImages\(\[panelReference\], sourceReferences\)/, "the selected panel must be the primary composition reference and source images must remain identity references");
 assert.match(
     canvasClientSource,
-    /const needsStoryboardBridge = usesWholeStoryboardSheet && !hasReusableStoredStoryboardAnchor && \(!storyboardKeyframeAnchorImages\.length \|\| storyboardIdentityImages\.length > 0\)/,
-    "whole-video generation must rebuild a clean anchor when identity or product sources need to be preserved",
+    /const needsStoryboardBridge = usesWholeStoryboardSheet && !hasReusableStoredStoryboardAnchor && !storyboardKeyframeAnchorImages\.length/,
+    "an approved independent keyframe must be submitted directly instead of being redrawn by the bridge model",
 );
+assert.match(canvasClientSource, /videoConstraintVersion === GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION/, "old generated bridges must be invalidated when the authority contract changes");
 assert.match(canvasClientSource, /createStoryboardVideoBridgeReference/, "whole-video generation must build a clean full-frame anchor before I2V");
 assert.match(canvasClientSource, /identityReferences: storyboardIdentityImages/, "the bridge must retain original product and identity references");
 assert.match(canvasClientSource, /storyboardReference: storyboardReviewSheetImages\[0\]/, "the complete storyboard must remain planning evidence for the clean bridge");
@@ -607,10 +617,10 @@ assert.match(canvasClientSource, /preserve conversational contractions/, "legacy
 assert.match(canvasClientSource, /repairStoryboardAudioPlanForDuration\(storyboardPlan/, "saved long storyboard speech must be repaired locally before an optimizer request");
 assert.match(canvasClientSource, /repairStoryboardAudioPlanForDuration\(enrichedSource, duration\)/, "optimizer output must receive deterministic duration repair before validation");
 assert.match(videoPromptCompilerSource, /compileStoryboardCleanAnchorVideoPrompt/, "clean-anchor prompt compilation must remain independently regression-testable");
-assert.match(videoPromptCompilerSource, /from the clean keyframe as the exact identity anchor/, "Grok must receive the bridge as a clean literal opening frame, never as a contact sheet");
-assert.match(videoPromptCompilerSource, /One continuous medium shot/, "single-anchor presenter execution must keep one identity-safe camera setup");
-assert.match(videoPromptCompilerSource, /hasWornGarmentTreatmentConflict/, "whole-video execution must detect impossible worn-garment cleaning states");
-assert.match(videoPromptCompilerSource, /at most \$\{storyboardShotBudget\(duration\)\} stable shots/, "voiceover and product-only execution must retain a duration-aware stable-shot budget");
+assert.match(videoPromptCompilerSource, /Exact first frame: clean keyframe/, "Grok must receive the bridge or approved keyframe as a literal first frame, never as a contact sheet");
+assert.match(videoPromptCompilerSource, /No wardrobe changes or unplanned furniture/, "whole-video execution must never rewrite wardrobe or invent a table to simplify the story");
+assert.doesNotMatch(videoPromptCompilerSource, /hasWornGarmentTreatmentConflict|stableCreatorStory|creatorAudioScriptForDuration/, "category-specific visual and speech rewrites must stay removed");
+assert.match(videoPromptCompilerSource, /At most \$\{storyboardShotBudget\(duration\)\} hard-cut shots/, "whole-video execution must retain a duration-aware stable-shot budget");
 assert.match(videoPromptCompilerSource, /Say this exact script once, conversationally/, "storyboard speech must be one coherent performance");
 assert.match(videoPromptCompilerSource, /storyboardAudioScriptForDuration/, "storyboard speech must select the script matching the normalized model duration");
 assert.match(videoPromptCompilerSource, /Mixed delivery: open on one stable face-visible/, "storyboard speech must restore the proven short presenter line followed by voiceover rhythm");
@@ -618,10 +628,13 @@ assert.match(videoPromptCompilerSource, /Hold each stage continuously/, "Grok wh
 assert.match(videoPromptCompilerSource, /\[0:00-0:03\].*\[0:03-0:08\].*\[0:08-0:13\]/s, "15-second Grok direction must restore the proven four-stage cadence");
 assert.match(videoPromptCompilerSource, /never infer language from visible labels/, "visible Chinese labels must not silently switch an English storyboard to Mandarin");
 assert.doesNotMatch(videoPromptCompilerSource, /MANDATORY ON-CAMERA SPEECH SCHEDULE|On-camera cue timing|Narration timing lock/, "storyboard speech must not restore the old per-sentence timing matrix");
-assert.match(videoPromptCompilerSource, /no restart, repetition, invented filler, forced pause, or stretched words/, "15-second creator speech must reject repetition, gibberish, and time stretching");
-assert.match(videoPromptCompilerSource, /Say once in a connected conversational flow/, "creator speech must not be split into a presenter-style sentence schedule");
-assert.match(videoPromptCompilerSource, /Continue location ambience and low music after the line/, "15-second creator speech must end with an intentional product hold");
-assert.match(canvasClientSource, /the target garment exists exactly once and is never worn/, "the clean bridge must resolve worn-garment treatment conflicts before video generation");
+assert.match(videoPromptCompilerSource, /No repeats, filler, stretched words, voice changes/, "creator speech must reject repetition, gibberish, and time stretching");
+assert.match(videoPromptCompilerSource, /Say exactly once, naturally/, "creator speech must preserve the saved plan instead of switching to a category script");
+assert.match(canvasClientSource, /top-left panel is authoritative for the opening wardrobe, props, environment, composition, and action/, "the bridge must treat the approved storyboard opening as authoritative");
+assert.match(canvasClientSource, /Show the product in the opening only when it is visible in the approved top-left panel or explicitly required by the first beat/, "the bridge must not pull a later product reveal into the opening frame");
+assert.match(canvasClientSource, /preserve its exact framing, crop, pose, face, and wardrobe/, "the bridge must not replace the approved opening composition with a generic medium shot");
+assert.match(canvasClientSource, /Do not change the presenter's outfit, add a cover-up, invent furniture or a table/, "the bridge must not invent the previously hard-coded white outfit and table");
+assert.doesNotMatch(canvasClientSource, /simple beach cover-up|dry top|one separate unworn|target garment exists exactly once and is never worn/, "the removed garment-conflict template must not survive in the bridge path");
 assert.doesNotMatch(canvasClientSource, /wholeStoryboardGrid: true/, "whole-video I2V must not route through the obsolete grid template");
 assert.match(canvasClientSource, /compileVideoBeatPrompt\(plan, beat, videoPromptContext\)/, "Phase 6 must compile a distinct prompt for each beat");
 assert.match(canvasClientSource, /nodeOwnsVideoTiming = node\?\.type === CanvasNodeType\.Video \|\| node\?\.type === CanvasNodeType\.Config/, "image and storyboard nodes must use the active video duration instead of stale image metadata");

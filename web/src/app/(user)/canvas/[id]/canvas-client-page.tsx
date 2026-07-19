@@ -49,7 +49,6 @@ import {
     compileVideoPrompt,
     extractCommerceVideoPlan,
     hasCompleteStoryboardAudioPlan,
-    hasWornGarmentTreatmentConflict,
     repairStoryboardAudioPlanForDuration,
     resolveStoryboardMode,
     resolveStoryboardVideoPlan,
@@ -2925,19 +2924,31 @@ function InfiniteCanvasPage() {
                 storageKey: reviewNode.metadata?.storageKey || (reviewImageUrl.startsWith("image:") ? reviewImageUrl : undefined),
                 url: reviewImageUrl.startsWith("http") ? reviewImageUrl : undefined,
             };
-            const referenceImages = mergeReferenceImages(sourceReferences, [reviewReference]);
             const beats = plan.beats;
+            const reviewPanels = await splitStoryboardReviewSheetNode(reviewNode);
+            const hasDedicatedReviewPanels = reviewPanels.length === STORYBOARD_REVIEW_PANEL_COUNT;
+            const beatGenerationContexts = beats.map((beat, beatPosition) => {
+                const panelIndex = hasDedicatedReviewPanels ? storyboardRepresentativePanelIndex(beatPosition, beats.length, reviewPanels.length) : 0;
+                const panelReference = hasDedicatedReviewPanels ? reviewPanels[panelIndex] : reviewReference;
+                const references = mergeReferenceImages([panelReference], sourceReferences);
+                return {
+                    references,
+                    prompt: buildStoryboardKeyframePrompt(plan, beat, {
+                        selectedReviewSheet: true,
+                        selectedReviewPanelIndex: hasDedicatedReviewPanels ? panelIndex + 1 : undefined,
+                        identityReferenceCount: Math.max(0, references.length - 1),
+                    }),
+                };
+            });
             const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
             const gap = 96;
             const rowGap = 36;
             const rootId = nanoid();
             const childIds = beats.slice(1).map(() => nanoid());
             const targetIds = [rootId, ...childIds];
-            const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, referenceImages);
-
-            const buildBeatPrompt = (beat: NonNullable<CanvasCommerceVideoPlan["beats"]>[number]) => buildStoryboardKeyframePrompt(plan, beat, { selectedReviewSheet: true });
             const rootBeat = beats[0];
-            const rootPrompt = buildBeatPrompt(rootBeat);
+            const rootContext = beatGenerationContexts[0];
+            const rootPrompt = rootContext.prompt;
             const rootNode: CanvasNodeData = {
                 id: rootId,
                 type: CanvasNodeType.Image,
@@ -2946,7 +2957,7 @@ function InfiniteCanvasPage() {
                 width: imageSpec.width,
                 height: imageSpec.height,
                 metadata: {
-                    ...generationMetadata,
+                    ...buildImageGenerationMetadata("edit", generationConfig, 1, rootContext.references),
                     prompt: rootPrompt,
                     status: NODE_STATUS_LOADING,
                     isBatchRoot: childIds.length > 0,
@@ -2964,7 +2975,8 @@ function InfiniteCanvasPage() {
             };
             const childNodes = childIds.map((id, index): CanvasNodeData => {
                 const beat = beats[index + 1];
-                const beatPrompt = buildBeatPrompt(beat);
+                const beatContext = beatGenerationContexts[index + 1];
+                const beatPrompt = beatContext.prompt;
                 return {
                     id,
                     type: CanvasNodeType.Image,
@@ -2976,7 +2988,7 @@ function InfiniteCanvasPage() {
                     width: imageSpec.width,
                     height: imageSpec.height,
                     metadata: {
-                        ...generationMetadata,
+                        ...buildImageGenerationMetadata("edit", generationConfig, 1, beatContext.references),
                         prompt: beatPrompt,
                         status: NODE_STATUS_LOADING,
                         batchRootId: rootId,
@@ -3003,10 +3015,10 @@ function InfiniteCanvasPage() {
             let successCount = 0;
             try {
                 await runWithConcurrency(targetIds, 2, async (targetId, index) => {
-                    const beat = beats[index];
-                    const beatPrompt = buildBeatPrompt(beat);
+                    const beatContext = beatGenerationContexts[index];
+                    const beatPrompt = beatContext.prompt;
                     try {
-                        const image = await requestEdit(generationConfig, beatPrompt, referenceImages, undefined, { signal: controller.signal }).then((items) => items[0]);
+                        const image = await requestEdit(generationConfig, beatPrompt, beatContext.references, undefined, { signal: controller.signal }).then((items) => items[0]);
                         const uploaded = await uploadImage(image.dataUrl);
                         const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageSpec.width, imageSpec.height);
                         setNodes((prev) => {
@@ -3498,12 +3510,15 @@ function InfiniteCanvasPage() {
                     const storyboardIdentityImages = await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current);
                     const storyboardKeyframeAnchorImages = usesWholeStoryboardSheet ? storyboardReviewSheetKeyframeAnchorReferences(nodeId, nodesRef.current, connectionsRef.current) : [];
                     const storedStoryboardAnchorImages = usesWholeStoryboardSheet && sourceNode?.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(sourceNode.metadata) : [];
-                    const hasReusableStoredStoryboardAnchor = storedStoryboardAnchorImages.length > 0 && (sourceNode?.metadata?.storyboardVideoAnchorMode === "generated-bridge" || sourceNode?.metadata?.storyboardVideoAnchorMode === "keyframe");
+                    const hasReusableStoredStoryboardAnchor =
+                        storedStoryboardAnchorImages.length > 0 &&
+                        (sourceNode?.metadata?.storyboardVideoAnchorMode === "keyframe" ||
+                            (sourceNode?.metadata?.storyboardVideoAnchorMode === "generated-bridge" && sourceNode.metadata?.videoConstraintVersion === GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION));
                     const storyboardReferenceFrames = usesWholeStoryboardSheet ? [] : await storyboardReviewSheetReferenceFrames(nodeId, nodesRef.current, connectionsRef.current);
                     // A contact sheet is planning material, never a literal I2V frame.
-                    // Rebuild one clean anchor whenever original identity/product
-                    // references exist, or when no independent keyframe is available.
-                    const needsStoryboardBridge = usesWholeStoryboardSheet && !hasReusableStoredStoryboardAnchor && (!storyboardKeyframeAnchorImages.length || storyboardIdentityImages.length > 0);
+                    // An approved independent keyframe is already the strongest I2V
+                    // anchor; rebuild only when no clean keyframe is available.
+                    const needsStoryboardBridge = usesWholeStoryboardSheet && !hasReusableStoredStoryboardAnchor && !storyboardKeyframeAnchorImages.length;
                     const wholeStoryboardImages = usesWholeStoryboardSheet
                         ? hasReusableStoredStoryboardAnchor
                             ? storedStoryboardAnchorImages.slice(0, 1)
@@ -3866,8 +3881,11 @@ function InfiniteCanvasPage() {
             const storedVideoReferenceImages = node.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(node.metadata) : [];
             const storyboardRetryIdentityImages = node.type === CanvasNodeType.Video ? await storyboardReviewSheetIdentityReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const storyboardRetryKeyframeImages = node.type === CanvasNodeType.Video && retriesWholeStoryboardSheet ? storyboardReviewSheetKeyframeAnchorReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
-            const hasReusableStoredStoryboardAnchor = retriesWholeStoryboardSheet && storedVideoReferenceImages.length > 0 && (node.metadata?.storyboardVideoAnchorMode === "generated-bridge" || node.metadata?.storyboardVideoAnchorMode === "keyframe");
-            const needsRetryStoryboardBridge = retriesWholeStoryboardSheet && !hasReusableStoredStoryboardAnchor && (!storyboardRetryKeyframeImages.length || storyboardRetryIdentityImages.length > 0);
+            const hasReusableStoredStoryboardAnchor =
+                retriesWholeStoryboardSheet &&
+                storedVideoReferenceImages.length > 0 &&
+                (node.metadata?.storyboardVideoAnchorMode === "keyframe" || (node.metadata?.storyboardVideoAnchorMode === "generated-bridge" && node.metadata?.videoConstraintVersion === GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION));
+            const needsRetryStoryboardBridge = retriesWholeStoryboardSheet && !hasReusableStoredStoryboardAnchor && !storyboardRetryKeyframeImages.length;
             const storyboardRetryImages = node.type === CanvasNodeType.Video && !retriesWholeStoryboardSheet ? await storyboardReviewSheetReferenceFrames(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const hasVideoReferences =
                 node.type === CanvasNodeType.Video &&
@@ -5395,6 +5413,11 @@ function isStoredWholeStoryboardVideo(node: CanvasNodeData | null | undefined) {
     return node?.type === CanvasNodeType.Video && Boolean(node.metadata?.commerceVideoPlan?.beats?.length) && (node.metadata?.storyboardVideoAnchorMode === "generated-bridge" || node.metadata?.storyboardVideoAnchorMode === "keyframe");
 }
 
+function storyboardRepresentativePanelIndex(beatPosition: number, beatCount: number, totalPanels: number) {
+    if (totalPanels <= 1 || beatCount <= 1) return 0;
+    return Math.min(totalPanels - 1, Math.ceil((Math.max(0, beatPosition) * totalPanels) / beatCount));
+}
+
 async function splitStoryboardReviewSheetNode(node: CanvasNodeData): Promise<ReferenceImage[]> {
     const [reference] = sourceNodeReferenceImages(node);
     if (!reference) return [];
@@ -5613,43 +5636,31 @@ async function createStoryboardVideoBridgeReference(config: AiConfig, context: S
     const identityImageNumbers = identityReferences.map(imageNumber).filter((index) => index > 0);
     const firstBeat = [...(context.plan.beats || [])].sort((a, b) => a.index - b.index)[0];
     const mode = resolveStoryboardMode(context.plan);
-    const needsPresenter = mode === "apparel" || mode === "subject" || context.plan.audioPlan?.mode === "mixed" || context.plan.audioPlan?.mode === "on-camera";
-    const wornGarmentTreatmentConflict = hasWornGarmentTreatmentConflict(context.plan);
     const referenceRoles = [
-        openingImageNumber
-            ? wornGarmentTreatmentConflict
-                ? `Image ${openingImageNumber} is a composition and identity candidate. Preserve its face, body proportions, exact cleaner, camera angle, and environment, but do not copy the target garment as clothing on the presenter.`
-                : `Image ${openingImageNumber} is a clean opening candidate. Preserve its visible face, body, wardrobe, product, camera angle, and environment.`
-            : "",
+        openingImageNumber ? `Image ${openingImageNumber} is the approved clean opening frame. Copy its visible face, body, wardrobe, product, camera angle, composition, and environment exactly.` : "",
         identityImageNumbers.length
-            ? wornGarmentTreatmentConflict
-                ? `Images ${identityImageNumbers.join(", ")} lock the original face, hair, body proportions, cleaner geometry, colors, and label layout. Source wardrobe is identity evidence only and must not duplicate the separate garment being cleaned.`
-                : `Images ${identityImageNumbers.join(", ")} are the original identity, product, wardrobe, or scene sources. Their visible identities and rigid-object geometry override the storyboard whenever details differ.`
+            ? `Images ${identityImageNumbers.join(", ")} lock the original face, hair, body proportions, and exact product geometry, colors, and label layout. They must not replace the wardrobe, action, composition, or environment approved by the storyboard.`
             : "",
-        storyboardImageNumber ? `Image ${storyboardImageNumber} is the complete storyboard contact sheet. Use it only to understand the recurring presenter, product, environment, and opening action; never copy its grid layout or panel boundaries.` : "",
+        storyboardImageNumber
+            ? `Image ${storyboardImageNumber} is the approved complete storyboard. Its top-left panel is authoritative for the opening wardrobe, props, environment, composition, and action; the remaining panels define the later story order. Recreate only the top-left panel as one clean full-frame image, without its grid or borders.`
+            : "",
     ]
         .filter(Boolean)
         .join("\n");
-    const presenterDirection = needsPresenter
-        ? wornGarmentTreatmentConflict
-            ? "Show one stable face-visible adult presenter wearing a simple beach cover-up, dry top, or other natural non-target outfit. Frame the complete head, mouth, torso, two arms, exact cleaner, and one separate target garment together in a medium waist-up composition."
-            : "Show one stable face-visible adult presenter in a medium or chest-up composition with the complete head, neck, shoulders, torso, and two separate natural arms. Keep the mouth readable for the opening spoken sentence."
-        : "Do not invent a presenter when the references and plan are product-only or scene-only.";
+    const presenterDirection =
+        "If the approved opening panel includes a presenter, preserve its exact framing, crop, pose, face, and wardrobe, with every visible body part anatomically complete and the mouth readable when speaking. If the opening panel has no presenter, do not invent one.";
     const productDirection =
         mode === "product"
-            ? "Keep the exact referenced product clearly visible at natural scale as a separate rigid object. Preserve its silhouette, closure, component count, colors, label blocks, and relationship to hands and body."
+            ? "Show the product in the opening only when it is visible in the approved top-left panel or explicitly required by the first beat; otherwise keep it out of the opening. Whenever visible, preserve its exact silhouette, closure, component count, colors, label blocks, scale, and relationship to hands and body."
             : "Do not add a product, bottle, package, or tool that is absent from the plan and references.";
     const bridgePrompt = [
         `Create exactly one clean high-resolution ${videoAspectRatioForSize(bridgeConfig.size)} opening keyframe for the planned short video.`,
         referenceRoles,
-        wornGarmentTreatmentConflict
-            ? "Opening action: the presenter reacts naturally, faces the camera, and holds the exact cleaner beside one separate unworn target garment laid flat on a stable waist-high surface."
-            : firstBeat?.description
-              ? `Opening action: ${limitInlinePrompt(firstBeat.description, 500)}`
-              : "Make the planned opening action immediately readable.",
+        firstBeat?.description ? `Opening action: ${limitInlinePrompt(firstBeat.description, 500)}` : "Make the planned opening action immediately readable.",
         presenterDirection,
         productDirection,
-        wornGarmentTreatmentConflict ? "State lock: the target garment exists exactly once and is never worn; the cleaner bottle exists exactly once. Keep both separate from the presenter's body and from each other." : "",
+        context.plan.visualIdentity ? `Binding visual identity: ${limitInlinePrompt(context.plan.visualIdentity, 500)}` : "",
+        "Do not change the presenter's outfit, add a cover-up, invent furniture or a table, duplicate a garment, or introduce any object absent from the approved opening panel and first beat.",
         buildVideoProductScalePrompt(context.productScaleMode),
         "Preserve realistic anatomy, straight natural posture, clean hands, photographic lighting, and believable contact. Do not stretch, bend, melt, duplicate, average identities, or reconstruct a collage.",
         "Output one polished full-frame photograph only: no grid, split screen, border, caption, subtitle, watermark, UI, price, or offer.",

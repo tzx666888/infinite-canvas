@@ -798,7 +798,7 @@ export function buildStoryboardReviewSheetPrompt(plan: CanvasCommerceVideoPlan, 
 }
 
 export function buildStoryboardKeyframePrompt(
-    plan: { productCategory?: string; enhancementWords?: string },
+    plan: Pick<CanvasCommerceVideoPlan, "productCategory" | "enhancementWords" | "visualIdentity" | "forbiddenAdditions">,
     beat: {
         index: number;
         phase: string;
@@ -816,7 +816,7 @@ export function buildStoryboardKeyframePrompt(
             constraint?: string;
         };
     },
-    options: { selectedReviewSheet?: boolean } = {},
+    options: { selectedReviewSheet?: boolean; selectedReviewPanelIndex?: number; identityReferenceCount?: number } = {},
 ): string {
     const parts: string[] = [];
     const el = beat.eightElements;
@@ -827,10 +827,25 @@ export function buildStoryboardKeyframePrompt(
     } else {
         parts.push(beat.description);
     }
+    if (plan.visualIdentity) parts.push(`Binding visual identity: ${plan.visualIdentity}.`);
+    if (plan.forbiddenAdditions?.length) parts.push(`Forbidden additions: ${plan.forbiddenAdditions.join(", ")}.`);
     if (plan.enhancementWords) parts.push(plan.enhancementWords);
-    if (options.selectedReviewSheet) parts.push("If a selected 12-panel storyboard review sheet is supplied as a reference, use only the matching panel's composition, continuity and visual direction as guidance.");
+    if (options.selectedReviewSheet && options.selectedReviewPanelIndex) {
+        parts.push(
+            `IMAGE 1 is the cropped approved storyboard panel ${options.selectedReviewPanelIndex}. Copy its composition, framing, presenter, face, body, wardrobe, product placement, environment, lighting, and action exactly; expand it into one clean full-frame image without redesigning anything.`,
+        );
+        if (options.identityReferenceCount) {
+            const identityEnd = options.identityReferenceCount + 1;
+            parts.push(
+                `IMAGE 2${identityEnd > 2 ? ` through IMAGE ${identityEnd}` : ""} lock original person and product identity only. Preserve their face, hair, body proportions, product geometry, colors, label layout, and scale, but never let them override IMAGE 1's approved wardrobe, composition, action, or setting.`,
+            );
+        }
+    } else if (options.selectedReviewSheet) {
+        parts.push("If a selected 12-panel storyboard review sheet is supplied as a reference, use only the matching panel's composition, continuity, wardrobe, product placement, and visual direction as guidance.");
+    }
     parts.push("4K ultra HD, sharp focus, smooth motion, consistent appearance.");
-    parts.push("No storyboard labels, no arrows, no grid panels, no captions, no watermark, no distorted hands.");
+    parts.push("Do not add or change clothing, furniture, props, people, products, actions, or locations that are absent from the approved panel and beat.");
+    parts.push("Output one clean photograph only: no storyboard labels, arrows, grid panels, captions, watermark, distorted anatomy, or duplicated objects.");
     return parts.join(" ");
 }
 
