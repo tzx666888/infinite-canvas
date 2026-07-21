@@ -36,10 +36,12 @@ const EVENT_TYPES = new Set<TelemetryEventType>([
 const AGENT_ERROR_KINDS = new Set([
     "user_rejected",
     "missing_node_id",
+    "missing_required",
     "skipped_after_failure",
     "invalid_args",
     "noop",
     "exec_failed",
+    "unknown_keys_stripped",
 ]);
 const GENERATION_ERROR_KINDS = new Set([
     "",
@@ -505,7 +507,8 @@ function generationErrorKind(value: unknown, ok: boolean | undefined) {
 }
 
 function agentErrorKind(value: unknown, ok: boolean) {
-    if (ok) return "";
+    if (ok) return value === "unknown_keys_stripped" ? value : "";
+    if (value === "unknown_keys_stripped") return "exec_failed";
     return typeof value === "string" && AGENT_ERROR_KINDS.has(value) ? value : "exec_failed";
 }
 

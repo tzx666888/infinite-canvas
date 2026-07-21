@@ -25,6 +25,7 @@ import { NODE_DEFAULT_SIZE } from "../constants";
 import { CanvasNodeType, type CanvasAssistantMessage, type CanvasAssistantReference, type CanvasAssistantSession, type CanvasNodeData } from "../types";
 import { useCanvasAgentStore } from "../stores/use-canvas-agent-store";
 import { applyCanvasAgentOps, summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
+import { prepareToolArguments, ToolArgumentValidationError } from "../utils/canvas-assistant-tool-arguments";
 
 export const CANVAS_AGENT_PANEL_MOTION_MS = 500;
 const PANEL_MOTION_SECONDS = CANVAS_AGENT_PANEL_MOTION_MS / 1000;
@@ -230,11 +231,12 @@ const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = [
     toolDefinition("canvas_set_viewport", "调整画布视口。", { viewport: VIEWPORT_SCHEMA }, ["viewport"]),
     toolDefinition("canvas_run_generation", "触发指定节点生成，通常用于配置节点或文本/图片/音频节点；Agent 不直接触发视频模型。", { nodeId: { type: "string" }, mode: GENERATION_MODE_SCHEMA, prompt: { type: "string" } }, ["nodeId"]),
 ];
+const ONLINE_AGENT_TOOL_SCHEMAS = new Map(ONLINE_AGENT_TOOLS.map((tool) => [tool.function.name, tool.function.parameters]));
 type OnlineAgentTab = "setup" | "chat" | "history" | "log";
 type OnlineAgentLog = { id: string; time: string; title: string; data?: unknown };
 type OnlineAgentLogContext = { model: string; running: boolean; confirmTools: boolean; messages: number; nodes: number; connections: number };
 type OnlineLoopContext = { step: number };
-type OnlineToolResult = { ok: true; message: string; data?: unknown } | { ok: false; message: string };
+type OnlineToolResult = ({ ok: true; message: string; data?: unknown } | { ok: false; message: string }) & { errorKind?: string };
 type OnlineExecutedToolCall = { toolCallId: string; name: string; result: OnlineToolResult };
 type PendingOnlineToolContext = { messages: ResponseInputMessage[]; toolCalls: ResponseToolCall[]; assistantId: string; sessionId: string; step: number };
 type AgentTurnTelemetryContext = {
@@ -359,7 +361,7 @@ export function CanvasAssistantPanel({
         const context = turnTelemetryRef.current.get(assistantId);
         if (!context) return;
         results.forEach((item) => {
-            context.toolCalls.push({ name: item.name, ok: item.result.ok, errorKind: item.result.ok ? "" : telemetryErrorKind(item.result.message) });
+            context.toolCalls.push({ name: item.name, ok: item.result.ok, errorKind: item.result.errorKind || (item.result.ok ? "" : telemetryErrorKind(item.result.message)) });
             if (!item.result.ok) return;
             const data = objectDetail(item.result.data);
             const appliedOpsCount = data.appliedOpsCount;
@@ -627,10 +629,23 @@ export function CanvasAssistantPanel({
 
     const executeOnlineToolCall = (toolCall: ResponseToolCall): OnlineExecutedToolCall => {
         try {
-            const result = executeOnlineTool(toolCall.function.name, parseToolArguments(toolCall.function.arguments));
+            const prepared = prepareToolArguments(toolCall.function.arguments, ONLINE_AGENT_TOOL_SCHEMAS.get(toolCall.function.name));
+            if (prepared.strippedCount) {
+                addOnlineLog("工具参数已剥离未知字段", { tool: toolCall.function.name, count: prepared.strippedCount, paths: prepared.strippedPaths });
+            }
+            const result = executeOnlineTool(toolCall.function.name, prepared.args);
+            if (result.ok && prepared.strippedCount) result.errorKind = "unknown_keys_stripped";
             return { toolCallId: toolCall.id, name: toolCall.function.name, result };
         } catch (error) {
-            return { toolCallId: toolCall.id, name: toolCall.function.name, result: { ok: false, message: error instanceof Error ? error.message : "工具参数错误" } };
+            return {
+                toolCallId: toolCall.id,
+                name: toolCall.function.name,
+                result: {
+                    ok: false,
+                    message: error instanceof Error ? error.message : "工具参数错误",
+                    errorKind: error instanceof ToolArgumentValidationError ? error.errorKind : "invalid_args",
+                },
+            };
         }
     };
 
@@ -1208,16 +1223,6 @@ function describeCanvasSnapshot(snapshot: CanvasAgentSnapshot) {
     return `当前画布有 ${snapshot.nodes.length} 个节点、${snapshot.connections.length} 条连线。文本 ${counts[CanvasNodeType.Text] || 0} 个，图片 ${counts[CanvasNodeType.Image] || 0} 个，生成配置 ${counts[CanvasNodeType.Config] || 0} 个，视频 ${counts[CanvasNodeType.Video] || 0} 个，音频 ${counts[CanvasNodeType.Audio] || 0} 个。`;
 }
 
-function parseToolArguments(value: string) {
-    try {
-        const parsed = JSON.parse(value || "{}");
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("工具参数必须是 JSON 对象");
-        return parsed as Record<string, unknown>;
-    } catch {
-        throw new Error("工具参数不是合法 JSON 对象");
-    }
-}
-
 function onlineToolToOps(name: string, input: Record<string, unknown>, snapshot: CanvasAgentSnapshot, config: AiConfig): CanvasAgentOp[] {
     if (name === "canvas_apply_ops") return requireOps(input.ops);
     if (name === "canvas_create_node") {
@@ -1448,6 +1453,7 @@ function telemetryErrorKind(value: unknown) {
     const message = String(value || "").toLowerCase();
     if (message === "user_rejected") return "user_rejected";
     if (/missing[_\s-]*node[_\s-]*id|缺少.*(?:节点|id)|没有找到.*节点/.test(message)) return "missing_node_id";
+    if (/missing[_\s-]*required|缺少必填/.test(message)) return "missing_required";
     if (/前一个工具调用失败|未继续执行/.test(message)) return "skipped_after_failure";
     if (/json|参数|必须|不支持的工具|操作类型/.test(message)) return "invalid_args";
     if (/没有变化|无需重复|已经是目标状态/.test(message)) return "noop";
