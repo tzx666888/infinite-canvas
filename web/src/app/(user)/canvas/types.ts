@@ -157,6 +157,11 @@ export type CanvasNodeMetadata = {
     telemetryAttemptIndex?: number;
     telemetryAttemptMode?: CanvasGenerationMode;
     telemetryLastPrompt?: string;
+    telemetryLastRawPrompt?: string;
+    telemetryLastResolvedPrompt?: string;
+    telemetryLastPromptSourceNodeId?: string;
+    telemetryLastPromptInputNodeIds?: string[];
+    telemetryLastPromptResolutionMode?: "generation_context" | "self_contained";
     telemetryLastSourceKind?: CanvasPromptSourceKind;
     telemetryLastTemplateId?: string;
     telemetryDraftPrompt?: string;

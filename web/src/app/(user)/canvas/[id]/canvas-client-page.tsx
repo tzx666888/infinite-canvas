@@ -69,7 +69,7 @@ import { CanvasNodeCropDialog, type CanvasImageCropRect } from "../components/ca
 import { CanvasNodeMaskEditDialog, type CanvasImageMaskEditPayload } from "../components/canvas-node-mask-edit-dialog";
 import { CanvasNodeSplitDialog, type CanvasImageSplitParams } from "../components/canvas-node-split-dialog";
 import { CanvasNodeUpscaleDialog, type CanvasImageUpscaleParams } from "../components/canvas-node-upscale-dialog";
-import { buildNodeGenerationContext, buildNodeGenerationInputs, buildNodeResponseMessages, hydrateNodeGenerationContext, type NodeGenerationInput } from "../components/canvas-node-generation";
+import { buildNodeGenerationContext, buildNodeGenerationInputs, buildNodeResponseMessages, hydrateNodeGenerationContext, resolveNodeGenerationPrompt, resolveStandaloneGenerationPrompt, type NodeGenerationInput } from "../components/canvas-node-generation";
 import { CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "../components/canvas-node-hover-toolbar";
 import { InfiniteCanvas } from "../components/infinite-canvas";
 import { Minimap } from "../components/canvas-mini-map";
@@ -137,7 +137,9 @@ type CanvasGenerationRequest = {
 };
 
 type PromptEditedFrom = { beforeText: string; previousSourceKind: CanvasPromptSourceKind };
+type PromptEditBaseline = PromptEditedFrom & { origin: "edited_from" | "draft" | "last" };
 type GenerationProvenance = { sourceKind: CanvasPromptSourceKind; templateId?: string; editedFrom?: PromptEditedFrom };
+type PromptResolutionSnapshot = Pick<CanvasNodeMetadata, "telemetryLastRawPrompt" | "telemetryLastResolvedPrompt" | "telemetryLastPromptSourceNodeId" | "telemetryLastPromptInputNodeIds" | "telemetryLastPromptResolutionMode">;
 
 const VIDEO_NODE_MAX_WIDTH = 420;
 const VIDEO_NODE_MAX_HEIGHT = 420;
@@ -2156,6 +2158,7 @@ function InfiniteCanvasPage() {
                     ),
                     title: "视频反推提示词",
                 };
+                textNode.metadata = { ...textNode.metadata, ...buildSelfPromptResolutionSnapshot(textNode.id, prompt) };
                 const configNode = {
                     ...createCanvasNode(
                         CanvasNodeType.Config,
@@ -2328,7 +2331,7 @@ function InfiniteCanvasPage() {
                 setNodes((prev) =>
                     prev.map((item) =>
                         item.id === childId
-                            ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, prompt, 1, "image"), prompt, displayPrompt, ...generationMetadata } }
+                            ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, prompt, 1, "image", buildSelfPromptResolutionSnapshot(childId, prompt)), prompt, displayPrompt, ...generationMetadata } }
                             : item,
                     ),
                 );
@@ -2437,7 +2440,7 @@ function InfiniteCanvasPage() {
                 setNodes((prev) =>
                     prev.map((item) =>
                         item.id === childId
-                            ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, prompt, 1, "image"), prompt, ...generationMetadata } }
+                            ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, prompt, 1, "image", buildSelfPromptResolutionSnapshot(childId, prompt)), prompt, ...generationMetadata } }
                             : item,
                     ),
                 );
@@ -2757,7 +2760,7 @@ function InfiniteCanvasPage() {
                                         position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
                                         width: imageSize.width,
                                         height: imageSize.height,
-                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, shotPrompt, 1, "image"), prompt: shotPrompt },
+                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, shotPrompt, 1, "image", buildSelfPromptResolutionSnapshot(targetId, shotPrompt)), prompt: shotPrompt },
                                     };
                                 }
                                 return node;
@@ -2933,7 +2936,7 @@ function InfiniteCanvasPage() {
                                     position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
                                     width: imageSize.width,
                                     height: imageSize.height,
-                                    metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, scenePrompt, 1, "image"), prompt: scenePrompt },
+                                    metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, scenePrompt, 1, "image", buildSelfPromptResolutionSnapshot(targetId, scenePrompt)), prompt: scenePrompt },
                                 };
                             }),
                         );
@@ -3109,7 +3112,7 @@ function InfiniteCanvasPage() {
                                         position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
                                         width: imageSize.width,
                                         height: imageSize.height,
-                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, reviewPrompt, 1, "image"), prompt: reviewPrompt, primaryImageId: targetId },
+                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, reviewPrompt, 1, "image", buildSelfPromptResolutionSnapshot(node.id, reviewPrompt)), prompt: reviewPrompt, primaryImageId: targetId },
                                     };
                                 if (node.id === targetId)
                                     return {
@@ -3117,7 +3120,7 @@ function InfiniteCanvasPage() {
                                         position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
                                         width: imageSize.width,
                                         height: imageSize.height,
-                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, reviewPrompt, 1, "image"), prompt: reviewPrompt },
+                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, reviewPrompt, 1, "image", buildSelfPromptResolutionSnapshot(targetId, reviewPrompt)), prompt: reviewPrompt },
                                     };
                                 return node;
                             });
@@ -3299,7 +3302,7 @@ function InfiniteCanvasPage() {
                                         position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
                                         width: imageSize.width,
                                         height: imageSize.height,
-                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, beatPrompt, 1, "image"), prompt: beatPrompt, primaryImageId: targetId },
+                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, beatPrompt, 1, "image", buildSelfPromptResolutionSnapshot(node.id, beatPrompt)), prompt: beatPrompt, primaryImageId: targetId },
                                     };
                                 if (node.id === targetId)
                                     return {
@@ -3307,7 +3310,7 @@ function InfiniteCanvasPage() {
                                         position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
                                         width: imageSize.width,
                                         height: imageSize.height,
-                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, beatPrompt, 1, "image"), prompt: beatPrompt },
+                                        metadata: { ...node.metadata, ...imageMetadata(uploaded), ...completedGenerationMetadata(provenance, beatPrompt, 1, "image", buildSelfPromptResolutionSnapshot(targetId, beatPrompt)), prompt: beatPrompt },
                                     };
                                 return node;
                             });
@@ -3440,7 +3443,7 @@ function InfiniteCanvasPage() {
                                         x: node.position.x + node.width / 2 - videoSize.width / 2,
                                         y: node.position.y + node.height / 2 - videoSize.height / 2,
                                     },
-                                    metadata: { ...node.metadata, ...videoMetadata(video), ...completedGenerationMetadata(provenance, entry.clipPrompt, 1, "video"), prompt: entry.clipPrompt },
+                                    metadata: { ...node.metadata, ...videoMetadata(video), ...completedGenerationMetadata(provenance, entry.clipPrompt, 1, "video", buildSelfPromptResolutionSnapshot(videoId, entry.clipPrompt)), prompt: entry.clipPrompt },
                                 };
                             }),
                         );
@@ -3471,7 +3474,9 @@ function InfiniteCanvasPage() {
     const handleGenerateNode = useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, provenanceOverride?: GenerationProvenance) => {
             const generationStartedAt = Date.now();
-            const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+            const generationNodes = nodesRef.current;
+            const generationConnections = connectionsRef.current;
+            const sourceNode = generationNodes.find((node) => node.id === nodeId);
             if (generationRequestsRef.current.has(nodeId) || sourceNode?.metadata?.status === NODE_STATUS_LOADING) {
                 message.info("当前节点正在生成，请稍等完成后再操作");
                 return;
@@ -3484,16 +3489,15 @@ function InfiniteCanvasPage() {
 
             const submittedPrompt = prompt.trim();
             let provenance = resolveGenerationProvenance(sourceNode, provenanceOverride);
-            provenance = resolveConnectedTextPromptProvenance(nodeId, sourceNode, nodesRef.current, connectionsRef.current, submittedPrompt, provenance);
+            provenance = resolveConnectedTextPromptProvenance(nodeId, sourceNode, generationNodes, generationConnections, submittedPrompt, provenance);
             setRunningNodeId(nodeId);
             const runController = startGenerationRequest(nodeId, nodeId, nodeId);
             const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
             const editingTextNode = mode === "text" && Boolean(sourceTextContent);
+            const generationPrompt = editingTextNode ? `请根据要求修改以下文本。\n\n原文：\n${sourceTextContent}\n\n修改要求：\n${prompt}` : prompt;
             let generationContext: Awaited<ReturnType<typeof hydrateNodeGenerationContext>>;
             try {
-                generationContext = await hydrateNodeGenerationContext(
-                    buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? `请根据要求修改以下文本。\n\n原文：\n${sourceTextContent}\n\n修改要求：\n${prompt}` : prompt),
-                );
+                generationContext = await hydrateNodeGenerationContext(buildNodeGenerationContext(nodeId, generationNodes, generationConnections, generationPrompt));
             } catch (error) {
                 const cancelled = isGenerationCanceled(error);
                 if (!cancelled) message.error(error instanceof Error ? error.message : "生成失败");
@@ -3550,17 +3554,17 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
                 return;
             }
-            const submittedText = submittedPrompt || effectivePrompt;
+            const submittedText = effectivePrompt;
+            const promptResolutionSnapshot = buildPromptResolutionSnapshot(nodeId, generationPrompt, effectivePrompt, generationNodes, generationConnections);
             const repeatsSameMode = sourceNode?.metadata?.telemetryAttemptMode === mode;
             const previousAttemptIndex = repeatsSameMode ? Math.max(0, sourceNode?.metadata?.telemetryAttemptIndex || 0) : 0;
             const attemptIndex = previousAttemptIndex + 1;
             const promptBaseline = resolvePromptEditBaseline(sourceNode?.metadata, provenance.editedFrom);
-            const previousPrompt = promptBaseline?.beforeText || "";
+            const previousPrompt = promptBaseline ? resolvePromptEditBeforeText(sourceNode, promptBaseline, generationNodes, generationConnections) : null;
+            const afterPromptResolved = resolveNodeGenerationPrompt(nodeId, generationNodes, generationConnections, generationPrompt);
             const previousSourceKind = promptBaseline?.previousSourceKind || sourceNode?.metadata?.promptSourceKind || provenance.sourceKind;
+            const promptEdit = provenance.sourceKind === "user_typed" && previousPrompt && afterPromptResolved === effectivePrompt ? { beforeText: previousPrompt, previousSourceKind } : null;
             if (previousAttemptIndex >= 1) track("node_regenerated", { canvasId: projectId, attemptIndex });
-            if (provenance.sourceKind === "user_typed" && previousPrompt && previousPrompt !== submittedText) {
-                track("prompt_edited", { canvasId: projectId, beforeText: previousPrompt, afterText: submittedText, previousSourceKind, regenerated: true });
-            }
             setNodes((prev) =>
                 prev.map((node) =>
                     node.id === nodeId
@@ -3572,6 +3576,7 @@ function InfiniteCanvasPage() {
                                   promptTemplateId: provenance.templateId,
                                   telemetryAttemptIndex: attemptIndex,
                                   telemetryAttemptMode: mode,
+                                  ...promptResolutionSnapshot,
                                   telemetryLastPrompt: submittedText,
                                   telemetryLastSourceKind: provenance.sourceKind,
                                   telemetryLastTemplateId: provenance.templateId,
@@ -3829,7 +3834,7 @@ function InfiniteCanvasPage() {
                                                 metadata: {
                                                     ...node.metadata,
                                                     ...imageMetadata(uploaded),
-                                                    ...completedGenerationMetadata(provenance, submittedText, node.id === nodeId ? attemptIndex : 1, mode),
+                                                    ...completedGenerationMetadata(provenance, persistedImagePrompt, node.id === nodeId ? attemptIndex : 1, mode, promptResolutionSnapshot),
                                                     primaryImageId: targetId,
                                                     statusMessage: undefined,
                                                     fusionPlacementPlanV1: fusionPlacementPlan,
@@ -3844,7 +3849,7 @@ function InfiniteCanvasPage() {
                                                 metadata: {
                                                     ...node.metadata,
                                                     ...imageMetadata(uploaded),
-                                                    ...completedGenerationMetadata(provenance, submittedText, node.id === nodeId ? attemptIndex : 1, mode),
+                                                    ...completedGenerationMetadata(provenance, persistedImagePrompt, node.id === nodeId ? attemptIndex : 1, mode, promptResolutionSnapshot),
                                                     statusMessage: undefined,
                                                     fusionPlacementPlanV1: fusionPlacementPlan,
                                                 },
@@ -4103,7 +4108,7 @@ function InfiniteCanvasPage() {
                                           metadata: {
                                               ...node.metadata,
                                               ...videoMetadata(video),
-                                              ...completedGenerationMetadata(provenance, submittedText, node.id === nodeId ? attemptIndex : 1, mode),
+                                              ...completedGenerationMetadata(provenance, requestVideoPrompt, node.id === nodeId ? attemptIndex : 1, mode, promptResolutionSnapshot),
                                               prompt: requestVideoPrompt,
                                               model: videoGenerationConfig.model,
                                               size: videoGenerationConfig.size,
@@ -4163,7 +4168,7 @@ function InfiniteCanvasPage() {
                                           metadata: {
                                               ...node.metadata,
                                               ...audioMetadata(audio),
-                                              ...completedGenerationMetadata(provenance, submittedText, node.id === nodeId ? attemptIndex : 1, mode),
+                                              ...completedGenerationMetadata(provenance, submittedText, node.id === nodeId ? attemptIndex : 1, mode, promptResolutionSnapshot),
                                               prompt: effectivePrompt,
                                               ...buildAudioGenerationMetadata(generationConfig),
                                           },
@@ -4229,7 +4234,7 @@ function InfiniteCanvasPage() {
                 setNodes((prev) =>
                     prev.map((node) =>
                         childIds.includes(node.id)
-                            ? { ...node, metadata: { ...node.metadata, ...completedGenerationMetadata(provenance, submittedText, 1, mode), content: answerByNodeId.get(node.id) || streamed, status: NODE_STATUS_SUCCESS } }
+                            ? { ...node, metadata: { ...node.metadata, ...completedGenerationMetadata(provenance, submittedText, 1, mode, promptResolutionSnapshot), content: answerByNodeId.get(node.id) || streamed, status: NODE_STATUS_SUCCESS } }
                             : node.id === nodeId && isConfigNode
                               ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } }
                               : node.id === nodeId && !editingTextNode
@@ -4237,7 +4242,7 @@ function InfiniteCanvasPage() {
                                       ...node,
                                       type: CanvasNodeType.Text,
                                       title: prompt.slice(0, 32) || "Generated Text",
-                                      metadata: { ...node.metadata, ...completedGenerationMetadata(provenance, submittedText, attemptIndex, mode), content: answerByNodeId.get(node.id) || streamed, status: NODE_STATUS_SUCCESS },
+                                      metadata: { ...node.metadata, ...completedGenerationMetadata(provenance, submittedText, attemptIndex, mode, promptResolutionSnapshot), content: answerByNodeId.get(node.id) || streamed, status: NODE_STATUS_SUCCESS },
                                   }
                                 : node,
                     ),
@@ -4257,6 +4262,10 @@ function InfiniteCanvasPage() {
                     ),
                 );
             } finally {
+                if (telemetryPrompt) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, telemetryLastPrompt: telemetryPrompt } } : node)));
+                if (promptEdit && telemetryPrompt && promptEdit.beforeText !== telemetryPrompt) {
+                    track("prompt_edited", { canvasId: projectId, beforeText: promptEdit.beforeText, afterText: telemetryPrompt, previousSourceKind: promptEdit.previousSourceKind, regenerated: true });
+                }
                 track("generation", {
                     canvasId: projectId,
                     mode,
@@ -4282,12 +4291,14 @@ function InfiniteCanvasPage() {
     const handleRetryNode = useCallback(
         async (node: CanvasNodeData) => {
             const retryStartedAt = Date.now();
+            const retryNodes = nodesRef.current;
+            const retryConnections = connectionsRef.current;
             if (generationRequestsRef.current.has(node.id)) {
                 message.warning("该任务正在重试，请勿重复提交");
                 return;
             }
-            const sourceNode = findRetrySourceNode(node.id, nodesRef.current, connectionsRef.current) || node;
-            const batchRoot = node.metadata?.batchRootId ? nodesRef.current.find((item) => item.id === node.metadata?.batchRootId) : null;
+            const sourceNode = findRetrySourceNode(node.id, retryNodes, retryConnections) || node;
+            const batchRoot = node.metadata?.batchRootId ? retryNodes.find((item) => item.id === node.metadata?.batchRootId) : null;
             const savedImageMetadata = node.type === CanvasNodeType.Image ? { ...batchRoot?.metadata, ...node.metadata } : undefined;
             const hasSavedImageMetadata = Boolean(savedImageMetadata?.generationType);
             let generationConfig =
@@ -4308,8 +4319,13 @@ function InfiniteCanvasPage() {
             const savedVideoDirection = node.type === CanvasNodeType.Video ? node.metadata?.videoSourcePrompt || unwrapStoryboardVideoUserDirection(node.metadata?.prompt || "") || "" : "";
             const retryBasePrompt = node.type === CanvasNodeType.Video ? savedVideoDirection || node.metadata?.prompt || sourceNode.metadata?.prompt || "" : node.metadata?.prompt || sourceNode.metadata?.prompt || "";
             const submittedPrompt = (savedImageMetadata?.prompt || retryBasePrompt).trim();
-            const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, retryBasePrompt));
+            const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, retryNodes, retryConnections, retryBasePrompt));
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
+            const retryPromptSourceNodeId = hasSavedImageMetadata ? node.id : sourceNode.id;
+            const retryRawPrompt = hasSavedImageMetadata ? prompt : retryBasePrompt;
+            const promptResolutionSnapshot = hasSavedImageMetadata
+                ? buildSelfPromptResolutionSnapshot(retryPromptSourceNodeId, prompt)
+                : buildPromptResolutionSnapshot(retryPromptSourceNodeId, retryRawPrompt, prompt, retryNodes, retryConnections);
             const storyboardRetryWholeImages = node.type === CanvasNodeType.Video ? storyboardReviewSheetWholeReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const retriesWholeStoryboardSheet = storyboardRetryWholeImages.length > 0 || isStoredWholeStoryboardVideo(node);
             const retryReferenceVideos = retriesWholeStoryboardSheet ? [] : context?.referenceVideos || [];
@@ -4404,12 +4420,11 @@ function InfiniteCanvasPage() {
             let generationOk = false;
             let generationErrorKind = "";
             let telemetryPrompt = prompt;
-            const promptBaseline = resolvePromptEditBaseline(node.metadata);
-            const previousPrompt = promptBaseline?.beforeText || "";
+            const promptBaseline = node.metadata?.telemetryDraftPrompt?.trim() ? resolvePromptEditBaseline(node.metadata) : null;
+            const previousPrompt = promptBaseline ? resolvePromptEditBeforeText(node, promptBaseline, retryNodes, retryConnections) : null;
+            const afterPromptResolved = hasSavedImageMetadata ? resolveStandaloneGenerationPrompt(retryRawPrompt) : resolveNodeGenerationPrompt(retryPromptSourceNodeId, retryNodes, retryConnections, retryRawPrompt);
             const previousSourceKind = promptBaseline?.previousSourceKind || sourceNode.metadata?.telemetryLastSourceKind || node.metadata?.promptSourceKind || provenance.sourceKind;
-            if (provenance.sourceKind === "user_typed" && previousPrompt && previousPrompt !== submittedPrompt) {
-                track("prompt_edited", { canvasId: projectId, beforeText: previousPrompt, afterText: submittedPrompt, previousSourceKind, regenerated: true });
-            }
+            const promptEdit = provenance.sourceKind === "user_typed" && previousPrompt && afterPromptResolved === prompt ? { beforeText: previousPrompt, previousSourceKind } : null;
             track("node_regenerated", { canvasId: projectId, attemptIndex });
 
             setRunningNodeId(node.id);
@@ -4425,6 +4440,7 @@ function InfiniteCanvasPage() {
                                   promptTemplateId: provenance.templateId,
                                   telemetryAttemptIndex: attemptIndex,
                                   telemetryAttemptMode: mode,
+                                  ...promptResolutionSnapshot,
                                   telemetryLastPrompt: submittedPrompt,
                                   telemetryLastSourceKind: provenance.sourceKind,
                                   telemetryLastTemplateId: provenance.templateId,
@@ -4459,7 +4475,7 @@ function InfiniteCanvasPage() {
                     setNodes((prev) =>
                         prev.map((item) =>
                             item.id === node.id
-                                ? { ...item, type: CanvasNodeType.Text, metadata: { ...item.metadata, ...completedGenerationMetadata(provenance, submittedPrompt, attemptIndex, mode), content: answer || streamed, prompt, status: NODE_STATUS_SUCCESS } }
+                                ? { ...item, type: CanvasNodeType.Text, metadata: { ...item.metadata, ...completedGenerationMetadata(provenance, submittedPrompt, attemptIndex, mode, promptResolutionSnapshot), content: answer || streamed, prompt, status: NODE_STATUS_SUCCESS } }
                                 : item,
                         ),
                     );
@@ -4572,7 +4588,7 @@ function InfiniteCanvasPage() {
                                       metadata: {
                                           ...item.metadata,
                                           ...videoMetadata(video),
-                                          ...completedGenerationMetadata(provenance, submittedPrompt, attemptIndex, mode),
+                                          ...completedGenerationMetadata(provenance, submittedPrompt, attemptIndex, mode, promptResolutionSnapshot),
                                           prompt: videoPrompt,
                                           model: generationConfig.model,
                                           size: generationConfig.size,
@@ -4602,7 +4618,7 @@ function InfiniteCanvasPage() {
                     setNodes((prev) =>
                         prev.map((item) =>
                             item.id === node.id
-                                ? { ...item, metadata: { ...item.metadata, ...audioMetadata(audio), ...completedGenerationMetadata(provenance, submittedPrompt, attemptIndex, mode), prompt, ...buildAudioGenerationMetadata(generationConfig) } }
+                                ? { ...item, metadata: { ...item.metadata, ...audioMetadata(audio), ...completedGenerationMetadata(provenance, submittedPrompt, attemptIndex, mode, promptResolutionSnapshot), prompt, ...buildAudioGenerationMetadata(generationConfig) } }
                                 : item,
                         ),
                     );
@@ -4642,7 +4658,7 @@ function InfiniteCanvasPage() {
                                   type: CanvasNodeType.Image,
                                   width: imageSize.width,
                                   height: imageSize.height,
-                                  metadata: { ...item.metadata, ...imageMetadata(uploadedImage), ...completedGenerationMetadata(provenance, submittedPrompt, attemptIndex, mode), prompt, ...generationMetadata },
+                                  metadata: { ...item.metadata, ...imageMetadata(uploadedImage), ...completedGenerationMetadata(provenance, submittedPrompt, attemptIndex, mode, promptResolutionSnapshot), prompt, ...generationMetadata },
                               }
                             : item,
                     ),
@@ -4658,6 +4674,10 @@ function InfiniteCanvasPage() {
                 message.error(errorDetails);
                 setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, statusMessage: undefined, errorDetails } } : item)));
             } finally {
+                if (telemetryPrompt) setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, telemetryLastPrompt: telemetryPrompt } } : item)));
+                if (promptEdit && telemetryPrompt && promptEdit.beforeText !== telemetryPrompt) {
+                    track("prompt_edited", { canvasId: projectId, beforeText: promptEdit.beforeText, afterText: telemetryPrompt, previousSourceKind: promptEdit.previousSourceKind, regenerated: true });
+                }
                 track("generation", {
                     canvasId: projectId,
                     mode,
@@ -5787,23 +5807,86 @@ function machinePromptDraft(prompt: string, sourceKind: CanvasPromptSourceKind, 
     };
 }
 
-function resolvePromptEditBaseline(metadata?: CanvasNodeMetadata, editedFrom?: PromptEditedFrom): PromptEditedFrom | null {
+function resolvePromptEditBaseline(metadata?: CanvasNodeMetadata, editedFrom?: PromptEditedFrom): PromptEditBaseline | null {
     const editedFromText = editedFrom?.beforeText.trim();
-    if (editedFromText && editedFrom) return { beforeText: editedFromText, previousSourceKind: editedFrom.previousSourceKind };
+    if (editedFromText && editedFrom) return { beforeText: editedFromText, previousSourceKind: editedFrom.previousSourceKind, origin: "edited_from" };
     const draftPrompt = metadata?.telemetryDraftPrompt?.trim();
-    if (draftPrompt) return { beforeText: draftPrompt, previousSourceKind: metadata?.telemetryDraftSourceKind || metadata?.promptSourceKind || "user_typed" };
+    if (draftPrompt) return { beforeText: draftPrompt, previousSourceKind: metadata?.telemetryDraftSourceKind || metadata?.promptSourceKind || "user_typed", origin: "draft" };
     const lastPrompt = metadata?.telemetryLastPrompt?.trim();
-    if (lastPrompt) return { beforeText: lastPrompt, previousSourceKind: metadata?.telemetryLastSourceKind || metadata?.promptSourceKind || "user_typed" };
+    if (lastPrompt) return { beforeText: lastPrompt, previousSourceKind: metadata?.telemetryLastSourceKind || metadata?.promptSourceKind || "user_typed", origin: "last" };
     return null;
 }
 
-function completedGenerationMetadata(provenance: GenerationProvenance, prompt: string, attemptIndex: number, attemptMode: CanvasNodeGenerationMode): Partial<CanvasNodeMetadata> {
+function buildPromptResolutionSnapshot(sourceNodeId: string, rawPrompt: string, resolvedPrompt: string, nodes: CanvasNodeData[], connections: CanvasConnection[]): PromptResolutionSnapshot {
+    return {
+        telemetryLastRawPrompt: rawPrompt,
+        telemetryLastResolvedPrompt: resolvedPrompt,
+        telemetryLastPromptSourceNodeId: sourceNodeId,
+        telemetryLastPromptInputNodeIds: buildNodeGenerationInputs(sourceNodeId, nodes, connections).map((input) => input.nodeId),
+        telemetryLastPromptResolutionMode: "generation_context",
+    };
+}
+
+function buildSelfPromptResolutionSnapshot(sourceNodeId: string, prompt: string): PromptResolutionSnapshot {
+    return {
+        telemetryLastRawPrompt: prompt,
+        telemetryLastResolvedPrompt: prompt,
+        telemetryLastPromptSourceNodeId: sourceNodeId,
+        telemetryLastPromptInputNodeIds: [],
+        telemetryLastPromptResolutionMode: "self_contained",
+    };
+}
+
+function resolvePromptEditBeforeText(node: CanvasNodeData | undefined, baseline: PromptEditBaseline, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    if (!node) return null;
+    const rawPrompt = node.metadata?.telemetryLastRawPrompt;
+    const resolvedPrompt = node.metadata?.telemetryLastResolvedPrompt?.trim();
+    const sourceNodeId = node.metadata?.telemetryLastPromptSourceNodeId;
+    const inputNodeIds = node.metadata?.telemetryLastPromptInputNodeIds;
+    const resolutionMode = node.metadata?.telemetryLastPromptResolutionMode;
+    const hasCompleteSnapshot = rawPrompt !== undefined && Boolean(resolvedPrompt && sourceNodeId && inputNodeIds && resolutionMode && nodes.some((item) => item.id === sourceNodeId));
+    if (!hasCompleteSnapshot) {
+        if (baseline.origin === "last") return null;
+        return resolveNodeGenerationPrompt(node.id, nodes, connections, baseline.beforeText, { forceComposer: node.type === CanvasNodeType.Config });
+    }
+
+    const baselineText = baseline.beforeText.trim();
+    const lastPrompt = node.metadata?.telemetryLastPrompt?.trim();
+    const usesGenerationSnapshot = baseline.origin === "last" || baselineText === rawPrompt!.trim() || baselineText === resolvedPrompt || baselineText === lastPrompt;
+    if (!usesGenerationSnapshot) return resolveNodeGenerationPrompt(node.id, nodes, connections, baselineText, { forceComposer: node.type === CanvasNodeType.Config });
+    if (resolutionMode === "self_contained") {
+        if (sourceNodeId !== node.id || resolveStandaloneGenerationPrompt(rawPrompt!) !== resolvedPrompt) return null;
+        return lastPrompt || resolvedPrompt;
+    }
+    if (resolutionMode !== "generation_context" || (sourceNodeId !== node.id && !hasDirectedConnectionPath(sourceNodeId!, node.id, connections))) return null;
+
+    const currentInputNodeIds = buildNodeGenerationInputs(sourceNodeId!, nodes, connections).map((input) => input.nodeId);
+    if (currentInputNodeIds.length !== inputNodeIds!.length || currentInputNodeIds.some((id, index) => id !== inputNodeIds![index])) return null;
+    if (resolveNodeGenerationPrompt(sourceNodeId!, nodes, connections, rawPrompt!, { forceComposer: true }) !== resolvedPrompt) return null;
+    return lastPrompt || resolvedPrompt;
+}
+
+function hasDirectedConnectionPath(fromNodeId: string, toNodeId: string, connections: CanvasConnection[]) {
+    const queue = [fromNodeId];
+    const visited = new Set<string>();
+    while (queue.length) {
+        const nodeId = queue.shift()!;
+        if (nodeId === toNodeId) return true;
+        if (visited.has(nodeId)) continue;
+        visited.add(nodeId);
+        connections.filter((connection) => connection.fromNodeId === nodeId).forEach((connection) => queue.push(connection.toNodeId));
+    }
+    return false;
+}
+
+function completedGenerationMetadata(provenance: GenerationProvenance, prompt: string, attemptIndex: number, attemptMode: CanvasNodeGenerationMode, promptResolutionSnapshot?: PromptResolutionSnapshot): Partial<CanvasNodeMetadata> {
     return {
         promptSourceKind: provenance.sourceKind,
         promptTemplateId: provenance.templateId,
         telemetryGeneratedAt: Date.now(),
         telemetryAttemptIndex: attemptIndex,
         telemetryAttemptMode: attemptMode,
+        ...promptResolutionSnapshot,
         telemetryLastPrompt: prompt,
         telemetryLastSourceKind: provenance.sourceKind,
         telemetryLastTemplateId: provenance.templateId,
@@ -5820,6 +5903,11 @@ function clearCopiedGenerationTelemetry(metadata?: CanvasNodeMetadata): CanvasNo
         telemetryAttemptIndex: _telemetryAttemptIndex,
         telemetryAttemptMode: _telemetryAttemptMode,
         telemetryLastPrompt: _telemetryLastPrompt,
+        telemetryLastRawPrompt: _telemetryLastRawPrompt,
+        telemetryLastResolvedPrompt: _telemetryLastResolvedPrompt,
+        telemetryLastPromptSourceNodeId: _telemetryLastPromptSourceNodeId,
+        telemetryLastPromptInputNodeIds: _telemetryLastPromptInputNodeIds,
+        telemetryLastPromptResolutionMode: _telemetryLastPromptResolutionMode,
         telemetryLastSourceKind: _telemetryLastSourceKind,
         telemetryLastTemplateId: _telemetryLastTemplateId,
         telemetryDraftPrompt: _telemetryDraftPrompt,

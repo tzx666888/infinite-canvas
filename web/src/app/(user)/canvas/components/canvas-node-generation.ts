@@ -37,6 +37,20 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     return buildAllInputGenerationContext(inputs, prompt);
 }
 
+export function resolveNodeGenerationPrompt(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string, options?: { forceComposer?: boolean }) {
+    const sourceNode = nodes.find((node) => node.id === nodeId);
+    if (!sourceNode) return null;
+    const result = resolveComposerGenerationContext(buildNodeGenerationInputs(nodeId, nodes, connections), prompt);
+    if (!result.hasToken) return buildNodeGenerationContext(nodeId, nodes, connections, prompt).prompt.trim() || null;
+    if (sourceNode.type !== CanvasNodeType.Config || (!options?.forceComposer && !sourceNode.metadata?.composerContent?.trim()) || result.hasMissingInput) return null;
+    return result.context.prompt.trim() || null;
+}
+
+export function resolveStandaloneGenerationPrompt(prompt: string) {
+    const result = resolveComposerGenerationContext([], prompt);
+    return result.hasToken ? null : prompt.trim() || null;
+}
+
 function buildAllInputGenerationContext(inputs: NodeGenerationInput[], prompt: string): NodeGenerationContext {
     const upstreamText = inputs
         .map((input) => input.text)
@@ -59,12 +73,18 @@ function buildAllInputGenerationContext(inputs: NodeGenerationInput[], prompt: s
 }
 
 function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string): NodeGenerationContext {
+    const result = resolveComposerGenerationContext(inputs, prompt);
+    return result.hasToken ? result.context : buildAllInputGenerationContext(inputs, prompt);
+}
+
+function resolveComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string) {
     const inputByNodeId = new Map(inputs.map((input) => [input.nodeId, input]));
     const selectedInputs: NodeGenerationInput[] = [];
     const labelByNodeId = new Map<string, string>();
     const textBlocks: string[] = [];
     const counts = { image: 0, video: 0, audio: 0, text: 0 };
     let hasToken = false;
+    let hasMissingInput = false;
     let lastIndex = 0;
     let nextPrompt = "";
 
@@ -82,6 +102,8 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
                 else selectedInputs.push(input);
             }
             nextPrompt += input.type === "text" ? `【${label}】` : label;
+        } else {
+            hasMissingInput = true;
         }
         lastIndex = match.index + match[0].length;
     }
@@ -92,19 +114,19 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
     const referenceVideos = selectedInputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
     const referenceAudios = selectedInputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
 
-    if (!hasToken) {
-        return buildAllInputGenerationContext(inputs, prompt);
-    }
-
     return {
-        prompt: nextPrompt,
-        referenceImages,
-        referenceVideos,
-        referenceAudios,
-        textCount: counts.text,
-        imageCount: referenceImages.length,
-        videoCount: referenceVideos.length,
-        audioCount: referenceAudios.length,
+        hasToken,
+        hasMissingInput,
+        context: {
+            prompt: nextPrompt,
+            referenceImages,
+            referenceVideos,
+            referenceAudios,
+            textCount: counts.text,
+            imageCount: referenceImages.length,
+            videoCount: referenceVideos.length,
+            audioCount: referenceAudios.length,
+        },
     };
 }
 
