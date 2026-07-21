@@ -1,4 +1,4 @@
-import { BookOpen, FileText, ImagePlus, Images, Maximize2, Video, Volume2 } from "lucide-react";
+import { BookOpen, FileText, ImagePlus, Images, Layers3, Maximize2, Video, Volume2 } from "lucide-react";
 
 export const navigationTools = [
     {
@@ -10,6 +10,11 @@ export const navigationTools = [
         slug: "image",
         label: "生图工作台",
         icon: ImagePlus,
+    },
+    {
+        slug: "batch",
+        label: "图片批量",
+        icon: Layers3,
     },
     {
         slug: "video",

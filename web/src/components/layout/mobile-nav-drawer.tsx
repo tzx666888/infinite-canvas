@@ -41,7 +41,7 @@ export function MobileNavDrawer({ open, activeToolSlug, onClose }: MobileNavDraw
     }
 
     return (
-        <Drawer title="导航" placement="left" size={280} open={open} onClose={onClose} className="md:hidden">
+        <Drawer title="导航" placement="left" size={280} open={open} onClose={onClose} className="lg:hidden">
             <div className="space-y-1">
                 {navigationTools.map((tool) => {
                     const Icon = tool.icon;

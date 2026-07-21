@@ -20,6 +20,7 @@ export type StoredImageStats = {
 };
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
+const batchWorkspaceStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_batch_workspace" });
 const objectUrls = new Map<string, string>();
 
 export async function uploadImage(input: string | Blob): Promise<UploadedImage> {
@@ -82,6 +83,8 @@ export async function getImageStorageStats(): Promise<StoredImageStats> {
 
 export async function cleanupUnusedImages(usedData: unknown) {
     const usedKeys = collectImageStorageKeys(usedData);
+    const batchWorkspace = await batchWorkspaceStore.getItem("current");
+    collectImageStorageKeys(batchWorkspace, usedKeys);
     const unused: string[] = [];
     await store.iterate((_value, key) => {
         if (!usedKeys.has(key)) unused.push(key);
@@ -91,8 +94,11 @@ export async function cleanupUnusedImages(usedData: unknown) {
 
 export function collectImageStorageKeys(value: unknown, keys = new Set<string>()) {
     if (!value || typeof value !== "object") return keys;
-    if ("storageKey" in value && typeof value.storageKey === "string" && value.storageKey.startsWith("image:")) keys.add(value.storageKey);
-    Object.values(value).forEach((item) => (Array.isArray(item) ? item.forEach((child) => collectImageStorageKeys(child, keys)) : collectImageStorageKeys(item, keys)));
+    Object.entries(value).forEach(([property, item]) => {
+        if ((property === "storageKey" || property.endsWith("StorageKey")) && typeof item === "string" && item.startsWith("image:")) keys.add(item);
+        if (Array.isArray(item)) item.forEach((child) => collectImageStorageKeys(child, keys));
+        else collectImageStorageKeys(item, keys);
+    });
     return keys;
 }
 
