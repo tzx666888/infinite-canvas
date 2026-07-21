@@ -2,9 +2,10 @@
 
 import { Copy, Download, PencilLine, Search, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { App, AutoComplete, Button, Card, Drawer, Empty, Form, Image, Input, Modal, Pagination, Select, Space, Tag, Typography } from "antd";
+import { App, Button, Card, Drawer, Empty, Form, Image, Input, Modal, Pagination, Select, Space, Tag, Typography } from "antd";
 import { saveAs } from "file-saver";
 
+import { AssetCategoryMenu } from "@/components/assets/asset-category-menu";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { ALL_ASSET_CATEGORIES, assetCategory, assetCategoryOptions, defaultAssetCategory } from "@/lib/asset-categories";
 import { formatBytes, readFileAsDataUrl } from "@/lib/image-utils";
@@ -228,38 +229,22 @@ export default function AssetsPage() {
 
                     <div className="mx-auto mt-6 grid max-w-6xl gap-3 text-left">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="grid gap-3">
-                                <div className="grid gap-2 sm:grid-cols-[56px_minmax(0,1fr)] sm:items-center">
-                                    <div className="text-xs font-medium text-stone-500 dark:text-stone-400">格式</div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {kindOptions.map((option) => (
-                                            <Tag.CheckableTag
-                                                key={option.value}
-                                                checked={kindFilter === option.value}
-                                                className={cn("prompt-filter-tag", kindFilter === option.value && "is-active")}
-                                                onChange={() => {
-                                                    setPage(1);
-                                                    setKindFilter(option.value as AssetKind | "all");
-                                                }}
-                                            >
-                                                {option.label}
-                                            </Tag.CheckableTag>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="grid gap-2 sm:grid-cols-[56px_minmax(0,1fr)] sm:items-center">
-                                    <div className="text-xs font-medium text-stone-500 dark:text-stone-400">分类</div>
-                                    <Select
-                                        className="w-full sm:w-48"
-                                        size="small"
-                                        showSearch
-                                        value={categoryFilter}
-                                        options={[{ label: "全部分类", value: ALL_ASSET_CATEGORIES }, ...availableCategories.map((item) => ({ label: item, value: item }))]}
-                                        onChange={(value) => {
-                                            setPage(1);
-                                            setCategoryFilter(value);
-                                        }}
-                                    />
+                            <div className="grid gap-2 sm:grid-cols-[56px_minmax(0,1fr)] sm:items-center">
+                                <div className="text-xs font-medium text-stone-500 dark:text-stone-400">格式</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {kindOptions.map((option) => (
+                                        <Tag.CheckableTag
+                                            key={option.value}
+                                            checked={kindFilter === option.value}
+                                            className={cn("prompt-filter-tag", kindFilter === option.value && "is-active")}
+                                            onChange={() => {
+                                                setPage(1);
+                                                setKindFilter(option.value as AssetKind | "all");
+                                            }}
+                                        >
+                                            {option.label}
+                                        </Tag.CheckableTag>
+                                    ))}
                                 </div>
                             </div>
                             <div className="flex flex-wrap gap-4 sm:pt-1">
@@ -281,6 +266,18 @@ export default function AssetsPage() {
                                     新增素材
                                 </button>
                             </div>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-[56px_minmax(0,1fr)] sm:items-start">
+                            <div className="pt-1 text-xs font-medium text-stone-500 dark:text-stone-400">分类</div>
+                            <AssetCategoryMenu
+                                includeAll
+                                value={categoryFilter}
+                                options={availableCategories}
+                                onChange={(value) => {
+                                    setPage(1);
+                                    setCategoryFilter(value);
+                                }}
+                            />
                         </div>
                     </div>
                 </div>
@@ -326,8 +323,8 @@ export default function AssetsPage() {
                                     }}
                                 />
                             </Form.Item>
-                            <Form.Item name="category" label="素材分类" extra="选择常用分类，或直接输入自定义名称" rules={[{ required: true, whitespace: true, message: "请选择或输入素材分类" }]}>
-                                <AutoComplete options={availableCategories.map((item) => ({ label: item, value: item }))} placeholder="场景 / 人物 / 男模 / 女模 / 自定义" allowClear />
+                            <Form.Item className="sm:col-span-2" name="category" label="素材分类" extra="选择常用分类，或在下方输入自定义名称" rules={[{ required: true, whitespace: true, message: "请选择或输入素材分类" }]}>
+                                <AssetCategoryMenu options={availableCategories} showCustomInput />
                             </Form.Item>
                         </div>
                         <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入标题" }]}>

@@ -11,6 +11,7 @@ import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/c
 import { ModelPicker } from "@/components/model-picker";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeValue, videoSizeLabel } from "@/components/video-settings-panel";
+import { useSaveAsset } from "@/hooks/use-save-asset";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
@@ -20,7 +21,6 @@ import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/
 import { imageToDataUrl, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { optimizeVideoWorkbenchPrompt } from "@/services/api/prompt-polish";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
-import { useAssetStore } from "@/stores/use-asset-store";
 import { modelOptionLabel, modelOptionName, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ReferenceImage } from "@/types/image";
@@ -83,7 +83,7 @@ export default function VideoPage() {
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-    const addAsset = useAssetStore((state) => state.addAsset);
+    const saveAsset = useSaveAsset();
     const [prompt, setPrompt] = useState("");
     const [references, setReferences] = useState<ReferenceImage[]>([]);
     const [videoReferences, setVideoReferences] = useState<ReferenceVideo[]>([]);
@@ -282,17 +282,25 @@ export default function VideoPage() {
     };
 
     const saveResultToAssets = (video: GeneratedVideo) => {
-        addAsset({
+        saveAsset({
             kind: "video",
-            category: "其他",
-            title: "生成视频",
-            coverUrl: "",
-            tags: [],
-            source: "视频创作台",
-            data: { url: video.url, storageKey: video.storageKey, width: video.width, height: video.height, bytes: video.bytes, mimeType: video.mimeType },
-            metadata: { source: "video-page", prompt },
+            initialCategory: "其他",
+            prepare: async () => {
+                const stored = video.storageKey ? await uploadMediaFile(video.url, "asset-video") : video;
+                return {
+                    asset: {
+                        kind: "video",
+                        title: "生成视频",
+                        coverUrl: "",
+                        tags: [],
+                        source: "视频创作台",
+                        data: { url: stored.url, storageKey: stored.storageKey, width: stored.width || video.width, height: stored.height || video.height, bytes: stored.bytes, mimeType: stored.mimeType },
+                        metadata: { source: "video-page", prompt },
+                    },
+                    rollback: video.storageKey ? () => deleteStoredMedia([stored.storageKey]) : undefined,
+                };
+            },
         });
-        message.success("已加入我的素材");
     };
 
     const insertPickedAsset = async (payload: InsertAssetPayload) => {
