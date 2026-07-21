@@ -207,6 +207,7 @@ export default function ImagePage() {
         const stored = await uploadImage(image.dataUrl);
         addAsset({
             kind: "image",
+            category: "其他",
             title: `生成结果 ${index + 1}`,
             coverUrl: stored.url,
             tags: [],

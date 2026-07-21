@@ -2,10 +2,11 @@
 
 import { Copy, Download, PencilLine, Search, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Card, Drawer, Empty, Form, Image, Input, Modal, Pagination, Select, Space, Tag, Typography } from "antd";
+import { App, AutoComplete, Button, Card, Drawer, Empty, Form, Image, Input, Modal, Pagination, Select, Space, Tag, Typography } from "antd";
 import { saveAs } from "file-saver";
 
 import { useCopyText } from "@/hooks/use-copy-text";
+import { ALL_ASSET_CATEGORIES, assetCategory, assetCategoryOptions, defaultAssetCategory } from "@/lib/asset-categories";
 import { formatBytes, readFileAsDataUrl } from "@/lib/image-utils";
 import { uploadImage } from "@/services/image-storage";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,7 @@ import { exportAssets, readAssetPackage } from "./asset-transfer";
 
 type AssetFormValues = {
     kind: AssetKind;
+    category: string;
     title: string;
     coverUrl: string;
     tags: string[];
@@ -44,6 +46,7 @@ export default function AssetsPage() {
     const removeAsset = useAssetStore((state) => state.removeAsset);
     const [keyword, setKeyword] = useState("");
     const [kindFilter, setKindFilter] = useState<AssetKind | "all">("all");
+    const [categoryFilter, setCategoryFilter] = useState<string | typeof ALL_ASSET_CATEGORIES>(ALL_ASSET_CATEGORIES);
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
     const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
@@ -55,17 +58,20 @@ export default function AssetsPage() {
     const coverUrl = Form.useWatch("coverUrl", form) || "";
     const title = Form.useWatch("title", form) || "";
     const tags = Form.useWatch("tags", form) || [];
+    const category = Form.useWatch("category", form) || "";
     const content = Form.useWatch("content", form) || "";
     const validAssets = useMemo(() => assets.filter((asset) => asset.kind === "text" || asset.kind === "image" || asset.kind === "video"), [assets]);
+    const availableCategories = useMemo(() => assetCategoryOptions(validAssets), [validAssets]);
 
     const filteredAssets = useMemo(() => {
         const query = keyword.trim().toLowerCase();
         return validAssets.filter((asset) => {
             if (kindFilter !== "all" && asset.kind !== kindFilter) return false;
+            if (categoryFilter !== ALL_ASSET_CATEGORIES && assetCategory(asset) !== categoryFilter) return false;
             if (!query) return true;
             return assetSearchText(asset).includes(query);
         });
-    }, [validAssets, keyword, kindFilter]);
+    }, [validAssets, keyword, kindFilter, categoryFilter]);
 
     const visibleAssets = useMemo(() => {
         const start = (page - 1) * pageSize;
@@ -81,7 +87,7 @@ export default function AssetsPage() {
         setEditingAsset(null);
         setImageDraft(null);
         setFormKind("text");
-        form.setFieldsValue({ kind: "text", title: "", coverUrl: "", tags: [], source: "手动添加", note: "", content: "" });
+        form.setFieldsValue({ kind: "text", category: defaultAssetCategory("text"), title: "", coverUrl: "", tags: [], source: "手动添加", note: "", content: "" });
         setIsAssetOpen(true);
     };
 
@@ -91,6 +97,7 @@ export default function AssetsPage() {
         setImageDraft(asset.kind === "image" ? asset.data : null);
         form.setFieldsValue({
             kind: asset.kind,
+            category: assetCategory(asset),
             title: asset.title,
             coverUrl: asset.coverUrl,
             tags: asset.tags || [],
@@ -104,6 +111,7 @@ export default function AssetsPage() {
     const saveAsset = async () => {
         const values = await form.validateFields();
         const base = {
+            category: values.category.trim(),
             title: values.title.trim(),
             coverUrl: values.coverUrl?.trim() || (values.kind === "image" && imageDraft ? imageDraft.dataUrl : ""),
             tags: values.tags || [],
@@ -115,6 +123,8 @@ export default function AssetsPage() {
         if (values.kind === "text") {
             const asset = { ...base, kind: "text" as const, data: { content: (values.content || "").trim() } };
             editingAsset ? updateAsset(editingAsset.id, asset) : addAsset(asset);
+        } else if (values.kind === "video" && editingAsset?.kind === "video") {
+            updateAsset(editingAsset.id, { ...base, kind: "video", data: editingAsset.data });
         } else {
             if (!imageDraft) {
                 message.error("请选择图片文件");
@@ -194,7 +204,7 @@ export default function AssetsPage() {
                 <div className="pb-8">
                     <div className="mx-auto max-w-5xl text-center">
                         <h1 className="text-4xl font-semibold tracking-tight text-stone-950 dark:text-stone-100">我的素材</h1>
-                        <p className="mt-3 text-sm text-stone-500 dark:text-stone-400">收藏常用文本和图片，按类型、标题和标签快速查找。</p>
+                        <p className="mt-3 text-sm text-stone-500 dark:text-stone-400">收藏常用场景、人物、模特、商品和提示词，按分类快速复用。</p>
                     </div>
 
                     <div className="mx-auto mt-8 w-full max-w-2xl">
@@ -204,7 +214,7 @@ export default function AssetsPage() {
                             allowClear
                             prefix={<Search className="size-4 text-stone-400" />}
                             value={keyword}
-                            placeholder="搜索标题、内容、标签或来源"
+                            placeholder="搜索标题、分类、内容、标签或来源"
                             onChange={(event) => {
                                 setPage(1);
                                 setKeyword(event.target.value);
@@ -217,26 +227,42 @@ export default function AssetsPage() {
                     </div>
 
                     <div className="mx-auto mt-6 grid max-w-6xl gap-3 text-left">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="grid gap-2 sm:grid-cols-[56px_minmax(0,1fr)] sm:items-center">
-                                <div className="text-xs font-medium text-stone-500 dark:text-stone-400">类型</div>
-                                <div className="flex flex-wrap gap-2">
-                                    {kindOptions.map((option) => (
-                                        <Tag.CheckableTag
-                                            key={option.value}
-                                            checked={kindFilter === option.value}
-                                            className={cn("prompt-filter-tag", kindFilter === option.value && "is-active")}
-                                            onChange={() => {
-                                                setPage(1);
-                                                setKindFilter(option.value as AssetKind | "all");
-                                            }}
-                                        >
-                                            {option.label}
-                                        </Tag.CheckableTag>
-                                    ))}
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="grid gap-3">
+                                <div className="grid gap-2 sm:grid-cols-[56px_minmax(0,1fr)] sm:items-center">
+                                    <div className="text-xs font-medium text-stone-500 dark:text-stone-400">格式</div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {kindOptions.map((option) => (
+                                            <Tag.CheckableTag
+                                                key={option.value}
+                                                checked={kindFilter === option.value}
+                                                className={cn("prompt-filter-tag", kindFilter === option.value && "is-active")}
+                                                onChange={() => {
+                                                    setPage(1);
+                                                    setKindFilter(option.value as AssetKind | "all");
+                                                }}
+                                            >
+                                                {option.label}
+                                            </Tag.CheckableTag>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="grid gap-2 sm:grid-cols-[56px_minmax(0,1fr)] sm:items-center">
+                                    <div className="text-xs font-medium text-stone-500 dark:text-stone-400">分类</div>
+                                    <Select
+                                        className="w-full sm:w-48"
+                                        size="small"
+                                        showSearch
+                                        value={categoryFilter}
+                                        options={[{ label: "全部分类", value: ALL_ASSET_CATEGORIES }, ...availableCategories.map((item) => ({ label: item, value: item }))]}
+                                        onChange={(value) => {
+                                            setPage(1);
+                                            setCategoryFilter(value);
+                                        }}
+                                    />
                                 </div>
                             </div>
-                            <div className="flex flex-wrap gap-4">
+                            <div className="flex flex-wrap gap-4 sm:pt-1">
                                 <button
                                     type="button"
                                     className="cursor-pointer text-sm font-medium text-stone-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:underline dark:text-stone-300"
@@ -286,16 +312,24 @@ export default function AssetsPage() {
 
             <Modal title={editingAsset ? "编辑素材" : "新增素材"} open={isAssetOpen} width={980} onCancel={() => setIsAssetOpen(false)} onOk={() => void saveAsset()} okText="保存" cancelText="取消" destroyOnHidden>
                 <div className="grid gap-6 pt-1 lg:grid-cols-[minmax(0,1fr)_320px]">
-                    <Form form={form} layout="vertical" requiredMark={false} initialValues={{ kind: "text", tags: [] }}>
-                        <Form.Item name="kind" label="类型">
-                            <Select
-                                options={[
-                                    { label: "文本", value: "text" },
-                                    { label: "图片", value: "image" },
-                                ]}
-                                onChange={(value) => setFormKind(value)}
-                            />
-                        </Form.Item>
+                    <Form form={form} layout="vertical" requiredMark={false} initialValues={{ kind: "text", category: defaultAssetCategory("text"), tags: [] }}>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <Form.Item name="kind" label="内容格式">
+                                <Select
+                                    options={[{ label: "文本", value: "text" }, { label: "图片", value: "image" }, ...(editingAsset?.kind === "video" ? [{ label: "视频", value: "video" }] : [])]}
+                                    disabled={editingAsset?.kind === "video"}
+                                    onChange={(value) => {
+                                        const nextKind = value as AssetKind;
+                                        const currentCategory = form.getFieldValue("category")?.trim();
+                                        if (!currentCategory || currentCategory === defaultAssetCategory(formKind)) form.setFieldValue("category", defaultAssetCategory(nextKind));
+                                        setFormKind(nextKind);
+                                    }}
+                                />
+                            </Form.Item>
+                            <Form.Item name="category" label="素材分类" extra="选择常用分类，或直接输入自定义名称" rules={[{ required: true, whitespace: true, message: "请选择或输入素材分类" }]}>
+                                <AutoComplete options={availableCategories.map((item) => ({ label: item, value: item }))} placeholder="场景 / 人物 / 男模 / 女模 / 自定义" allowClear />
+                            </Form.Item>
+                        </div>
                         <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入标题" }]}>
                             <Input size="large" placeholder="给素材起一个容易检索的名字" />
                         </Form.Item>
@@ -322,7 +356,7 @@ export default function AssetsPage() {
                             <Form.Item name="content" label="文本内容" rules={[{ required: true, message: "请输入文本内容" }]}>
                                 <Input.TextArea rows={8} placeholder="保存提示词、说明文案、参考描述等文本素材" />
                             </Form.Item>
-                        ) : (
+                        ) : formKind === "image" ? (
                             <Form.Item label="图片内容" required>
                                 <div className="rounded-lg border border-dashed border-stone-300 p-4 dark:border-stone-700">
                                     <Button icon={<Upload className="size-4" />} onClick={() => imageInputRef.current?.click()}>
@@ -339,6 +373,10 @@ export default function AssetsPage() {
                                     )}
                                 </div>
                             </Form.Item>
+                        ) : (
+                            <Form.Item label="视频内容">
+                                <div className="rounded-lg border border-stone-200 bg-stone-50 p-4 text-sm text-stone-500 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400">视频文件保持不变，可修改分类、标题、封面、标签和备注。</div>
+                            </Form.Item>
                         )}
                     </Form>
                     <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 dark:border-stone-800 dark:bg-stone-950">
@@ -354,6 +392,7 @@ export default function AssetsPage() {
                                     {title || "未命名素材"}
                                 </Typography.Text>
                                 <div className="mt-2 flex flex-wrap gap-1.5">
+                                    <Tag className="m-0">{category.trim() || "未分类"}</Tag>
                                     {tags.length ? (
                                         tags.map((tag) => (
                                             <Tag key={tag} className="m-0">
@@ -428,7 +467,10 @@ function AssetCard({ asset, onOpen, onEdit, onCopy, onDownload, onDelete }: { as
                                 {asset.source || "未标注来源"}
                             </Typography.Text>
                         </div>
-                        <Tag className="m-0 shrink-0 text-[11px]">{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : "文本"}</Tag>
+                        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                            <Tag className="m-0 text-[11px]">{assetCategory(asset)}</Tag>
+                            <Tag className="m-0 text-[11px]">{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : "文本"}</Tag>
+                        </div>
                     </div>
                     <Typography.Paragraph type="secondary" ellipsis={{ rows: 3 }} className="!mb-0 !mt-2 !text-xs !leading-5">
                         {summary}
@@ -447,11 +489,9 @@ function AssetCard({ asset, onOpen, onEdit, onCopy, onDownload, onDelete }: { as
                 <Button size="small" onClick={onOpen}>
                     查看
                 </Button>
-                {asset.kind !== "video" ? (
-                    <Button size="small" icon={<PencilLine className="size-3.5" />} onClick={onEdit}>
-                        编辑
-                    </Button>
-                ) : null}
+                <Button size="small" icon={<PencilLine className="size-3.5" />} onClick={onEdit}>
+                    编辑
+                </Button>
                 {asset.kind === "text" ? (
                     <Button size="small" icon={<Copy className="size-3.5" />} onClick={() => void onCopy(asset)}>
                         复制
@@ -486,6 +526,7 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Asset | nu
                             {asset.title}
                         </Typography.Title>
                         <Space size={[4, 4]} wrap>
+                            <Tag>{assetCategory(asset)}</Tag>
                             <Tag>{asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : "文本"}</Tag>
                             {(asset.tags || []).map((tag) => (
                                 <Tag key={tag}>{tag}</Tag>
@@ -536,7 +577,7 @@ function assetSummary(asset: Asset) {
 }
 
 function assetSearchText(asset: Asset) {
-    return [asset.title, asset.source || "", asset.note || "", (asset.tags || []).join(" "), asset.kind === "text" ? asset.data.content : asset.data.mimeType].join(" ").toLowerCase();
+    return [asset.title, assetCategory(asset), asset.source || "", asset.note || "", (asset.tags || []).join(" "), asset.kind === "text" ? asset.data.content : asset.data.mimeType].join(" ").toLowerCase();
 }
 
 function assetImportErrorMessage(error: unknown) {

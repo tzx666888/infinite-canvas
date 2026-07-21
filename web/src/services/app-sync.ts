@@ -2,6 +2,7 @@
 
 import localforage from "localforage";
 
+import { normalizeAssetCategory } from "@/lib/asset-categories";
 import { getMediaBlob, resolveMediaUrl, setMediaBlob } from "@/services/file-storage";
 import { getImageBlob, resolveImageUrl, setImageBlob } from "@/services/image-storage";
 import { downloadWebdavFile, uploadWebdavFile, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
@@ -100,7 +101,7 @@ export async function syncAppDataToWebdav(config: WebdavSyncConfig, onProgress?:
             label: "我的素材",
             emptyData: { assets: [] },
             localData: async () => ({ assets: useAssetStore.getState().assets }),
-            mergeData: (local, remote) => ({ assets: mergeById(local.assets, remote.assets, "updatedAt") }),
+            mergeData: (local, remote) => ({ assets: mergeById(local.assets, remote.assets, "updatedAt").map((asset) => normalizeAssetCategory(asset) as Asset) }),
             applyData: async (data) => useAssetStore.getState().replaceAssets(await Promise.all(data.assets.map(hydrateAsset))),
         }),
         syncDomain<LogDomainData>(config, onProgress, {

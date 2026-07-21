@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Empty, Input, Modal, Pagination, Tag } from "antd";
+import { Empty, Input, Modal, Pagination, Select, Tag } from "antd";
 import { Search } from "lucide-react";
 
+import { ALL_ASSET_CATEGORIES, assetCategory, assetCategoryOptions } from "@/lib/asset-categories";
 import { cn } from "@/lib/utils";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 
-export type InsertAssetPayload = { kind: "text"; content: string; title: string } | { kind: "image"; dataUrl: string; title: string; storageKey?: string } | { kind: "video"; url: string; title: string; storageKey?: string; width?: number; height?: number };
+export type InsertAssetPayload =
+    { kind: "text"; content: string; title: string } | { kind: "image"; dataUrl: string; title: string; storageKey?: string } | { kind: "video"; url: string; title: string; storageKey?: string; width?: number; height?: number };
 
 type Props = {
     open: boolean;
@@ -33,7 +35,7 @@ const kindOptions = [
     { label: "视频", value: "video" },
 ];
 
-function PickerCard({ title, kind, cover, onClick }: { title: string; kind: string; cover: string; onClick: () => void }) {
+function PickerCard({ title, kind, category, cover, onClick }: { title: string; kind: string; category: string; cover: string; onClick: () => void }) {
     return (
         <button
             type="button"
@@ -46,9 +48,10 @@ function PickerCard({ title, kind, cover, onClick }: { title: string; kind: stri
                 <div className="flex aspect-[4/3] items-center justify-center bg-stone-100 p-3 text-center text-xs leading-5 text-stone-500 dark:bg-stone-800 dark:text-stone-400">{title}</div>
             )}
             <div className="p-2.5">
-                <div className="flex items-center justify-between gap-2">
-                    <span className="line-clamp-1 text-xs font-medium text-stone-800 dark:text-stone-200">{title}</span>
-                    <Tag className="m-0 shrink-0 text-[10px]">{kind === "image" ? "图片" : kind === "video" ? "视频" : "文本"}</Tag>
+                <span className="line-clamp-1 text-xs font-medium text-stone-800 dark:text-stone-200">{title}</span>
+                <div className="mt-2 flex flex-wrap gap-1">
+                    <Tag className="m-0 text-[10px]">{category}</Tag>
+                    <Tag className="m-0 text-[10px]">{kind === "image" ? "图片" : kind === "video" ? "视频" : "文本"}</Tag>
                 </div>
             </div>
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-stone-950/0 text-sm font-medium text-white opacity-0 transition group-hover:bg-stone-950/55 group-hover:opacity-100">插入</div>
@@ -60,15 +63,18 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
     const assets = useAssetStore((state) => state.assets);
     const [keyword, setKeyword] = useState("");
     const [kindFilter, setKindFilter] = useState("all");
+    const [categoryFilter, setCategoryFilter] = useState<string | typeof ALL_ASSET_CATEGORIES>(ALL_ASSET_CATEGORIES);
     const [page, setPage] = useState(1);
+    const categories = useMemo(() => assetCategoryOptions(assets), [assets]);
 
     const filtered = useMemo(() => {
         const query = keyword.trim().toLowerCase();
         return assets
             .filter((a) => a.kind === "text" || a.kind === "image" || a.kind === "video")
             .filter((a) => kindFilter === "all" || a.kind === kindFilter)
-            .filter((a) => !query || [a.title, ...(a.tags || [])].join(" ").toLowerCase().includes(query));
-    }, [assets, keyword, kindFilter]);
+            .filter((a) => categoryFilter === ALL_ASSET_CATEGORIES || assetCategory(a) === categoryFilter)
+            .filter((a) => !query || [a.title, assetCategory(a), a.source || "", ...(a.tags || [])].join(" ").toLowerCase().includes(query));
+    }, [assets, keyword, kindFilter, categoryFilter]);
 
     const visible = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page]);
 
@@ -81,7 +87,11 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
         if (asset.kind === "text") {
             onInsert({ kind: "text", content: asset.data.content, title: asset.title });
         } else {
-            onInsert(asset.kind === "video" ? { kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, title: asset.title, width: asset.data.width, height: asset.data.height } : { kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, title: asset.title });
+            onInsert(
+                asset.kind === "video"
+                    ? { kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, title: asset.title, width: asset.data.width, height: asset.data.height }
+                    : { kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, title: asset.title },
+            );
         }
     };
 
@@ -92,7 +102,7 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
                     className="w-56"
                     size="small"
                     prefix={<Search className="size-3.5 text-stone-400" />}
-                    placeholder="搜索素材"
+                    placeholder="搜索标题、分类或标签"
                     value={keyword}
                     allowClear
                     onChange={(e) => {
@@ -115,12 +125,23 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
                         </Tag.CheckableTag>
                     ))}
                 </div>
+                <Select
+                    className="w-36"
+                    size="small"
+                    showSearch
+                    value={categoryFilter}
+                    options={[{ label: "全部分类", value: ALL_ASSET_CATEGORIES }, ...categories.map((category) => ({ label: category, value: category }))]}
+                    onChange={(value) => {
+                        setPage(1);
+                        setCategoryFilter(value);
+                    }}
+                />
             </div>
 
             {visible.length ? (
                 <div className="grid grid-cols-4 gap-3">
                     {visible.map((asset) => (
-                        <PickerCard key={asset.id} title={asset.title} kind={asset.kind} cover={asset.coverUrl || (asset.kind === "image" ? asset.data.dataUrl : "")} onClick={() => handleInsert(asset)} />
+                        <PickerCard key={asset.id} title={asset.title} kind={asset.kind} category={assetCategory(asset)} cover={asset.coverUrl || (asset.kind === "image" ? asset.data.dataUrl : "")} onClick={() => handleInsert(asset)} />
                     ))}
                 </div>
             ) : (

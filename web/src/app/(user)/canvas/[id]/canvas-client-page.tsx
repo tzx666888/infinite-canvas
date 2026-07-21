@@ -1926,7 +1926,7 @@ function InfiniteCanvasPage() {
             if (node.type === CanvasNodeType.Text) {
                 const content = node.metadata?.content?.trim();
                 if (!content) return message.error("没有可保存的文本");
-                addAsset({ kind: "text", title: node.metadata?.prompt?.slice(0, 24) || "画布文本", coverUrl: "", tags: [], source: "Canvas", data: { content }, metadata: { source: "canvas", nodeId: node.id } });
+                addAsset({ kind: "text", category: "提示词", title: node.metadata?.prompt?.slice(0, 24) || "画布文本", coverUrl: "", tags: [], source: "Canvas", data: { content }, metadata: { source: "canvas", nodeId: node.id } });
                 message.success("已加入我的素材");
                 return;
             }
@@ -1934,6 +1934,7 @@ function InfiniteCanvasPage() {
                 if (!node.metadata?.content) return message.error("没有可保存的视频");
                 addAsset({
                     kind: "video",
+                    category: "其他",
                     title: node.metadata?.prompt?.slice(0, 24) || "画布视频",
                     coverUrl: "",
                     tags: [],
@@ -1948,6 +1949,7 @@ function InfiniteCanvasPage() {
             const dataUrl = node.metadata.storageKey ? "" : node.metadata.content;
             addAsset({
                 kind: "image",
+                category: "其他",
                 title: node.metadata?.prompt?.slice(0, 24) || "画布图片",
                 coverUrl: node.metadata.content,
                 tags: [],

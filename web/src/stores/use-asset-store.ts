@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 
 import { nanoid } from "nanoid";
+import { normalizeAssetCategory } from "@/lib/asset-categories";
 import { localForageStorage } from "@/lib/localforage-storage";
 import { cleanupUnusedImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { cleanupUnusedMedia, resolveMediaUrl } from "@/services/file-storage";
@@ -17,6 +18,7 @@ export type Asset = TextAsset | ImageAsset | VideoAsset;
 type AssetBase<T extends AssetKind> = {
     id: string;
     kind: T;
+    category: string;
     title: string;
     coverUrl: string;
     tags: string[];
@@ -45,7 +47,8 @@ const assetStorage: PersistStorage<AssetStore> = {
         if (!value) return null;
         const parsed = JSON.parse(value) as StorageValue<AssetStore>;
         parsed.state.assets = await Promise.all(
-            parsed.state.assets.map(async (asset) => {
+            parsed.state.assets.map(async (storedAsset) => {
+                const asset = normalizeAssetCategory(storedAsset) as Asset;
                 if (asset.kind === "video" && asset.data.storageKey) return { ...asset, data: { ...asset.data, url: await resolveMediaUrl(asset.data.storageKey, asset.data.url) } };
                 if (asset.kind !== "image") return asset;
                 if (asset.data.storageKey)
@@ -73,12 +76,12 @@ export const useAssetStore = create<AssetStore>()(
             addAsset: (asset) => {
                 const now = new Date().toISOString();
                 const id = nanoid();
-                set((state) => ({ assets: [{ ...asset, id, createdAt: now, updatedAt: now } as Asset, ...state.assets] }));
+                set((state) => ({ assets: [{ ...normalizeAssetCategory(asset), id, createdAt: now, updatedAt: now } as Asset, ...state.assets] }));
                 return id;
             },
             updateAsset: (id, patch) =>
                 set((state) => ({
-                    assets: state.assets.map((asset) => (asset.id === id ? ({ ...asset, ...patch, updatedAt: new Date().toISOString() } as Asset) : asset)),
+                    assets: state.assets.map((asset) => (asset.id === id ? (normalizeAssetCategory({ ...asset, ...patch, updatedAt: new Date().toISOString() }) as Asset) : asset)),
                 })),
             removeAsset: (id) =>
                 set((state) => {
@@ -86,7 +89,7 @@ export const useAssetStore = create<AssetStore>()(
                     get().cleanupImages({ assets });
                     return { assets };
                 }),
-            replaceAssets: (assets) => set({ assets }),
+            replaceAssets: (assets) => set({ assets: assets.map((asset) => normalizeAssetCategory(asset) as Asset) }),
             cleanupImages: (extra) => {
                 window.setTimeout(async () => {
                     const { useCanvasStore } = await import("@/app/(user)/canvas/stores/use-canvas-store");

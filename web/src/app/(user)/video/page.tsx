@@ -284,6 +284,7 @@ export default function VideoPage() {
     const saveResultToAssets = (video: GeneratedVideo) => {
         addAsset({
             kind: "video",
+            category: "其他",
             title: "生成视频",
             coverUrl: "",
             tags: [],
