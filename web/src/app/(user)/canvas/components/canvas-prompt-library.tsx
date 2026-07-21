@@ -6,9 +6,12 @@ import { BookOpen } from "lucide-react";
 
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { canvasThemes } from "@/lib/canvas-theme";
+import type { Prompt } from "@/services/api/prompts";
 import { useThemeStore } from "@/stores/use-theme-store";
 
-export function CanvasPromptLibrary({ onSelect }: { onSelect: (prompt: string) => void }) {
+export type CanvasPromptSelection = Pick<Prompt, "id">;
+
+export function CanvasPromptLibrary({ onSelect }: { onSelect: (prompt: string, selection?: CanvasPromptSelection) => void }) {
     const [open, setOpen] = useState(false);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
 
@@ -24,7 +27,7 @@ export function CanvasPromptLibrary({ onSelect }: { onSelect: (prompt: string) =
                     aria-label="提示词库"
                 />
             </Tooltip>
-            <PromptSelectDialog open={open} onOpenChange={setOpen} onSelect={onSelect} />
+            <PromptSelectDialog open={open} onOpenChange={setOpen} onSelect={(prompt, item) => onSelect(prompt, { id: item.id })} />
         </>
     );
 }

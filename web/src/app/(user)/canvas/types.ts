@@ -21,6 +21,7 @@ export enum CanvasNodeType {
 export type CanvasNodeStatus = "idle" | "success" | "loading" | "error";
 export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasImageGenerationType = "generation" | "edit";
+export type CanvasPromptSourceKind = "user_typed" | "builtin_template" | "agent_generated" | "prompt_library";
 
 export type CanvasProductBreakdownPlan = {
     productName?: string;
@@ -150,6 +151,17 @@ export type CanvasNodeMetadata = {
     content?: string;
     composerContent?: string;
     prompt?: string;
+    promptSourceKind?: CanvasPromptSourceKind;
+    promptTemplateId?: string;
+    telemetryGeneratedAt?: number;
+    telemetryAttemptIndex?: number;
+    telemetryAttemptMode?: CanvasGenerationMode;
+    telemetryLastPrompt?: string;
+    telemetryLastSourceKind?: CanvasPromptSourceKind;
+    telemetryLastTemplateId?: string;
+    telemetryDraftPrompt?: string;
+    telemetryDraftSourceKind?: CanvasPromptSourceKind;
+    telemetryDraftTemplateId?: string;
     status?: CanvasNodeStatus;
     statusMessage?: string;
     errorDetails?: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUp, LoaderCircle, Sparkles, Square } from "lucide-react";
 import { App, Button, Dropdown } from "antd";
 
@@ -32,10 +32,13 @@ import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
 import { selectReferenceImageVideoModel } from "../utils/video-reference-model";
-import { CanvasNodeType, type CanvasGenerationMode, type CanvasCommerceVideoPlan, type CanvasNodeData } from "../types";
+import { CanvasNodeType, type CanvasGenerationMode, type CanvasCommerceVideoPlan, type CanvasNodeData, type CanvasPromptSourceKind } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
+
+type PromptEditedFrom = { beforeText: string; previousSourceKind: CanvasPromptSourceKind };
+type PromptProvenance = { sourceKind: CanvasPromptSourceKind; templateId?: string; editedFrom?: PromptEditedFrom };
 
 const POLISH_MENU_ITEMS = [
     { key: "optimize", label: "✨ 优化提示词" },
@@ -48,9 +51,9 @@ const POLISH_MENU_ITEMS = [
 type CanvasNodePromptPanelProps = {
     node: CanvasNodeData;
     isRunning: boolean;
-    onPromptChange: (nodeId: string, prompt: string) => void;
+    onPromptChange: (nodeId: string, prompt: string, sourceKind?: CanvasPromptSourceKind, templateId?: string) => void;
     onConfigChange: (nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => void;
-    onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => void;
+    onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, provenance?: PromptProvenance) => void;
     onGenerateProductBreakdown: (nodeId: string, plan: ProductBreakdownPlan) => Promise<void>;
     onGenerateSceneExpansion: (nodeId: string, plan: SceneExpansionPlan) => Promise<void>;
     onGenerateVideoStoryboard: (nodeId: string, plan: CanvasCommerceVideoPlan) => Promise<void>;
@@ -70,6 +73,11 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
     const [prompt, setPrompt] = useState(isEditingExistingContent ? "" : node.metadata?.prompt || "");
+    const [promptSource, setPromptSource] = useState<{ sourceKind: CanvasPromptSourceKind; templateId?: string }>({
+        sourceKind: node.metadata?.promptSourceKind || "user_typed",
+        templateId: node.metadata?.promptTemplateId,
+    });
+    const promptDraftRef = useRef<PromptEditedFrom | null>(promptDraftFromNode(node));
     const [polishing, setPolishing] = useState(false);
 
     const [productBreakdownPlan, setProductBreakdownPlan] = useState<ProductBreakdownPlan | null>(null);
@@ -86,11 +94,19 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         setProductBreakdownPlan(null);
         setSceneExpansionPlan(null);
         setCommerceVideoPlan(savedCommerceVideoPlan);
-    }, [isEditingExistingContent, node.id, savedCommerceVideoPlan]);
+        setPromptSource({ sourceKind: node.metadata?.promptSourceKind || "user_typed", templateId: node.metadata?.promptTemplateId });
+        promptDraftRef.current = promptDraftFromNode(node);
+    }, [isEditingExistingContent, node.id, node.metadata?.telemetryDraftPrompt, node.metadata?.telemetryDraftSourceKind, node.metadata?.telemetryLastPrompt, node.metadata?.telemetryLastSourceKind, savedCommerceVideoPlan]);
 
-    const updatePrompt = (value: string) => {
+    const updatePrompt = (value: string, sourceKind: CanvasPromptSourceKind = "user_typed", templateId?: string) => {
+        if (sourceKind !== "user_typed" && value.trim()) {
+            promptDraftRef.current = { beforeText: value.trim(), previousSourceKind: sourceKind };
+        } else if (sourceKind === "user_typed" && !promptDraftRef.current && promptSource.sourceKind !== "user_typed" && prompt.trim()) {
+            promptDraftRef.current = { beforeText: prompt.trim(), previousSourceKind: promptSource.sourceKind };
+        }
         setPrompt(value);
-        if (!isEditingExistingContent) onPromptChange(node.id, value);
+        setPromptSource({ sourceKind, templateId });
+        if (!isEditingExistingContent) onPromptChange(node.id, value, sourceKind, templateId);
     };
 
     const submit = () => {
@@ -128,7 +144,8 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             });
             return;
         }
-        onGenerate(node.id, mode, text);
+        const editedFrom = promptSource.sourceKind === "user_typed" && promptDraftRef.current?.beforeText !== text ? promptDraftRef.current || undefined : undefined;
+        onGenerate(node.id, mode, text, { ...promptSource, editedFrom });
         setPrompt("");
     };
 
@@ -148,7 +165,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 setSceneExpansionPlan(null);
                 const plan = await analyzeProductBreakdown(config, text, defaultConfig.textModel || "tokaxis::gpt-5.6-sol", referenceImages);
                 setProductBreakdownPlan(null);
-                updatePrompt(buildProductCollagePrompt(plan));
+                updatePrompt(buildProductCollagePrompt(plan), "builtin_template", template);
                 message.success("产品拆解组合图 prompt 已回填，选择尺寸和数量后点击生成");
                 return;
             }
@@ -157,7 +174,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 setProductBreakdownPlan(null);
                 const plan = await analyzeSceneExpansion(config, text, 10, defaultConfig.textModel || "tokaxis::gpt-5.6-sol", referenceImages);
                 setSceneExpansionPlan(null);
-                updatePrompt(buildSceneCollagePrompt(plan));
+                updatePrompt(buildSceneCollagePrompt(plan), "builtin_template", template);
                 message.success("场景扩展组合图 prompt 已回填，选择尺寸和数量后点击生成");
                 return;
             }
@@ -181,7 +198,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         selectedHookType: plan.selectedHookType,
                     } as Partial<CanvasNodeData["metadata"]>);
                 }
-                updatePrompt(result);
+                updatePrompt(result, "builtin_template", template);
                 message.success(plan ? "视频分镜规划已解析，点击生成按钮创建12宫格候选" : "已回填润色结果（JSON 解析失败，可手动修改后重试）");
                 return;
             }
@@ -190,7 +207,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             const promptModel = mode === "video" && template === "videoprompt" ? selectReferenceImageVideoModel(config, referenceImages.length) : config.model;
             if (mode === "video" && template === "videoprompt" && promptModel && promptModel !== config.model) onConfigChange(node.id, { model: promptModel });
             const finalPrompt = mode === "video" && template === "videoprompt" ? selectVideoPromptForModel(result) : result;
-            updatePrompt(finalPrompt);
+            updatePrompt(finalPrompt, "builtin_template", template);
             message.success(mode === "video" && template === "videoprompt" ? (promptModel !== config.model ? "已切换到参考图视频模型并回填提示词" : "已回填当前模型的视频提示词") : "已回填润色结果");
         } catch (error) {
             message.error(`润色失败：${error instanceof Error ? error.message : "未知错误"}`);
@@ -210,7 +227,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             <CanvasResourceMentionTextarea
                 value={prompt}
                 references={mentionReferences}
-                onChange={updatePrompt}
+                onChange={(value) => updatePrompt(value)}
                 onSubmit={submit}
                 className="thin-scrollbar h-[var(--canvas-prompt-textarea-height,6rem)] min-h-[72px] w-full resize-none rounded-xl border px-3 py-2 text-sm leading-5 outline-none transition focus:border-sky-300 focus:shadow-[0_0_0_2px_rgba(56,189,248,.35)] selection:bg-sky-400/35"
                 style={{ background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text, caretColor: "#38bdf8" }}
@@ -219,7 +236,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
             <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <CanvasPromptLibrary onSelect={updatePrompt} />
+                    <CanvasPromptLibrary onSelect={(value, selection) => updatePrompt(value, "prompt_library", selection?.id)} />
                     {canPolish ? (
                         <>
                             <Dropdown
@@ -298,6 +315,12 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             </div>
         </div>
     );
+}
+
+function promptDraftFromNode(node: CanvasNodeData): PromptEditedFrom | null {
+    const beforeText = node.metadata?.telemetryDraftPrompt?.trim();
+    if (!beforeText) return null;
+    return { beforeText, previousSourceKind: node.metadata?.telemetryDraftSourceKind || node.metadata?.promptSourceKind || "user_typed" };
 }
 
 function getPolishImageReferences(node: CanvasNodeData, references: CanvasResourceReference[]) {

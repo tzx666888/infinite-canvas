@@ -11,6 +11,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { nanoid } from "nanoid";
 import { requestToolResponse, type ResponseFunctionTool, type ResponseInputMessage, type ResponseToolCall } from "@/services/api/image";
 import { imageToDataUrl } from "@/services/image-storage";
+import { track } from "@/services/telemetry";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -23,7 +24,7 @@ import { CanvasLocalAgentPanel } from "./canvas-local-agent-panel";
 import { NODE_DEFAULT_SIZE } from "../constants";
 import { CanvasNodeType, type CanvasAssistantMessage, type CanvasAssistantReference, type CanvasAssistantSession, type CanvasNodeData } from "../types";
 import { useCanvasAgentStore } from "../stores/use-canvas-agent-store";
-import { summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
+import { applyCanvasAgentOps, summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
 
 export const CANVAS_AGENT_PANEL_MOTION_MS = 500;
 const PANEL_MOTION_SECONDS = CANVAS_AGENT_PANEL_MOTION_MS / 1000;
@@ -233,7 +234,18 @@ type OnlineAgentLogContext = { model: string; running: boolean; confirmTools: bo
 type OnlineLoopContext = { step: number };
 type OnlineToolResult = { ok: true; message: string; data?: unknown } | { ok: false; message: string };
 type OnlineExecutedToolCall = { toolCallId: string; name: string; result: OnlineToolResult };
-type PendingOnlineToolContext = { messages: ResponseInputMessage[]; toolCalls: ResponseToolCall[]; assistantId: string; step: number };
+type PendingOnlineToolContext = { messages: ResponseInputMessage[]; toolCalls: ResponseToolCall[]; assistantId: string; sessionId: string; step: number };
+type AgentTurnTelemetryContext = {
+    startedAt: number;
+    canvasId: string;
+    sessionId: string;
+    userMessageText: string;
+    assistantText: string;
+    turnIndex: number;
+    model: string;
+    toolCalls: Array<{ name: string; ok: boolean; errorKind: string }>;
+    opsCount: number;
+};
 
 type CanvasAssistantPanelProps = {
     nodes: CanvasNodeData[];
@@ -291,6 +303,7 @@ export function CanvasAssistantPanel({
     const [localActiveSessionId, setLocalActiveSessionId] = useState<string | null>(activeSessionId);
     const snapshotRef = useRef(snapshot);
     const pendingToolContextRef = useRef(new Map<string, PendingOnlineToolContext>());
+    const turnTelemetryRef = useRef(new Map<string, AgentTurnTelemetryContext>());
 
     useEffect(() => {
         if (!sessions.length) return;
@@ -335,6 +348,74 @@ export function CanvasAssistantPanel({
     };
     const addOnlineLog = (title: string, data?: unknown) => setOnlineLogs((prev) => [{ id: nanoid(), time: new Date().toLocaleTimeString(), title, data }, ...prev].slice(0, 80));
 
+    const rememberAssistantText = (assistantId: string, text: string) => {
+        const context = turnTelemetryRef.current.get(assistantId);
+        if (context && text) context.assistantText = text;
+    };
+
+    const recordToolResults = (assistantId: string, results: OnlineExecutedToolCall[]) => {
+        const context = turnTelemetryRef.current.get(assistantId);
+        if (!context) return;
+        results.forEach((item) => {
+            context.toolCalls.push({ name: item.name, ok: item.result.ok, errorKind: item.result.ok ? "" : telemetryErrorKind(item.result.message) });
+            if (!item.result.ok) return;
+            const data = objectDetail(item.result.data);
+            const appliedOpsCount = data.appliedOpsCount;
+            if (typeof appliedOpsCount === "number" && Number.isInteger(appliedOpsCount) && appliedOpsCount > 0) context.opsCount += appliedOpsCount;
+        });
+    };
+
+    const recordUnexecutedToolCalls = (assistantId: string, toolCalls: ResponseToolCall[], errorKind: "exec_failed" | "user_rejected") => {
+        const context = turnTelemetryRef.current.get(assistantId);
+        if (!context) return;
+        if (!toolCalls.length) {
+            context.toolCalls.push({ name: "unknown", ok: false, errorKind });
+            return;
+        }
+        toolCalls.forEach((toolCall) => context.toolCalls.push({ name: toolCall.function.name, ok: false, errorKind }));
+    };
+
+    const finishAgentTurn = (assistantId: string, assistantText?: string) => {
+        const context = turnTelemetryRef.current.get(assistantId);
+        if (!context) return;
+        if (assistantText) context.assistantText = assistantText;
+        turnTelemetryRef.current.delete(assistantId);
+        track("agent_turn", {
+            canvasId: context.canvasId,
+            userMessageLength: context.userMessageText.length,
+            userMessageText: context.userMessageText,
+            assistantTextLength: context.assistantText.length,
+            toolCalls: context.toolCalls,
+            opsCount: context.opsCount,
+            turnIndex: context.turnIndex,
+            durationMs: Date.now() - context.startedAt,
+            model: context.model,
+        });
+    };
+
+    const finishSessionTurns = (sessionIds: string[]) => {
+        const ids = new Set(sessionIds);
+        if (!ids.size) return;
+        pendingToolContextRef.current.forEach((pending, messageId) => {
+            if (!ids.has(pending.sessionId)) return;
+            const context = turnTelemetryRef.current.get(pending.assistantId);
+            if (context) recordUnexecutedToolCalls(pending.assistantId, pending.toolCalls, "exec_failed");
+            pendingToolContextRef.current.delete(messageId);
+        });
+        Array.from(turnTelemetryRef.current.entries()).forEach(([assistantId, context]) => {
+            if (ids.has(context.sessionId)) finishAgentTurn(assistantId);
+        });
+    };
+
+    useEffect(
+        () => () => {
+            pendingToolContextRef.current.forEach((pending) => recordUnexecutedToolCalls(pending.assistantId, pending.toolCalls, "exec_failed"));
+            pendingToolContextRef.current.clear();
+            Array.from(turnTelemetryRef.current.keys()).forEach((assistantId) => finishAgentTurn(assistantId));
+        },
+        [],
+    );
+
     const upsertMessage = (sessionId: string, message: CanvasAssistantMessage) => {
         updateSession(sessionId, (session) => {
             const exists = session.messages.some((item) => item.id === message.id);
@@ -358,6 +439,7 @@ export function CanvasAssistantPanel({
     };
 
     const removeSessions = (ids: string[]) => {
+        finishSessionTurns(ids);
         const next = safeSessions.filter((session) => !ids.includes(session.id));
         if (!next.length) {
             const session = createSession();
@@ -371,6 +453,7 @@ export function CanvasAssistantPanel({
     };
 
     const clearSessions = () => {
+        finishSessionTurns(safeSessions.map((session) => session.id));
         const session = createSession();
         setLocalSessions([session]);
         setLocalActiveSessionId(session.id);
@@ -393,6 +476,17 @@ export function CanvasAssistantPanel({
         const refs = savedReferences || selectedReferences;
         const userMessage: CanvasAssistantMessage = { id: nanoid(), role: "user", text, references: refs };
         const assistantId = nanoid();
+        turnTelemetryRef.current.set(assistantId, {
+            startedAt: Date.now(),
+            canvasId: snapshotRef.current.projectId,
+            sessionId: session.id,
+            userMessageText: text,
+            assistantText: "",
+            turnIndex: history.filter((message) => message.role === "user").length + 1,
+            model: requestConfig.model,
+            toolCalls: [],
+            opsCount: 0,
+        });
         appendMessage(session.id, userMessage);
         addOnlineLog("发送请求", { text, selectedNodeIds: snapshotRef.current.selectedNodeIds, nodeCount: snapshotRef.current.nodes.length, connectionCount: snapshotRef.current.connections.length });
         setPrompt("");
@@ -409,15 +503,19 @@ export function CanvasAssistantPanel({
             let streamed = "";
             const result = await requestToolResponse({ ...requestConfig, systemPrompt: "" }, messages, ONLINE_AGENT_TOOLS, "required", (text) => {
                 streamed = text;
+                rememberAssistantText(assistantId, text);
                 if (text.trim()) upsertMessage(sessionId, { id: assistantId, role: "assistant", text });
             });
+            if (!turnTelemetryRef.current.has(assistantId)) return;
+            rememberAssistantText(assistantId, result.content || streamed);
             addOnlineLog("模型工具回复", result);
             if (result.toolCalls.length) {
                 const writableCalls = result.toolCalls.filter(isWritableToolCall);
                 if (confirmTools && writableCalls.length) {
                     upsertMessage(sessionId, { id: assistantId, role: "assistant", text: result.content || streamed || "准备执行工具，等待确认。" });
+                    rememberAssistantText(assistantId, result.content || streamed || "准备执行工具，等待确认。");
                     const toolMessageId = nanoid();
-                    pendingToolContextRef.current.set(toolMessageId, { messages, toolCalls: result.toolCalls, assistantId, step: loop.step });
+                    pendingToolContextRef.current.set(toolMessageId, { messages, toolCalls: result.toolCalls, assistantId, sessionId, step: loop.step });
                     const toolMessage: CanvasAssistantMessage = { id: toolMessageId, role: "tool", title: "确认工具调用", text: summarizeToolCalls(result.toolCalls), detail: { status: "pending", step: loop.step, toolCalls: result.toolCalls } };
                     appendMessage(sessionId, toolMessage);
                     addOnlineLog("等待用户确认", result.toolCalls);
@@ -427,18 +525,20 @@ export function CanvasAssistantPanel({
             } else {
                 if (!result.content.trim()) throw new Error("模型没有返回工具调用，画布操作未执行。");
                 upsertMessage(sessionId, { id: assistantId, role: "assistant", text: result.content || streamed || "没有返回内容。" });
+                finishAgentTurn(assistantId, result.content || streamed || "没有返回内容。");
                 addOnlineLog(`Agent Tool Loop ${loop.step} 结束`, { reply: result.content });
             }
         } catch (error) {
             addOnlineLog("请求失败", error instanceof Error ? error.message : error);
             appendMessage(sessionId, { id: nanoid(), role: "error", title: "操作失败", text: error instanceof Error ? error.message : "操作失败" });
+            finishAgentTurn(assistantId);
         } finally {
             setIsRunning(false);
         }
     };
 
     const continueOnlineToolLoop = async (sessionId: string, assistantId: string, messages: ResponseInputMessage[], result: { content: string; toolCalls: ResponseToolCall[] }, step: number) => {
-        const toolResults = executeOnlineToolCalls(result.toolCalls);
+        const toolResults = executeOnlineToolCalls(result.toolCalls, assistantId);
         addOnlineLog("工具执行结果", toolResults);
         appendMessage(sessionId, {
             id: nanoid(),
@@ -453,7 +553,9 @@ export function CanvasAssistantPanel({
     const continueOnlineToolLoopAfterResults = async (sessionId: string, assistantId: string, messages: ResponseInputMessage[], toolCalls: ResponseToolCall[], toolResults: OnlineExecutedToolCall[], step: number) => {
         const nextMessages: ResponseInputMessage[] = [...messages, ...toolCalls.map(toolCallToResponseInput), ...toolResults.map((item) => ({ role: "tool" as const, tool_call_id: item.toolCallId, content: JSON.stringify(item.result) }))];
         if (step >= ONLINE_AGENT_MAX_STEPS) {
-            upsertMessage(sessionId, { id: assistantId, role: "assistant", text: toolResults.map((item) => toolResultText(item.result)).join("\n") || "工具已执行。" });
+            const finalText = toolResults.map((item) => toolResultText(item.result)).join("\n") || "工具已执行。";
+            upsertMessage(sessionId, { id: assistantId, role: "assistant", text: finalText });
+            finishAgentTurn(assistantId, finalText);
             addOnlineLog("Agent Tool Loop 达到步数上限", { maxSteps: ONLINE_AGENT_MAX_STEPS });
             return;
         }
@@ -461,15 +563,19 @@ export function CanvasAssistantPanel({
         let streamed = "";
         const next = await requestToolResponse({ ...requestConfig, systemPrompt: "" }, nextMessages, ONLINE_AGENT_TOOLS, "auto", (text) => {
             streamed = text;
+            rememberAssistantText(assistantId, text);
             if (text.trim()) upsertMessage(sessionId, { id: assistantId, role: "assistant", text });
         });
+        if (!turnTelemetryRef.current.has(assistantId)) return;
+        rememberAssistantText(assistantId, next.content || streamed);
         addOnlineLog(`Agent Tool Loop ${step + 1} 回复`, next);
         if (next.toolCalls.length) {
             const writableCalls = next.toolCalls.filter(isWritableToolCall);
             if (confirmTools && writableCalls.length) {
                 upsertMessage(sessionId, { id: assistantId, role: "assistant", text: next.content || streamed || "准备执行工具，等待确认。" });
+                rememberAssistantText(assistantId, next.content || streamed || "准备执行工具，等待确认。");
                 const toolMessageId = nanoid();
-                pendingToolContextRef.current.set(toolMessageId, { messages: nextMessages, toolCalls: next.toolCalls, assistantId, step: step + 1 });
+                pendingToolContextRef.current.set(toolMessageId, { messages: nextMessages, toolCalls: next.toolCalls, assistantId, sessionId, step: step + 1 });
                 appendMessage(sessionId, { id: toolMessageId, role: "tool", title: "确认工具调用", text: summarizeToolCalls(next.toolCalls), detail: { status: "pending", step: step + 1, toolCalls: next.toolCalls } });
                 addOnlineLog("等待用户确认", next.toolCalls);
                 return;
@@ -477,18 +583,27 @@ export function CanvasAssistantPanel({
             await continueOnlineToolLoop(sessionId, assistantId, nextMessages, next, step + 1);
             return;
         }
-        upsertMessage(sessionId, { id: assistantId, role: "assistant", text: next.content || streamed || toolResults.map((item) => toolResultText(item.result)).join("\n") || "工具已执行。" });
+        const finalText = next.content || streamed || toolResults.map((item) => toolResultText(item.result)).join("\n") || "工具已执行。";
+        upsertMessage(sessionId, { id: assistantId, role: "assistant", text: finalText });
+        finishAgentTurn(assistantId, finalText);
     };
 
     const executeOps = (ops: CanvasAgentOp[]) => {
         const beforeSnapshot = snapshotRef.current;
         const before = snapshotSignature(beforeSnapshot);
-        const next = onApplyOps(ops);
+        const analysis = analyzeAppliedCanvasOps(beforeSnapshot, ops);
+        const executableOps = ops.filter((op, index) => op.type !== "run_generation" || analysis.validGenerationIndexes.has(index));
+        const next = onApplyOps(executableOps);
         snapshotRef.current = next;
-        const ranGeneration = ops.some((op) => op.type === "run_generation" && Boolean(op.nodeId));
-        const changed = before !== snapshotSignature(next) || ranGeneration;
+        const triggeredGenerationCount = Array.from(analysis.validGenerationIndexes).filter((index) => {
+            const op = ops[index];
+            return op?.type === "run_generation" && next.nodes.some((node) => node.id === op.nodeId);
+        }).length;
+        const appliedOpsCount = analysis.appliedStateOpsCount + triggeredGenerationCount;
+        const ranGeneration = triggeredGenerationCount > 0;
+        const changed = appliedOpsCount > 0;
         const noopReason = changed ? "" : explainNoop(ops, beforeSnapshot);
-        return { changed, ops, ranGeneration, noopReason, before: JSON.parse(before), after: JSON.parse(snapshotSignature(next)) };
+        return { changed, ops: executableOps, appliedOpsCount, ranGeneration, noopReason, before: JSON.parse(before), after: JSON.parse(snapshotSignature(next)) };
     };
 
     const executeOnlineTool = (name: string, args: Record<string, unknown>): OnlineToolResult => {
@@ -500,7 +615,7 @@ export function CanvasAssistantPanel({
                 const ids = new Set(current.selectedNodeIds || []);
                 return { ok: true, message: `当前选中 ${ids.size} 个节点。`, data: { nodes: compactSnapshot({ ...current, nodes: current.nodes.filter((node) => ids.has(node.id)) }).nodes } };
             }
-            const ops = onlineToolToOps(name, args, current, effectiveConfig);
+            const ops = markAgentPromptOps(onlineToolToOps(name, args, current, effectiveConfig));
             const result = executeOps(ops);
             return { ok: result.changed, message: result.changed ? summarizeCanvasAgentOps(ops) || "画布操作已执行。" : result.noopReason, data: result };
         } catch (error) {
@@ -517,7 +632,7 @@ export function CanvasAssistantPanel({
         }
     };
 
-    const executeOnlineToolCalls = (toolCalls: ResponseToolCall[]) => {
+    const executeOnlineToolCalls = (toolCalls: ResponseToolCall[], assistantId: string) => {
         const results: OnlineExecutedToolCall[] = [];
         let stopped = false;
         toolCalls.forEach((toolCall) => {
@@ -529,6 +644,7 @@ export function CanvasAssistantPanel({
             results.push(result);
             if (!result.result.ok) stopped = true;
         });
+        recordToolResults(assistantId, results);
         return results;
     };
 
@@ -541,21 +657,32 @@ export function CanvasAssistantPanel({
         const session = safeSessions.find((session) => session.messages.some((item) => item.id === messageId));
         addOnlineLog("批准工具", { messageId, toolCalls });
         const assistantId = pendingContext?.assistantId || "";
-        if (!session) return;
+        pendingToolContextRef.current.delete(messageId);
+        if (!session) {
+            if (assistantId) {
+                recordUnexecutedToolCalls(assistantId, toolCalls, "exec_failed");
+                finishAgentTurn(assistantId);
+            }
+            return;
+        }
         if (!toolCalls.length || !previousMessages.length || !assistantId) {
             upsertMessage(session.id, { id: messageId, role: "tool", title: "工具执行失败", text: "工具上下文不完整，无法执行。", detail: { ...detail, status: "failed" } });
+            if (assistantId) {
+                recordUnexecutedToolCalls(assistantId, toolCalls, "exec_failed");
+                finishAgentTurn(assistantId);
+            }
             return;
         }
         try {
             setIsRunning(true);
-            const results = executeOnlineToolCalls(toolCalls);
+            const results = executeOnlineToolCalls(toolCalls, assistantId);
             addOnlineLog("工具执行结果", results);
             upsertMessage(session.id, { id: messageId, role: "tool", title: "工具执行完成", text: results.map((item) => toolResultText(item.result)).join("\n"), detail: { ...detail, results, status: "completed" } });
-            pendingToolContextRef.current.delete(messageId);
             await continueOnlineToolLoopAfterResults(session.id, assistantId, previousMessages, toolCalls, results, pendingContext?.step || Number(detail.step) || 1);
         } catch (error) {
             addOnlineLog("工具续跑失败", error instanceof Error ? error.message : error);
             appendMessage(session.id, { id: nanoid(), role: "error", title: "操作失败", text: error instanceof Error ? error.message : "操作失败" });
+            finishAgentTurn(assistantId);
         } finally {
             setIsRunning(false);
         }
@@ -563,9 +690,17 @@ export function CanvasAssistantPanel({
 
     const rejectOnlineTool = (messageId: string) => {
         const session = safeSessions.find((session) => session.messages.some((item) => item.id === messageId));
+        const pendingContext = pendingToolContextRef.current.get(messageId);
+        const detail = objectDetail(session?.messages.find((item) => item.id === messageId)?.detail);
+        const assistantId = pendingContext?.assistantId || "";
+        const toolCalls = pendingContext?.toolCalls || toolCallsFromDetail(detail);
         addOnlineLog("拒绝工具", { messageId });
         pendingToolContextRef.current.delete(messageId);
-        if (session) upsertMessage(session.id, { id: messageId, role: "tool", title: "已拒绝执行", text: "工具调用已取消", detail: { ...objectDetail(session.messages.find((item) => item.id === messageId)?.detail), status: "rejected" } });
+        if (assistantId) {
+            recordUnexecutedToolCalls(assistantId, toolCalls, "user_rejected");
+            finishAgentTurn(assistantId);
+        }
+        if (session) upsertMessage(session.id, { id: messageId, role: "tool", title: "已拒绝执行", text: "工具调用已取消", detail: { ...detail, status: "rejected" } });
     };
 
     const submit = async () => {
@@ -1263,6 +1398,60 @@ function toolResultText(result: OnlineToolResult) {
     return result.message;
 }
 
+function markAgentPromptOps(ops: CanvasAgentOp[]) {
+    return ops.map((op): CanvasAgentOp => {
+        if (op.type === "run_generation") return op.prompt?.trim() ? { ...op, promptSourceKind: "agent_generated" } : op;
+        if (op.type === "add_node") {
+            const draftPrompt = agentPromptDraft(op.metadata);
+            if (draftPrompt) {
+                return {
+                    ...op,
+                    metadata: {
+                        ...op.metadata,
+                        promptSourceKind: "agent_generated",
+                        promptTemplateId: undefined,
+                        telemetryDraftPrompt: draftPrompt,
+                        telemetryDraftSourceKind: "agent_generated",
+                        telemetryDraftTemplateId: undefined,
+                    },
+                };
+            }
+        }
+        if (op.type === "update_node") {
+            const patchMetadata = op.patch?.metadata;
+            const draftPrompt = agentPromptDraft(op.metadata) || agentPromptDraft(patchMetadata);
+            if (draftPrompt) {
+                return {
+                    ...op,
+                    metadata: {
+                        ...op.metadata,
+                        promptSourceKind: "agent_generated",
+                        promptTemplateId: undefined,
+                        telemetryDraftPrompt: draftPrompt,
+                        telemetryDraftSourceKind: "agent_generated",
+                        telemetryDraftTemplateId: undefined,
+                    },
+                };
+            }
+        }
+        return op;
+    });
+}
+
+function agentPromptDraft(metadata?: CanvasNodeData["metadata"]) {
+    return [metadata?.composerContent, metadata?.prompt, metadata?.content].find((value) => value?.trim())?.trim() || "";
+}
+
+function telemetryErrorKind(value: unknown) {
+    const message = String(value || "").toLowerCase();
+    if (message === "user_rejected") return "user_rejected";
+    if (/missing[_\s-]*node[_\s-]*id|缺少.*(?:节点|id)|没有找到.*节点/.test(message)) return "missing_node_id";
+    if (/前一个工具调用失败|未继续执行/.test(message)) return "skipped_after_failure";
+    if (/json|参数|必须|不支持的工具|操作类型/.test(message)) return "invalid_args";
+    if (/没有变化|无需重复|已经是目标状态/.test(message)) return "noop";
+    return "exec_failed";
+}
+
 function requireStringArray(value: unknown, field: string): string[] {
     if (!Array.isArray(value)) throw new Error(`${field} 必须是字符串数组`);
     if (!value.every((item) => typeof item === "string" && Boolean(item))) throw new Error(`${field} 必须只包含非空字符串`);
@@ -1381,6 +1570,22 @@ function cleanRecord(value: Record<string, unknown>) {
 
 function snapshotSignature(snapshot: CanvasAgentSnapshot) {
     return JSON.stringify({ nodes: snapshot.nodes, connections: snapshot.connections, selectedNodeIds: snapshot.selectedNodeIds, viewport: snapshot.viewport });
+}
+
+function analyzeAppliedCanvasOps(snapshot: CanvasAgentSnapshot, ops: CanvasAgentOp[]) {
+    let current = snapshot;
+    let appliedStateOpsCount = 0;
+    const validGenerationIndexes = new Set<number>();
+    ops.forEach((op, index) => {
+        if (op.type === "run_generation") {
+            if (op.nodeId && current.nodes.some((node) => node.id === op.nodeId)) validGenerationIndexes.add(index);
+            return;
+        }
+        const next = applyCanvasAgentOps(current, [op]);
+        if (snapshotSignature(current) !== snapshotSignature(next)) appliedStateOpsCount += 1;
+        current = next;
+    });
+    return { appliedStateOpsCount, validGenerationIndexes };
 }
 
 function explainNoop(ops: CanvasAgentOp[], snapshot: CanvasAgentSnapshot) {

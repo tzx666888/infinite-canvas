@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 
 import { getNodeSpec } from "../constants";
-import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata, type ViewportTransform } from "../types";
+import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata, type CanvasPromptSourceKind, type ViewportTransform } from "../types";
 
 export type CanvasAgentOp =
     | { type: "add_node"; id?: string; nodeType?: CanvasNodeType; title?: string; position?: { x: number; y: number }; x?: number; y?: number; width?: number; height?: number; metadata?: CanvasNodeMetadata }
@@ -11,7 +11,7 @@ export type CanvasAgentOp =
     | { type: "connect_nodes"; id?: string; fromNodeId: string; toNodeId: string }
     | { type: "set_viewport"; viewport: ViewportTransform }
     | { type: "select_nodes"; ids: string[] }
-    | { type: "run_generation"; nodeId: string; mode?: "text" | "image" | "video" | "audio"; prompt?: string };
+    | { type: "run_generation"; nodeId: string; mode?: "text" | "image" | "video" | "audio"; prompt?: string; promptSourceKind?: CanvasPromptSourceKind; promptTemplateId?: string };
 
 export type CanvasAgentSnapshot = {
     projectId: string;

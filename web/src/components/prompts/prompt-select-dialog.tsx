@@ -4,12 +4,12 @@ import { Check, Search } from "lucide-react";
 import { type UIEvent, useEffect, useState } from "react";
 import { App, Empty, Input, Modal, Spin, Tag } from "antd";
 
-import { ALL_PROMPTS_OPTION } from "@/services/api/prompts";
+import { ALL_PROMPTS_OPTION, type Prompt } from "@/services/api/prompts";
 import { cn } from "@/lib/utils";
 import { PromptCard } from "./prompt-card";
 import { usePromptList } from "./use-prompt-list";
 
-export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boolean; onOpenChange: (open: boolean) => void; onSelect: (prompt: string) => void }) {
+export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boolean; onOpenChange: (open: boolean) => void; onSelect: (prompt: string, item: Prompt) => void }) {
     const { message } = App.useApp();
     const [keyword, setKeyword] = useState("");
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -19,8 +19,8 @@ export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boo
         if (tag === ALL_PROMPTS_OPTION) return setSelectedTags([]);
         setSelectedTags((items) => (items.includes(tag) ? items.filter((item) => item !== tag) : [...items, tag]));
     };
-    const selectPrompt = (prompt: string) => {
-        onSelect(prompt);
+    const selectPrompt = (item: Prompt) => {
+        onSelect(item.prompt, item);
         onOpenChange(false);
     };
 
@@ -72,7 +72,7 @@ export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boo
                     ) : null}
                     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
                         {items.map((item) => (
-                            <PromptCard key={item.id} item={item} onOpen={() => selectPrompt(item.prompt)} onCopy={() => selectPrompt(item.prompt)} actionLabel="使用此提示词" actionIcon={<Check className="size-3.5" />} actionType="primary" />
+                            <PromptCard key={item.id} item={item} onOpen={() => selectPrompt(item)} onCopy={() => selectPrompt(item)} actionLabel="使用此提示词" actionIcon={<Check className="size-3.5" />} actionType="primary" />
                         ))}
                     </div>
                     {!query.isLoading && items.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有找到匹配的提示词" className="py-8" /> : null}

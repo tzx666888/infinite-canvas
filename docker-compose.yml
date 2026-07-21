@@ -9,6 +9,8 @@ services:
       PORT: "3100"
       TOKAXIS_INTERNAL_ORIGIN: "http://127.0.0.1:3000"
       PROMPT_CACHE_DIR: "/app/data/prompt-cache"
+      TELEMETRY_DIR: "/app/data/telemetry"
     volumes:
       - /opt/infinite-canvas-data/prompt-cache:/app/data/prompt-cache
+      - /opt/infinite-canvas-data/telemetry:/app/data/telemetry
     restart: unless-stopped
