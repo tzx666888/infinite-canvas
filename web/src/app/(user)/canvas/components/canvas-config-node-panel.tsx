@@ -176,10 +176,12 @@ function InputChip({ label, value, style }: { label: string; value: string; styl
 function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasGenerationMode): AiConfig {
     const defaultModel = defaultModelForMode(globalConfig, mode);
     const configuredModel = node.metadata?.model;
+    const resolvedModel = configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : globalConfig.model || defaultConfig.model);
     return {
         ...globalConfig,
-        model: configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : globalConfig.model || defaultConfig.model),
-        videoModel: mode === "video" ? (configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || globalConfig.videoModel || defaultConfig.videoModel) : globalConfig.videoModel,
+        model: resolvedModel,
+        imageModel: mode === "image" ? resolvedModel : globalConfig.imageModel,
+        videoModel: mode === "video" ? resolvedModel : globalConfig.videoModel,
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
         size: node.metadata?.size || globalConfig.size || defaultConfig.size,
         videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
