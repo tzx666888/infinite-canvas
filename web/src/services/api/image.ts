@@ -4,7 +4,18 @@ import { buildApiUrl, resolveModelRequestConfig, type AiConfig, type ModelChanne
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText, buildMaskConstrainedImageEditPrompt } from "@/lib/image-reference-prompt";
-import { isTokaxisGoogleImageModel, resolveTokaxisGoogleImageConfig, TOKAXIS_GOOGLE_NATIVE_SIZES, tokaxisGoogleModelForSize } from "@/lib/tokaxis-google-image";
+import {
+    GENERIC_IMAGE_MAX_EDGE,
+    GENERIC_IMAGE_MAX_PIXELS,
+    GENERIC_IMAGE_MAX_RATIO,
+    GENERIC_IMAGE_MIN_PIXELS,
+    GENERIC_IMAGE_SIZE_STEP,
+    isTokaxisGoogleImageModel,
+    normalizeImageSizeForSelectedModel,
+    resolveTokaxisGoogleImageConfig,
+    TOKAXIS_GOOGLE_NATIVE_SIZES,
+    tokaxisGoogleModelForSize,
+} from "@/lib/tokaxis-google-image";
 import { imageToDataUrl } from "@/services/image-storage";
 import type { ReferenceImage } from "@/types/image";
 
@@ -115,11 +126,6 @@ const QUALITY_ALIASES: Record<string, string> = {
     "4k": "high",
 };
 const DEFAULT_IMAGE_SHORT_SIDE = 1024;
-const IMAGE_SIZE_STEP = 16;
-const IMAGE_MIN_PIXELS = 655360;
-const IMAGE_MAX_EDGE = 3840;
-const IMAGE_MAX_PIXELS = IMAGE_MAX_EDGE * IMAGE_MAX_EDGE;
-const IMAGE_MAX_RATIO = 3;
 const IMAGE_OUTPUT_FORMAT = "png";
 
 function normalizeQuality(quality: string) {
@@ -134,7 +140,7 @@ function resolveSize(ratio: string): string {
     const isLandscape = parsedRatio.width >= parsedRatio.height;
     const longRatio = isLandscape ? parsedRatio.width / parsedRatio.height : parsedRatio.height / parsedRatio.width;
     const shortSide = DEFAULT_IMAGE_SHORT_SIDE;
-    const longSide = Math.round((shortSide * longRatio) / IMAGE_SIZE_STEP) * IMAGE_SIZE_STEP;
+    const longSide = Math.round((shortSide * longRatio) / GENERIC_IMAGE_SIZE_STEP) * GENERIC_IMAGE_SIZE_STEP;
 
     const width = isLandscape ? longSide : shortSide;
     const height = isLandscape ? shortSide : longSide;
@@ -148,7 +154,7 @@ function parseImageRatio(value: string) {
     const w = Number(parts[0]);
     const h = Number(parts[1]);
     if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) throw new Error("图像比例必须是正数，例如 9:16");
-    if (Math.max(w, h) / Math.min(w, h) > IMAGE_MAX_RATIO) throw new Error("图像宽高比不能超过 3:1，请调整尺寸");
+    if (Math.max(w, h) / Math.min(w, h) > GENERIC_IMAGE_MAX_RATIO) throw new Error("图像宽高比不能超过 3:1，请调整尺寸");
     return { width: w, height: h };
 }
 
@@ -160,11 +166,11 @@ function parseImageDimensions(value: string) {
 
 function validateImageSize(width: number, height: number) {
     if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) throw new Error("图像尺寸必须是正整数，例如 1024x1024");
-    if (width % IMAGE_SIZE_STEP !== 0 || height % IMAGE_SIZE_STEP !== 0) throw new Error("图像尺寸的宽高必须是 16 的倍数，请调整尺寸");
-    if (Math.max(width, height) > IMAGE_MAX_EDGE) throw new Error("图像尺寸最长边不能超过 3840px，请调整尺寸");
-    if (Math.max(width, height) / Math.min(width, height) > IMAGE_MAX_RATIO) throw new Error("图像宽高比不能超过 3:1，请调整尺寸");
+    if (width % GENERIC_IMAGE_SIZE_STEP !== 0 || height % GENERIC_IMAGE_SIZE_STEP !== 0) throw new Error("图像尺寸的宽高必须是 16 的倍数，请调整尺寸");
+    if (Math.max(width, height) > GENERIC_IMAGE_MAX_EDGE) throw new Error("图像尺寸最长边不能超过 3840px，请调整尺寸");
+    if (Math.max(width, height) / Math.min(width, height) > GENERIC_IMAGE_MAX_RATIO) throw new Error("图像宽高比不能超过 3:1，请调整尺寸");
     const pixels = width * height;
-    if (pixels < IMAGE_MIN_PIXELS || pixels > IMAGE_MAX_PIXELS) throw new Error(`图像总像素需在 ${IMAGE_MIN_PIXELS} 到 ${IMAGE_MAX_PIXELS} 之间，请调整尺寸`);
+    if (pixels < GENERIC_IMAGE_MIN_PIXELS || pixels > GENERIC_IMAGE_MAX_PIXELS) throw new Error(`图像总像素需在 ${GENERIC_IMAGE_MIN_PIXELS} 到 ${GENERIC_IMAGE_MAX_PIXELS} 之间，请调整尺寸`);
 }
 
 function resolveRequestSize(quality: string | undefined, size: string) {
@@ -883,7 +889,8 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const quality = normalizeQuality(config.quality);
     const tokaxisGoogleImage = isTokaxisGoogleImageModel(requestConfig.model);
-    const requestSize = tokaxisGoogleImage ? resolveTokaxisGoogleRequestSize(config.size) : resolveRequestSize(quality, config.size);
+    const normalizedSize = normalizeImageSizeForSelectedModel(requestConfig.model, config.size);
+    const requestSize = tokaxisGoogleImage ? resolveTokaxisGoogleRequestSize(normalizedSize) : resolveRequestSize(quality, normalizedSize);
     if (requestConfig.apiFormat === "gemini") {
         try {
             return await requestGeminiImages(requestConfig, prompt, [], n, options);
@@ -931,7 +938,8 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const requestPrompt = buildImageReferencePromptText(mask ? buildMaskConstrainedImageEditPrompt(prompt) : prompt, references);
     const quality = normalizeQuality(config.quality);
     const tokaxisGoogleImage = isTokaxisGoogleImageModel(requestConfig.model);
-    const requestSize = tokaxisGoogleImage ? resolveTokaxisGoogleRequestSize(config.size) : resolveRequestSize(quality, config.size);
+    const normalizedSize = normalizeImageSizeForSelectedModel(requestConfig.model, config.size);
+    const requestSize = tokaxisGoogleImage ? resolveTokaxisGoogleRequestSize(normalizedSize) : resolveRequestSize(quality, normalizedSize);
     if (requestConfig.apiFormat === "gemini") {
         if (mask) throw new Error("Gemini 调用格式暂不支持蒙版编辑");
         try {

@@ -10,6 +10,7 @@ import { cleanupUnusedMedia, getMediaStorageStats } from "@/services/file-storag
 import { cleanupUnusedImages, getImageStorageStats } from "@/services/image-storage";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
+import { normalizeImageSizeForSelectedModel } from "@/lib/tokaxis-google-image";
 import { useAssetStore } from "@/stores/use-asset-store";
 import {
     createModelChannel,
@@ -362,7 +363,16 @@ export function AppConfigModal() {
                                 <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                                     {visibleModelGroups.map((group) => (
                                         <Form.Item key={group.modelKey} label={group.defaultLabel} className="mb-0">
-                                            <ModelPicker config={config} value={config[group.modelKey]} onChange={(model) => updateConfig(group.modelKey, model)} capability={group.capability} fullWidth />
+                                            <ModelPicker
+                                                config={config}
+                                                value={config[group.modelKey]}
+                                                onChange={(model) => {
+                                                    updateConfig(group.modelKey, model);
+                                                    if (group.capability === "image") updateConfig("size", normalizeImageSizeForSelectedModel(model, config.size));
+                                                }}
+                                                capability={group.capability}
+                                                fullWidth
+                                            />
                                         </Form.Item>
                                     ))}
                                 </div>

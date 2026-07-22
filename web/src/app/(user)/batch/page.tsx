@@ -12,6 +12,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { useSaveAsset } from "@/hooks/use-save-asset";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
+import { normalizeImageSizeForSelectedModel } from "@/lib/tokaxis-google-image";
 import { requestEdit } from "@/services/api/image";
 import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -618,7 +619,18 @@ export default function BatchPage() {
                             <span className="text-sm font-semibold">处理设置</span>
                             <label className="grid gap-1.5 text-xs text-stone-500 dark:text-stone-400">
                                 图片模型
-                                <ModelPicker config={effectiveConfig} value={model} onChange={setModel} capability="image" fullWidth className={running ? "pointer-events-none opacity-60" : undefined} onMissingConfig={() => openConfigDialog(true)} />
+                                <ModelPicker
+                                    config={effectiveConfig}
+                                    value={model}
+                                    onChange={(value) => {
+                                        setModel(value);
+                                        setSize((current) => normalizeImageSizeForSelectedModel(value, current));
+                                    }}
+                                    capability="image"
+                                    fullWidth
+                                    className={running ? "pointer-events-none opacity-60" : undefined}
+                                    onMissingConfig={() => openConfigDialog(true)}
+                                />
                             </label>
                             <div className="grid grid-cols-2 gap-3">
                                 <label className="grid gap-1.5 text-xs text-stone-500 dark:text-stone-400">

@@ -3,6 +3,12 @@ export const TOKAXIS_GOOGLE_IMAGE_BASE_MODEL = "gemini-3.1-flash-image";
 export const TOKAXIS_GOOGLE_IMAGE_SIZES = ["1K", "2K", "4K"] as const;
 export type TokaxisGoogleImageSize = (typeof TOKAXIS_GOOGLE_IMAGE_SIZES)[number];
 
+export const GENERIC_IMAGE_SIZE_STEP = 16;
+export const GENERIC_IMAGE_MIN_PIXELS = 655_360;
+export const GENERIC_IMAGE_MAX_EDGE = 3_840;
+export const GENERIC_IMAGE_MAX_PIXELS = GENERIC_IMAGE_MAX_EDGE * GENERIC_IMAGE_MAX_EDGE;
+export const GENERIC_IMAGE_MAX_RATIO = 3;
+
 export const TOKAXIS_GOOGLE_IMAGE_MODELS: Record<TokaxisGoogleImageSize, string> = {
     "1K": `${TOKAXIS_GOOGLE_IMAGE_BASE_MODEL}-1k`,
     "2K": `${TOKAXIS_GOOGLE_IMAGE_BASE_MODEL}-2k`,
@@ -60,6 +66,26 @@ export function tokaxisGoogleImageSizeFromDimensions(value?: string): TokaxisGoo
     return pixels > 8_000_000 ? "4K" : pixels > 2_000_000 ? "2K" : "1K";
 }
 
+export function normalizeImageSizeForSelectedModel(model: string, size?: string) {
+    const value = size?.trim() || "auto";
+    if (isTokaxisGoogleImageModel(model) || value.toLowerCase() === "auto") return value;
+
+    const ratio = parseRatio(value);
+    if (ratio) return Math.max(ratio.width, ratio.height) / Math.min(ratio.width, ratio.height) <= GENERIC_IMAGE_MAX_RATIO ? value : "auto";
+
+    const dimensions = parseDimensions(value);
+    if (!dimensions) return value;
+    const longEdge = Math.max(dimensions.width, dimensions.height);
+    const shortEdge = Math.min(dimensions.width, dimensions.height);
+    const pixels = dimensions.width * dimensions.height;
+    if (!shortEdge || longEdge / shortEdge > GENERIC_IMAGE_MAX_RATIO || pixels < GENERIC_IMAGE_MIN_PIXELS) return "auto";
+
+    const scale = Math.min(1, GENERIC_IMAGE_MAX_EDGE / longEdge, Math.sqrt(GENERIC_IMAGE_MAX_PIXELS / pixels));
+    const width = alignGenericDimension(dimensions.width * scale);
+    const height = alignGenericDimension(dimensions.height * scale);
+    return width * height < GENERIC_IMAGE_MIN_PIXELS ? "auto" : `${width}x${height}`;
+}
+
 export function resolveTokaxisGoogleImageConfig(model: string, size?: string, quality?: string) {
     const modelSize = tokaxisGoogleImageSizeFromModel(model);
     const dimensionSize = tokaxisGoogleImageSizeFromDimensions(size);
@@ -95,4 +121,16 @@ function resolveAspectRatio(value?: string): TokaxisGoogleAspectRatio {
 function parseDimensions(value?: string) {
     const match = value?.match(/^(\d+)x(\d+)$/i);
     return match ? { width: Number(match[1]), height: Number(match[2]) } : null;
+}
+
+function parseRatio(value: string) {
+    const match = value.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+    if (!match) return null;
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    return width > 0 && height > 0 ? { width, height } : null;
+}
+
+function alignGenericDimension(value: number) {
+    return Math.max(GENERIC_IMAGE_SIZE_STEP, Math.round(value / GENERIC_IMAGE_SIZE_STEP) * GENERIC_IMAGE_SIZE_STEP);
 }

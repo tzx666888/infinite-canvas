@@ -8,6 +8,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, modelMatchesCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { CreditSymbol, requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { normalizeImageSizeForSelectedModel } from "@/lib/tokaxis-google-image";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
@@ -49,7 +50,12 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
                         value={mode}
                         onChange={(value) => {
                             const nextMode = value as CanvasGenerationMode;
-                            onConfigChange(node.id, { generationMode: nextMode, model: defaultModelForMode(globalConfig, nextMode) });
+                            const nextModel = defaultModelForMode(globalConfig, nextMode);
+                            onConfigChange(node.id, {
+                                generationMode: nextMode,
+                                model: nextModel,
+                                ...(nextMode === "image" ? { size: normalizeImageSizeForSelectedModel(nextModel, config.size) } : {}),
+                            });
                         }}
                         options={[
                             {
@@ -109,7 +115,15 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
             </div>
 
             <div className={`mb-2 grid min-w-0 cursor-default items-center gap-2 ${mode === "image" || mode === "video" || mode === "audio" ? "grid-cols-[minmax(0,1fr)_148px]" : "grid-cols-1"}`} onMouseDown={(event) => event.stopPropagation()}>
-                <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability={mode} onMissingConfig={() => openConfigDialog(true)} fullWidth />
+                <ModelPicker
+                    className="canvas-compact-control h-10"
+                    config={config}
+                    value={config.model}
+                    onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, size: normalizeImageSizeForSelectedModel(model, config.size) } : { model })}
+                    capability={mode}
+                    onMissingConfig={() => openConfigDialog(true)}
+                    fullWidth
+                />
                 {mode === "video" ? (
                     <CanvasVideoSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
                 ) : mode === "image" ? (

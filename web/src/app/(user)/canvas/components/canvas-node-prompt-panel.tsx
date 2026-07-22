@@ -24,6 +24,7 @@ import {
 import { defaultConfig, modelMatchesCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { CreditSymbol, requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { normalizeImageSizeForSelectedModel } from "@/lib/tokaxis-google-image";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasPromptLibrary } from "./canvas-prompt-library";
@@ -262,7 +263,13 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     ) : null}
                     {mode === "image" ? (
                         <>
-                            <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="image" onMissingConfig={() => openConfigDialog(true)} />
+                            <ModelPicker
+                                config={config}
+                                value={config.model}
+                                onChange={(model) => onConfigChange(node.id, { model, size: normalizeImageSizeForSelectedModel(model, config.size) })}
+                                capability="image"
+                                onMissingConfig={() => openConfigDialog(true)}
+                            />
                             <CanvasImageSettingsPopover
                                 config={config}
                                 placement="topLeft"
@@ -380,10 +387,12 @@ function defaultMode(type: CanvasNodeData["type"], hasVideoModels: boolean): Can
 function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasNodeGenerationMode): AiConfig {
     const defaultModel = mode === "image" ? globalConfig.imageModel : mode === "video" ? globalConfig.videoModel : mode === "audio" ? globalConfig.audioModel : globalConfig.textModel;
     const configuredModel = node.metadata?.model;
+    const resolvedModel = configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : globalConfig.model || defaultConfig.model);
     return {
         ...globalConfig,
-        model: configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : globalConfig.model || defaultConfig.model),
-        videoModel: mode === "video" ? (configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || globalConfig.videoModel || defaultConfig.videoModel) : globalConfig.videoModel,
+        model: resolvedModel,
+        imageModel: mode === "image" ? resolvedModel : globalConfig.imageModel,
+        videoModel: mode === "video" ? resolvedModel : globalConfig.videoModel,
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
         size: node.metadata?.size || globalConfig.size || defaultConfig.size,
         videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
