@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-    "version": "3.0.33",
+    "version": "3.0.34",
     "private": true,
     "type": "module",
     "scripts": {
@@ -13,6 +13,7 @@
         "test:grok-video": "bun run scripts/grok-video-model-regression.ts",
         "test:video-workbench": "node --experimental-strip-types scripts/video-workbench-prompt-regression.ts",
         "test:google-image": "node --experimental-strip-types scripts/google-image-model-regression.ts",
+        "test:image-jobs": "node --experimental-strip-types scripts/image-job-recovery-regression.ts",
         "format": "prettier --write .",
         "format:check": "prettier --check ."
     },

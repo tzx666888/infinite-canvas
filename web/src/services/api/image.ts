@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { buildApiUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildApiUrl, isTokaxisProxyBaseUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText, buildMaskConstrainedImageEditPrompt } from "@/lib/image-reference-prompt";
@@ -108,7 +108,24 @@ type GeminiPayload = {
     promptFeedback?: { blockReason?: string };
 };
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
-type RequestOptions = { signal?: AbortSignal };
+export type RequestOptions = { signal?: AbortSignal; jobId?: string };
+
+type CanvasImageJobResponse = {
+    id?: string;
+    status?: "running" | "succeeded" | "failed";
+    error?: string;
+    results?: Array<{ index?: number; url?: string; mimeType?: string; bytes?: number }>;
+};
+
+export class CanvasImageJobError extends Error {
+    terminal: boolean;
+
+    constructor(message: string, terminal = true) {
+        super(message);
+        this.name = "CanvasImageJobError";
+        this.terminal = terminal;
+    }
+}
 
 const IMAGE_PROXY_HEARTBEAT_PATTERN = /^[\s\uFEFF]+|[\s\uFEFF]+$/g;
 const BASE64_IMAGE_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/;
@@ -127,6 +144,117 @@ const QUALITY_ALIASES: Record<string, string> = {
 };
 const DEFAULT_IMAGE_SHORT_SIDE = 1024;
 const IMAGE_OUTPUT_FORMAT = "png";
+const CANVAS_IMAGE_JOB_POLL_INTERVAL_MS = 1_500;
+const CANVAS_IMAGE_JOB_TIMEOUT_MS = 22 * 60 * 1000;
+
+export function supportsResumableImageJobs(config: AiConfig) {
+    const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
+    if (requestConfig.apiFormat === "gemini") return false;
+    if (isTokaxisProxyBaseUrl(requestConfig.baseUrl)) return true;
+    try {
+        const base = new URL(requestConfig.baseUrl, typeof window === "undefined" ? "https://canvas.invalid" : window.location.origin);
+        return /^\/api\/tokaxis(?:\/v1)?\/?$/i.test(base.pathname);
+    } catch {
+        return false;
+    }
+}
+
+export function isTerminalCanvasImageJobError(error: unknown) {
+    return error instanceof CanvasImageJobError && error.terminal;
+}
+
+export async function cancelCanvasImageJob(jobId: string) {
+    const response = await fetch(`/api/image-jobs/${encodeURIComponent(jobId)}`, {
+        method: "DELETE",
+        cache: "no-store",
+    });
+    if (!response.ok && response.status !== 404) {
+        const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+        throw new CanvasImageJobError(imageJobResponseError(payload) || `图片任务取消失败（${response.status}）`);
+    }
+}
+
+export async function resumeCanvasImageJob(jobId: string, options?: Pick<RequestOptions, "signal">) {
+    const startedAt = Date.now();
+    let consecutiveNetworkFailures = 0;
+
+    while (Date.now() - startedAt < CANVAS_IMAGE_JOB_TIMEOUT_MS) {
+        if (options?.signal?.aborted) throw new DOMException("请求已取消", "AbortError");
+        try {
+            const response = await fetch(`/api/image-jobs/${encodeURIComponent(jobId)}`, {
+                cache: "no-store",
+                signal: options?.signal,
+            });
+            const payload = (await response.json().catch(() => null)) as CanvasImageJobResponse | { error?: { message?: string } } | null;
+            if (!response.ok) {
+                const message = imageJobResponseError(payload) || (response.status === 404 ? "图片任务不存在或已过期" : `图片任务查询失败（${response.status}）`);
+                throw new CanvasImageJobError(message, response.status >= 400 && response.status < 500);
+            }
+            consecutiveNetworkFailures = 0;
+            const job = payload as CanvasImageJobResponse;
+            if (job.status === "failed") throw new CanvasImageJobError(job.error || "图片生成失败");
+            if (job.status === "succeeded") {
+                const results = (job.results || [])
+                    .filter((result): result is Required<Pick<NonNullable<CanvasImageJobResponse["results"]>[number], "url">> & NonNullable<CanvasImageJobResponse["results"]>[number] => Boolean(result.url))
+                    .sort((left, right) => (left.index || 0) - (right.index || 0))
+                    .map((result) => ({ id: nanoid(), dataUrl: result.url }));
+                if (!results.length) throw new CanvasImageJobError("图片任务已完成，但结果文件不存在");
+                return results;
+            }
+        } catch (error) {
+            if (options?.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+            if (error instanceof CanvasImageJobError) throw error;
+            consecutiveNetworkFailures += 1;
+            if (consecutiveNetworkFailures >= 8) throw new CanvasImageJobError("画布暂时无法查询图片任务，刷新页面后会继续恢复", false);
+        }
+        await waitForImageJobPoll(CANVAS_IMAGE_JOB_POLL_INTERVAL_MS, options?.signal);
+    }
+    throw new CanvasImageJobError("图片任务等待超时，请稍后重试");
+}
+
+async function requestCanvasImageJob(config: AiConfig, operation: "generations" | "edits" | "chat-completions", body: Record<string, unknown> | FormData, options: RequestOptions) {
+    const jobId = options.jobId;
+    if (!jobId) throw new CanvasImageJobError("图片任务缺少恢复 ID");
+    const isFormData = body instanceof FormData;
+    const response = await fetch(`/api/image-jobs/${encodeURIComponent(jobId)}?operation=${operation}`, {
+        method: "POST",
+        headers: aiHeaders(config, isFormData ? undefined : "application/json"),
+        body: isFormData ? body : JSON.stringify(body),
+        cache: "no-store",
+        signal: options.signal,
+    });
+    if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+        throw new CanvasImageJobError(imageJobResponseError(payload) || `图片任务提交失败（${response.status}）`);
+    }
+    return resumeCanvasImageJob(jobId, options);
+}
+
+function imageJobResponseError(payload: unknown) {
+    if (!payload || typeof payload !== "object") return "";
+    const record = payload as Record<string, unknown>;
+    if (typeof record.error === "string") return record.error;
+    if (record.error && typeof record.error === "object" && typeof (record.error as Record<string, unknown>).message === "string") return String((record.error as Record<string, unknown>).message);
+    return "";
+}
+
+function waitForImageJobPoll(delayMs: number, signal?: AbortSignal) {
+    return new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(new DOMException("请求已取消", "AbortError"));
+            return;
+        }
+        const onAbort = () => {
+            clearTimeout(timer);
+            reject(new DOMException("请求已取消", "AbortError"));
+        };
+        const timer = setTimeout(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve();
+        }, delayMs);
+        signal?.addEventListener("abort", onAbort, { once: true });
+    });
+}
 
 function normalizeQuality(quality: string) {
     const value = quality.trim().toLowerCase();
@@ -411,16 +539,20 @@ async function requestTokaxisGoogleChatImages(config: AiConfig, prompt: string, 
             })),
         )),
     ];
+    const body = {
+        model: requestModel,
+        messages: [{ role: "user", content }],
+        temperature: 0.2,
+        stream: false,
+        image_config: imageConfig,
+        ...(quality ? { quality } : {}),
+    };
+    if (options?.jobId && supportsResumableImageJobs(config)) {
+        return requestCanvasImageJob(config, "chat-completions", body, options);
+    }
     const response = await axios.post<ChatImageApiResponse>(
         aiApiUrl(config, "/chat/completions"),
-        {
-            model: requestModel,
-            messages: [{ role: "user", content }],
-            temperature: 0.2,
-            stream: false,
-            image_config: imageConfig,
-            ...(quality ? { quality } : {}),
-        },
+        body,
         { headers: aiHeaders(config, "application/json"), signal: options?.signal },
     );
     return parseChatImagePayload(response.data);
@@ -902,29 +1034,30 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
         try {
             return await requestTokaxisGoogleChatImages(requestConfig, prompt, [], n, requestSize, quality, options);
         } catch (error) {
+            if (error instanceof CanvasImageJobError) throw error;
             throw new Error(readAxiosError(error, "请求失败"));
         }
     }
     const requestModel = requestConfig.model;
+    const body = {
+        model: requestModel,
+        prompt: withSystemPrompt(requestConfig, prompt),
+        n,
+        ...(quality ? { quality } : {}),
+        ...(requestSize ? { size: requestSize } : {}),
+        response_format: "b64_json",
+        output_format: IMAGE_OUTPUT_FORMAT,
+    };
+    if (options?.jobId && supportsResumableImageJobs(requestConfig)) {
+        return requestCanvasImageJob(requestConfig, "generations", body, options);
+    }
     try {
-        const response = await axios.post<string>(
-            aiApiUrl(requestConfig, "/images/generations"),
-            {
-                model: requestModel,
-                prompt: withSystemPrompt(requestConfig, prompt),
-                n,
-                ...(quality ? { quality } : {}),
-                ...(requestSize ? { size: requestSize } : {}),
-                response_format: "b64_json",
-                output_format: IMAGE_OUTPUT_FORMAT,
-            },
-            {
-                headers: aiHeaders(requestConfig, "application/json"),
-                signal: options?.signal,
-                responseType: "text",
-                transformResponse: [(body) => body],
-            },
-        );
+        const response = await axios.post<string>(aiApiUrl(requestConfig, "/images/generations"), body, {
+            headers: aiHeaders(requestConfig, "application/json"),
+            signal: options?.signal,
+            responseType: "text",
+            transformResponse: [(responseBody) => responseBody],
+        });
         const images = await validateDecodedImageResults(parseImagePayload(parseImageResponseBody(response.data)));
         return images;
     } catch (error) {
@@ -953,6 +1086,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         try {
             return await requestTokaxisGoogleChatImages(requestConfig, requestPrompt, references, n, requestSize, quality, options);
         } catch (error) {
+            if (error instanceof CanvasImageJobError) throw error;
             throw new Error(readAxiosError(error, "请求失败"));
         }
     }
@@ -976,6 +1110,9 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     files.forEach((file) => formData.append("image", file));
     if (mask) formData.set("mask", dataUrlToFile(mask));
 
+    if (options?.jobId && supportsResumableImageJobs(requestConfig)) {
+        return requestCanvasImageJob(requestConfig, "edits", formData, options);
+    }
     try {
         const response = await axios.post<string>(aiApiUrl(requestConfig, "/images/edits"), formData, {
             headers: aiHeaders(requestConfig),

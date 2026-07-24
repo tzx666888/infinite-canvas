@@ -170,6 +170,7 @@ export type CanvasNodeMetadata = {
     status?: CanvasNodeStatus;
     statusMessage?: string;
     errorDetails?: string;
+    pendingImageJobId?: string;
     fontSize?: number;
     generationMode?: CanvasGenerationMode;
     generationType?: CanvasImageGenerationType;
