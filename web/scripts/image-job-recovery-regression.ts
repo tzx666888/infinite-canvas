@@ -99,6 +99,13 @@ try {
     assert.equal(canceledJob?.status, "failed", "explicit stop must cancel the server-side upstream request");
     assert.equal(canceledJob?.error, "图片任务已取消");
 
+    const canvasClientSource = await readFile(path.join(import.meta.dirname, "../src/app/(user)/canvas/[id]/canvas-client-page.tsx"), "utf8");
+    assert.match(
+        canvasClientSource,
+        /if \(generationRequestsRef\.current\.has\(pendingNode\.id\)\) return;/,
+        "reload recovery must not take over and abort a live image submission",
+    );
+
     process.stdout.write("image job recovery regression passed\n");
 } finally {
     await new Promise<void>((resolve, reject) => upstream.close((error) => (error ? reject(error) : resolve())));

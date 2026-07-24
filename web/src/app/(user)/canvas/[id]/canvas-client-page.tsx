@@ -722,6 +722,8 @@ function InfiniteCanvasPage() {
         pendingNodes.forEach((pendingNode) => {
             const jobId = pendingNode.metadata?.pendingImageJobId;
             if (!jobId || recoveringImageJobIdsRef.current.has(jobId)) return;
+            // Live submissions already own their controller. Recovery is only for jobs restored from storage.
+            if (generationRequestsRef.current.has(pendingNode.id)) return;
             recoveringImageJobIdsRef.current.add(jobId);
             const runningId = pendingNode.metadata?.batchRootId || pendingNode.id;
             const controller = startGenerationRequest(pendingNode.id, runningId, runningId);
