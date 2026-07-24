@@ -8,6 +8,7 @@ export const GENERIC_IMAGE_MIN_PIXELS = 655_360;
 export const GENERIC_IMAGE_MAX_EDGE = 3_840;
 export const GENERIC_IMAGE_MAX_PIXELS = GENERIC_IMAGE_MAX_EDGE * GENERIC_IMAGE_MAX_EDGE;
 export const GENERIC_IMAGE_MAX_RATIO = 3;
+export const GPT_IMAGE_2_MAX_PIXELS = 3_840 * 2_160;
 
 export const TOKAXIS_GOOGLE_IMAGE_MODELS: Record<TokaxisGoogleImageSize, string> = {
     "1K": `${TOKAXIS_GOOGLE_IMAGE_BASE_MODEL}-1k`,
@@ -80,10 +81,21 @@ export function normalizeImageSizeForSelectedModel(model: string, size?: string)
     const pixels = dimensions.width * dimensions.height;
     if (!shortEdge || longEdge / shortEdge > GENERIC_IMAGE_MAX_RATIO || pixels < GENERIC_IMAGE_MIN_PIXELS) return "auto";
 
-    const scale = Math.min(1, GENERIC_IMAGE_MAX_EDGE / longEdge, Math.sqrt(GENERIC_IMAGE_MAX_PIXELS / pixels));
-    const width = alignGenericDimension(dimensions.width * scale);
-    const height = alignGenericDimension(dimensions.height * scale);
+    const maxPixels = imageMaxPixelsForSelectedModel(model);
+    const scale = Math.min(1, GENERIC_IMAGE_MAX_EDGE / longEdge, Math.sqrt(maxPixels / pixels));
+    let width = Math.min(GENERIC_IMAGE_MAX_EDGE, alignGenericDimension(dimensions.width * scale));
+    let height = Math.min(GENERIC_IMAGE_MAX_EDGE, alignGenericDimension(dimensions.height * scale));
+    for (let guard = 0; width * height > maxPixels && guard < 32; guard += 1) {
+        if ((width / dimensions.width >= height / dimensions.height && width > GENERIC_IMAGE_SIZE_STEP) || height <= GENERIC_IMAGE_SIZE_STEP) width -= GENERIC_IMAGE_SIZE_STEP;
+        else height -= GENERIC_IMAGE_SIZE_STEP;
+    }
+    if (width >= height && width / height > GENERIC_IMAGE_MAX_RATIO) width = height * GENERIC_IMAGE_MAX_RATIO;
+    if (height > width && height / width > GENERIC_IMAGE_MAX_RATIO) height = width * GENERIC_IMAGE_MAX_RATIO;
     return width * height < GENERIC_IMAGE_MIN_PIXELS ? "auto" : `${width}x${height}`;
+}
+
+export function imageMaxPixelsForSelectedModel(model: string) {
+    return tokaxisGoogleModelName(model) === "gpt-image-2" ? GPT_IMAGE_2_MAX_PIXELS : GENERIC_IMAGE_MAX_PIXELS;
 }
 
 export function resolveTokaxisGoogleImageConfig(model: string, size?: string, quality?: string) {

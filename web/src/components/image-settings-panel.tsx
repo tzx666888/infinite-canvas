@@ -4,7 +4,16 @@ import { type ReactNode, useState } from "react";
 import { ConfigProvider, Switch } from "antd";
 
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { isTokaxisGoogleImageModel, TOKAXIS_GOOGLE_NATIVE_SIZES, tokaxisGoogleImageSizeFromModel, tokaxisGoogleModelForSize, type TokaxisGoogleImageSize } from "@/lib/tokaxis-google-image";
+import {
+    GENERIC_IMAGE_MAX_EDGE,
+    GENERIC_IMAGE_MAX_PIXELS,
+    imageMaxPixelsForSelectedModel,
+    isTokaxisGoogleImageModel,
+    TOKAXIS_GOOGLE_NATIVE_SIZES,
+    tokaxisGoogleImageSizeFromModel,
+    tokaxisGoogleModelForSize,
+    type TokaxisGoogleImageSize,
+} from "@/lib/tokaxis-google-image";
 import type { AiConfig } from "@/stores/use-config-store";
 
 const qualityOptions = [
@@ -22,8 +31,6 @@ type Resolution = (typeof resolutionOptions)[number]["value"];
 type NativeSizes = Record<Resolution, string>;
 type AspectOption = { value: string; label: string; size?: string; width: number; height: number; icon: string; nativeOnly?: boolean; nativeSizes?: NativeSizes };
 const DIMENSION_STEP = 16;
-const MAX_IMAGE_EDGE = 3840;
-const MAX_IMAGE_PIXELS = MAX_IMAGE_EDGE * MAX_IMAGE_EDGE;
 
 const aspectOptions: AspectOption[] = [
     nativeAspect("1:1", "square"),
@@ -60,8 +67,9 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const activeSize = config.size || "auto";
     const activeModel = config.imageModel || config.model;
     const usesNativeGoogleSizes = isTokaxisGoogleImageModel(activeModel);
+    const maxImagePixels = imageMaxPixelsForSelectedModel(activeModel);
     const availableAspectOptions = aspectOptions.filter((item) => !item.nativeOnly || usesNativeGoogleSizes);
-    const resolution = googleResolution(activeModel) || readResolution(activeSize);
+    const resolution = googleResolution(activeModel) || readResolution(activeSize, maxImagePixels);
     const selectedAspect = findSelectedAspect(activeSize);
     const displayedSize = usesNativeGoogleSizes && selectedAspect ? sizeForAspect(selectedAspect, resolution, true) : activeSize;
     const dimensions = readSizeDimensions(displayedSize, selectedAspect || aspectOptions[0]);
@@ -72,11 +80,11 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     };
     const selectAspect = (value: string) => {
         const option = availableAspectOptions.find((item) => item.value === value);
-        onConfigChange("size", option ? sizeForAspect(option, resolution, usesNativeGoogleSizes) : "auto");
+        onConfigChange("size", option ? sizeForAspect(option, resolution, usesNativeGoogleSizes, maxImagePixels) : "auto");
     };
     const selectResolution = (value: Resolution) => {
         if (activeSize === "auto") return;
-        onConfigChange("size", selectedAspect ? sizeForAspect(selectedAspect, value, usesNativeGoogleSizes) : resizeDimensionsForResolution(dimensions.width, dimensions.height, value));
+        onConfigChange("size", selectedAspect ? sizeForAspect(selectedAspect, value, usesNativeGoogleSizes, maxImagePixels) : resizeDimensionsForResolution(dimensions.width, dimensions.height, value, maxImagePixels));
         syncGoogleModel(value);
     };
     const updateDimension = (key: "width" | "height", value: number | null) => {
@@ -189,10 +197,10 @@ export function imageQualityLabel(value: string) {
     return ({ auto: "自动", high: "高", medium: "中", low: "低" } as Record<string, string>)[value] || value;
 }
 
-export function imageSizeLabel(size: string) {
+export function imageSizeLabel(size: string, model?: string) {
     if (!size || size === "auto") return "auto";
     const aspect = findSelectedAspect(size);
-    const resolution = readResolution(size);
+    const resolution = readResolution(size, model ? imageMaxPixelsForSelectedModel(model) : GENERIC_IMAGE_MAX_PIXELS);
     const resolutionLabel = resolution === "1k" ? "" : ` · ${resolution.toUpperCase()}`;
     return `${aspect?.label || size}${resolutionLabel}`;
 }
@@ -305,7 +313,7 @@ function readParsedDimensions(size: string) {
     return match ? { width: Number(match[1]), height: Number(match[2]) } : null;
 }
 
-function readResolution(size: string): Resolution {
+function readResolution(size: string, maxPixels = GENERIC_IMAGE_MAX_PIXELS): Resolution {
     for (const option of aspectOptions) {
         if (!option.nativeSizes) continue;
         const match = (Object.entries(option.nativeSizes) as Array<[Resolution, string]>).find(([, dimensions]) => dimensions === size);
@@ -315,26 +323,27 @@ function readResolution(size: string): Resolution {
     if (!dimensions) return "1k";
     const longEdge = Math.max(dimensions.width, dimensions.height);
     const shortEdge = Math.min(dimensions.width, dimensions.height);
-    if (longEdge >= MAX_IMAGE_EDGE) return "4k";
+    const pixels = dimensions.width * dimensions.height;
+    if (longEdge >= GENERIC_IMAGE_MAX_EDGE || pixels >= maxPixels * 0.95) return "4k";
     if (shortEdge >= 1152 || longEdge >= 2048) return "2k";
     return "1k";
 }
 
-function sizeForAspect(option: AspectOption, resolution: Resolution, usesNativeGoogleSizes = false) {
+function sizeForAspect(option: AspectOption, resolution: Resolution, usesNativeGoogleSizes = false, maxPixels = GENERIC_IMAGE_MAX_PIXELS) {
     if (option.value === "auto") return "auto";
     if (usesNativeGoogleSizes && option.nativeSizes) return option.nativeSizes[resolution];
     if (resolution === "1k") return option.size || `${option.width}x${option.height}`;
-    return resizeDimensionsForResolution(option.width, option.height, resolution);
+    return resizeDimensionsForResolution(option.width, option.height, resolution, maxPixels);
 }
 
-function resizeDimensionsForResolution(width: number, height: number, resolution: Resolution) {
+function resizeDimensionsForResolution(width: number, height: number, resolution: Resolution, maxPixels = GENERIC_IMAGE_MAX_PIXELS) {
     if (resolution === "1k") return `${alignDimension(width, true)}x${alignDimension(height, true)}`;
     const ratio = width / Math.max(1, height);
     const landscape = width >= height;
-    const targetLongEdge = resolution === "4k" ? MAX_IMAGE_EDGE : 2048;
+    const targetLongEdge = resolution === "4k" ? GENERIC_IMAGE_MAX_EDGE : 2048;
     const rawWidth = landscape ? targetLongEdge : targetLongEdge * ratio;
     const rawHeight = landscape ? targetLongEdge / ratio : targetLongEdge;
-    const pixelScale = Math.min(1, Math.sqrt(MAX_IMAGE_PIXELS / Math.max(1, rawWidth * rawHeight)));
+    const pixelScale = Math.min(1, Math.sqrt(maxPixels / Math.max(1, rawWidth * rawHeight)));
     const nextWidth = alignDimensionDown(Math.max(1, Math.floor(rawWidth * pixelScale)));
     const nextHeight = alignDimensionDown(Math.max(1, Math.floor(rawHeight * pixelScale)));
     return `${nextWidth}x${nextHeight}`;
