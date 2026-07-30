@@ -33,7 +33,7 @@ import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { isContentPolicyErrorMessage } from "@/lib/content-policy-error";
 import { buildSceneAwareImageEditPrompt } from "@/lib/fusion-plan-prompt";
 import { resolveFusionReferenceRoles } from "@/lib/fusion-reference-roles";
-import { buildIdentityPreservingImageEditPrompt } from "@/lib/image-reference-prompt";
+import { buildIdentityPreservingImageEditPrompt, buildIndependentImageStyleVariantPrompt } from "@/lib/image-reference-prompt";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { grokVideoReferenceMode, isGrokVideoModel, normalizeModelVideoSeconds, selectGrokReferenceVideoImagesWithPriority, videoAspectRatioForSize } from "@/lib/video-model-settings";
@@ -3987,12 +3987,13 @@ function InfiniteCanvasPage() {
                     let firstFailureDetails = "";
                     let firstFailureKind = "";
                     await Promise.all(
-                        targetIds.map(async (targetId) => {
+                        targetIds.map(async (targetId, targetIndex) => {
                             try {
                                 const imageRequestConfig = { ...generationConfig, count: "1" };
                                 const imageRequestOptions = beginImageRequest(imageRequestConfig, targetId, controller.signal);
+                                const targetRequestPrompt = buildIndependentImageStyleVariantPrompt(requestPrompt, effectivePrompt, targetIndex, targetIds.length);
                                 const image = requestReferenceImages.length
-                                    ? await requestEdit(imageRequestConfig, requestPrompt, requestReferenceImages, undefined, imageRequestOptions).then((items) => items[0])
+                                    ? await requestEdit(imageRequestConfig, targetRequestPrompt, requestReferenceImages, undefined, imageRequestOptions).then((items) => items[0])
                                     : await requestGeneration(imageRequestConfig, effectivePrompt, imageRequestOptions).then((items) => items[0]);
                                 const uploaded = await uploadImage(image.dataUrl);
                                 const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
@@ -4835,8 +4836,11 @@ function InfiniteCanvasPage() {
                 }
 
                 const imageRequestOptions = beginImageRequest(generationConfig, node.id, controller.signal);
+                const retryStyleVariantIndex = Math.max(0, batchRoot?.metadata?.batchChildIds?.indexOf(node.id) ?? 0);
+                const retryStyleVariantCount = Math.max(1, batchRoot?.metadata?.batchChildIds?.length || 1);
+                const retryImageRequestPrompt = buildIndependentImageStyleVariantPrompt(retryPrompt, prompt, retryStyleVariantIndex, retryStyleVariantCount);
                 const image = useReferenceImages
-                    ? await requestEdit(generationConfig, retryPrompt, requestImages, requestMask, imageRequestOptions).then((items) => items[0])
+                    ? await requestEdit(generationConfig, retryImageRequestPrompt, requestImages, requestMask, imageRequestOptions).then((items) => items[0])
                     : await requestGeneration(generationConfig, prompt, imageRequestOptions).then((items) => items[0]);
                 const finalDataUrl =
                     retryMaskCrop && retrySourceDataUrl && retryMaskDataUrl

@@ -2,6 +2,25 @@ import type { ReferenceImage } from "@/types/image";
 
 const EXPLICIT_MULTI_PANEL_PATTERN =
     /(?:\b(?:collage|contact[ -]?sheet|storyboard|split[ -]?screen|multi[ -]?panel|diptych|triptych|before[ -]and[ -]after)\b|(?:^|[^\d])(?:2\s*[x×]\s*2|3\s*[x×]\s*3|4\s*[x×]\s*4)(?:[^\d]|$)|宫格|拼图|分屏|多面板|多格(?:布局|排版)?|联系表|分镜(?:板|表|图)|前后对比|对比图|四联画|九联画|多视图)/i;
+const VAGUE_STYLE_CHANGE_PATTERN =
+    /^(?:(?:请|帮我)?(?:(?:换|改)(?:成|个|一个|一种)?(?:不同|另一种|其他|新)?(?:的)?(?:风格|样式|效果)|(?:生成|做成?)?(?:一个|一种)?(?:不同|另一种|其他|新)(?:的)?(?:风格|样式|效果))(?:看看|试试)?[。！？!?]*|(?:please\s+)?(?:(?:make|use|try|create|change(?:\s+it)?(?:\s+to)?)\s+)?(?:a|an)?\s*(?:different|another|new|other)\s+(?:style|look|aesthetic)(?:\s+version)?[.!?]*)$/i;
+const INDEPENDENT_STYLE_DIRECTIONS = [
+    "clean editorial treatment with balanced natural color, crisp detail, and restrained composition",
+    "cinematic treatment with directional light, deeper contrast, and a filmic color grade",
+    "minimal premium treatment with a refined palette, negative space, and a polished finish",
+    "candid lifestyle treatment with natural texture, lively framing, and authentic ambient light",
+    "vintage analog treatment with gentle grain, tactile texture, and a muted period palette",
+    "bold contemporary commercial treatment with vivid controlled color and graphic composition",
+    "soft atmospheric treatment with diffused light, airy depth, and subtle pastel grading",
+    "high-contrast monochrome fine-art treatment with sculpted light and rich tonal detail",
+    "cool modern treatment with clean geometry, restrained color, and precise highlights",
+    "warm retro-print treatment with nostalgic color separation and soft highlight rolloff",
+    "dramatic low-key treatment with focused illumination, deep shadows, and a moody finish",
+    "bright optimistic treatment with open composition, fresh color, and luminous soft light",
+    "natural documentary treatment with honest texture, available light, and unforced framing",
+    "polished luxury-editorial treatment with elegant lighting, rich materials, and controlled color",
+    "experimental contemporary treatment with an unexpected palette, dynamic framing, and cohesive art direction",
+];
 
 export function imageReferenceLabel(index: number) {
     return `图片${index + 1}`;
@@ -9,6 +28,30 @@ export function imageReferenceLabel(index: number) {
 
 export function requestsMultiPanelImage(prompt: string) {
     return EXPLICIT_MULTI_PANEL_PATTERN.test(prompt.trim());
+}
+
+export function isVagueStyleChangeRequest(prompt: string) {
+    return VAGUE_STYLE_CHANGE_PATTERN.test(prompt.trim().replace(/\s+/g, " "));
+}
+
+export function buildIndependentImageStyleVariantPrompt(basePrompt: string, userPrompt: string, variantIndex: number, variantCount: number) {
+    if (!isVagueStyleChangeRequest(userPrompt)) return basePrompt;
+    const count = Math.max(1, Math.min(15, Math.floor(Math.abs(variantCount)) || 1));
+    const index = Math.max(0, Math.min(count - 1, Math.floor(Math.abs(variantIndex)) || 0));
+    const rules = [
+        basePrompt.trim(),
+        "",
+        "VAGUE STYLE REQUEST INTERPRETATION:",
+        "- Create one standalone full-frame image with one coherent alternative style that is visibly different from Image 1.",
+        "- Preserve the same subject identity, anatomy, object count, and essential content. Do not create a comparison layout.",
+    ];
+    if (count > 1) {
+        rules.push(
+            `- This is independent style result ${index + 1} of ${count}. It must remain a separate image and must not contain the other variations.`,
+            `- Distinct direction for this result: ${INDEPENDENT_STYLE_DIRECTIONS[index % INDEPENDENT_STYLE_DIRECTIONS.length]}.`,
+        );
+    }
+    return rules.join("\n");
 }
 
 function imageEditOutputLayoutRules(prompt: string) {
