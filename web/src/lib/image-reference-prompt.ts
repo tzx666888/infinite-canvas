@@ -1,7 +1,25 @@
 import type { ReferenceImage } from "@/types/image";
 
+const EXPLICIT_MULTI_PANEL_PATTERN =
+    /(?:\b(?:collage|contact[ -]?sheet|storyboard|split[ -]?screen|multi[ -]?panel|diptych|triptych|before[ -]and[ -]after)\b|(?:^|[^\d])(?:2\s*[x×]\s*2|3\s*[x×]\s*3|4\s*[x×]\s*4)(?:[^\d]|$)|宫格|拼图|分屏|多面板|多格(?:布局|排版)?|联系表|分镜(?:板|表|图)|前后对比|对比图|四联画|九联画|多视图)/i;
+
 export function imageReferenceLabel(index: number) {
     return `图片${index + 1}`;
+}
+
+export function requestsMultiPanelImage(prompt: string) {
+    return EXPLICIT_MULTI_PANEL_PATTERN.test(prompt.trim());
+}
+
+function imageEditOutputLayoutRules(prompt: string) {
+    if (requestsMultiPanelImage(prompt)) {
+        return ["- The user explicitly requested a multi-panel composition. Honor only the requested layout and panel count."];
+    }
+    return [
+        "- OUTPUT LAYOUT LOCK: Return one continuous full-frame image containing one scene and one edited version of the subject.",
+        "- Never create a collage, grid, split screen, contact sheet, before-and-after comparison, inset, multi-panel layout, or multiple style variations inside the image.",
+        '- Phrases such as "different style", "another style", or "change the style" mean one alternative full-frame image, not several versions.',
+    ];
 }
 
 export function buildImageReferencePromptText(prompt: string, references: ReferenceImage[]) {
@@ -15,7 +33,15 @@ export function buildIdentityPreservingImageEditPrompt(prompt: string, hasTarget
     const text = prompt.trim();
     if (!hasTargetImage || !references.length) return text;
     if (references.length === 1) {
-        return [text, "", "STRICT IMAGE EDIT REQUIREMENTS:", "- Image 1 is the target/base image. Preserve its composition and all unrequested content.", "- Change only what the user explicitly requested.", "- Return only the edited image."].join("\n");
+        return [
+            text,
+            "",
+            "STRICT IMAGE EDIT REQUIREMENTS:",
+            "- Image 1 is the target/base image. Preserve its composition and all unrequested content.",
+            "- Change only what the user explicitly requested.",
+            ...imageEditOutputLayoutRules(text),
+            "- Return only the edited image.",
+        ].join("\n");
     }
 
     const productCount = references.length - 1;
@@ -50,6 +76,7 @@ export function buildIdentityPreservingImageEditPrompt(prompt: string, hasTarget
         "- The reference images are authoritative source assets, not style inspiration. If another instruction conflicts with product identity, PRODUCT IDENTITY LOCK wins.",
         "- Integrate the products naturally into the target scene while keeping every product visually distinct and faithful to its own reference image.",
         "- Before returning the image, verify that every requested product is present once and that its visible component count matches the corresponding reference image.",
+        ...imageEditOutputLayoutRules(text),
         "- Return only the edited image.",
     ].join("\n");
 }
