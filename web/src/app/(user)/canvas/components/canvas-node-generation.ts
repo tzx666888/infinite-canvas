@@ -5,6 +5,7 @@ import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "../types";
 import { getGenerationResourceNodes } from "../utils/canvas-resource-references";
+import { composePromptWithUpstreamText } from "../utils/prompt-composition";
 
 export type NodeGenerationContext = {
     prompt: string;
@@ -52,16 +53,13 @@ export function resolveStandaloneGenerationPrompt(prompt: string) {
 }
 
 function buildAllInputGenerationContext(inputs: NodeGenerationInput[], prompt: string): NodeGenerationContext {
-    const upstreamText = inputs
-        .map((input) => input.text)
-        .filter(Boolean)
-        .join("\n\n");
+    const upstreamTexts = inputs.map((input) => input.text).filter((text): text is string => Boolean(text?.trim()));
     const referenceImages = inputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
     const referenceVideos = inputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
     const referenceAudios = inputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
 
     return {
-        prompt: upstreamText ? `${prompt}\n\n${upstreamText}` : prompt,
+        prompt: composePromptWithUpstreamText(prompt, upstreamTexts),
         referenceImages,
         referenceVideos,
         referenceAudios,

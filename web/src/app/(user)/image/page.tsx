@@ -12,6 +12,7 @@ import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/components/asset-picker-modal";
 import { useSaveAsset } from "@/hooks/use-save-asset";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { isContentPolicyErrorMessage } from "@/lib/content-policy-error";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { normalizeImageSizeForSelectedModel } from "@/lib/tokaxis-google-image";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -573,10 +574,12 @@ function PendingImageCard() {
 }
 
 function FailedImageCard({ error, onRetry }: { error: string; onRetry: () => void }) {
+    const contentPolicyError = isContentPolicyErrorMessage(error);
     return (
         <div className="overflow-hidden rounded-lg border border-red-200 bg-red-50 dark:border-red-950 dark:bg-red-950/20">
             <div className="flex aspect-square flex-col items-center justify-center gap-3 p-5 text-center">
-                <div className="text-sm font-medium text-red-600 dark:text-red-300">生成失败</div>
+                <div className="text-sm font-medium text-red-600 dark:text-red-300">{contentPolicyError ? "内容审核未通过" : "生成失败"}</div>
+                {contentPolicyError ? <div className="text-xs text-red-500 dark:text-red-300">模型内容安全限制，并非服务器故障</div> : null}
                 <Typography.Paragraph ellipsis={{ rows: 4 }} className="!mb-0 !text-xs !text-red-500 dark:!text-red-300">
                     {error}
                 </Typography.Paragraph>

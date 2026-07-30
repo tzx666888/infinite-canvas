@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { AlertTriangle, Box, ChevronRight, Image as ImageIcon, Music2, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { isContentPolicyErrorMessage } from "@/lib/content-policy-error";
 import { formatBytes } from "@/lib/image-utils";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
@@ -590,8 +591,8 @@ function describeNodeError(errorDetails?: string) {
         return { title: "请求太密集", message: "系统已保留节点和提示词，稍等片刻后点重试即可。", detail };
     }
 
-    if (/moderated|moderation|danger_filter|safety|policy|content filter|unsafe|no final video url|安全|违规|风控/.test(lower) || /安全|违规|风控|审核/.test(text)) {
-        return { title: "触发安全过滤", message: "换成更中性的动作、镜头或文案后再重试。", detail };
+    if (isContentPolicyErrorMessage(text) || /no final video url|风控/.test(lower)) {
+        return { title: "内容审核未通过", message: "这是模型内容安全限制，不是服务器故障；请调整提示词或参考图后重试。", detail };
     }
 
     if (/timeout|timed out|524|gateway|upstream|超时/.test(lower) || /超时|上游/.test(text)) {
