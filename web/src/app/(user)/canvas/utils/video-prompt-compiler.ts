@@ -462,6 +462,7 @@ function compileVeoPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBea
             ...lines,
             identityConstraint(plan, mode),
             locationConstraint(plan, mode, false),
+            compileStoryboardAudioDirection(plan, plan.directorBrief || "", context.duration),
             endingConstraint(mode),
             referenceConstraint(context.referenceMode, plan, mode),
             plan.enhancementWords || DEFAULT_ENHANCEMENT_WORDS,

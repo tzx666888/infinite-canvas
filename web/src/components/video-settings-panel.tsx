@@ -18,7 +18,7 @@ import {
 } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { normalizeVideoProductScaleMode, videoProductScaleOptions } from "@/lib/video-product-scale";
-import { fixedGrokVideoResolution, fixedVideoDurationOptions, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
+import { fixedVideoDurationOptions, fixedVideoResolution, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const baseResolutionOptions = [
@@ -50,12 +50,14 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     }
 
     const model = modelOptionName(config.videoModel || config.model);
+    const googleVideo = isGoogleVideoModel(model);
     const fixedSecondOptions = fixedVideoDurationOptions(model);
     const secondOptions = fixedSecondOptions || defaultSecondOptions;
     const seconds = normalizeModelVideoSeconds(config.videoSeconds || "6", model);
-    const size = normalizeVideoSizeValue(config.size);
+    const size = googleVideo && ["", "auto", "1:1"].includes(config.size) ? (model.toLowerCase().includes("portrait") ? "720x1280" : "1280x720") : normalizeVideoSizeValue(config.size);
     const dimensions = readSizeDimensions(size);
-    const fixedResolution = fixedGrokVideoResolution(model);
+    const availableSizeOptions = googleVideo ? sizeOptions.filter((item) => item.value === "1280x720" || item.value === "720x1280") : sizeOptions;
+    const fixedResolution = fixedVideoResolution(model);
     const resolutionOptions = fixedResolution ? [{ value: fixedResolution, label: `${fixedResolution}p` }] : baseResolutionOptions;
     const resolution = normalizeVideoResolutionValue(config.vquality, model);
     const productScaleMode = normalizeVideoProductScaleMode(config.videoProductScaleMode);
@@ -79,13 +81,15 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </div>
                 </SettingGroup>
                 <SettingGroup title="尺寸" color={theme.node.muted}>
-                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
-                        <DimensionInput prefix="W" value={dimensions.width} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("width", value)} />
-                        <span className="text-lg opacity-45">↔</span>
-                        <DimensionInput prefix="H" value={dimensions.height} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("height", value)} />
-                    </div>
-                    <div className="grid grid-cols-3 gap-2.5">
-                        {sizeOptions.map((item) => (
+                    {googleVideo ? null : (
+                        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
+                            <DimensionInput prefix="W" value={dimensions.width} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("width", value)} />
+                            <span className="text-lg opacity-45">↔</span>
+                            <DimensionInput prefix="H" value={dimensions.height} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("height", value)} />
+                        </div>
+                    )}
+                    <div className={`grid gap-2.5 ${googleVideo ? "grid-cols-2" : "grid-cols-3"}`}>
+                        {availableSizeOptions.map((item) => (
                             <button
                                 key={item.value}
                                 type="button"
@@ -213,7 +217,7 @@ export function normalizeVideoSizeValue(value: string) {
 }
 
 export function normalizeVideoResolutionValue(value: string, model = "") {
-    const fixedResolution = fixedGrokVideoResolution(model);
+    const fixedResolution = fixedVideoResolution(model);
     if (fixedResolution) return fixedResolution;
     if (value === "480p" || value === "low") return "480";
     if (value === "720p" || value === "auto" || value === "high" || value === "medium") return "720";

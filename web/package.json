@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-    "version": "3.0.41",
+    "version": "3.0.42",
     "private": true,
     "type": "module",
     "scripts": {
@@ -10,7 +10,8 @@
         "test:fusion-live": "node scripts/fusion-planner-live-smoke.ts",
         "test:fusion-prompts": "bun run scripts/fusion-prompt-regression.ts",
         "test:storyboard-prompts": "bun run scripts/storyboard-prompt-regression.ts",
-        "test:grok-video": "bun run scripts/grok-video-model-regression.ts",
+        "test:grok-video": "node --experimental-strip-types scripts/grok-video-model-regression.ts",
+        "test:google-video": "node --experimental-strip-types scripts/google-video-model-regression.ts",
         "test:video-workbench": "node --experimental-strip-types scripts/video-workbench-prompt-regression.ts",
         "test:google-image": "node --experimental-strip-types scripts/google-image-model-regression.ts",
         "test:image-concurrency": "node --experimental-strip-types scripts/image-concurrency-regression.ts",

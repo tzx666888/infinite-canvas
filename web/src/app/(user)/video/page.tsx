@@ -15,8 +15,9 @@ import { useSaveAsset } from "@/hooks/use-save-asset";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { grokVideoReferenceImageLimit, grokVideoReferenceMode, isGrokVideoModel, normalizeReferenceVideoSeconds, selectGrokReferenceVideoImages, supportsGrokVideoReferenceCount, videoAspectRatioForSize } from "@/lib/video-model-settings";
+import { isGoogleVideoModel, isOmniVideoModel, normalizeReferenceVideoSeconds, supportsGoogleVideoReferenceCount, videoAspectRatioForSize, videoReferenceImageLimit, videoReferenceMode } from "@/lib/video-model-settings";
 import type { VideoWorkbenchMode } from "@/lib/video-workbench-prompt";
+import { resolveReferenceImageVideoConfig } from "@/app/(user)/canvas/utils/video-reference-model";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { imageToDataUrl, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { optimizeVideoWorkbenchPrompt } from "@/services/api/prompt-polish";
@@ -105,7 +106,7 @@ export default function VideoPage() {
 
     const model = effectiveConfig.videoModel || effectiveConfig.model;
     const selectedVideoModel = modelOptionName(model);
-    const imageReferenceLimit = isGrokVideoModel(selectedVideoModel) ? grokVideoReferenceImageLimit(selectedVideoModel) : SEEDANCE_REFERENCE_LIMITS.images;
+    const imageReferenceLimit = isOmniVideoModel(selectedVideoModel) ? 0 : isGoogleVideoModel(selectedVideoModel) ? 3 : SEEDANCE_REFERENCE_LIMITS.images;
     const canGenerate = Boolean(prompt.trim());
 
     useEffect(() => {
@@ -186,36 +187,38 @@ export default function VideoPage() {
         setStartedAt(batchStartedAt);
         let compiledPrompt = snapshot.text;
         try {
-            const selectedModel = modelOptionName(snapshot.config.videoModel || snapshot.config.model);
+            let generationConfig = snapshot.config;
+            let selectedModel = modelOptionName(generationConfig.videoModel || generationConfig.model);
             let generationReferences = snapshot.references;
-            if (isGrokVideoModel(selectedModel)) {
+            if (isGoogleVideoModel(selectedModel)) {
+                generationConfig = resolveReferenceImageVideoConfig(generationConfig, snapshot.references.length);
+                selectedModel = modelOptionName(generationConfig.videoModel || generationConfig.model);
                 setGenerationStage("正在编写口播与镜头");
-                const requestReferences = selectGrokReferenceVideoImages(snapshot.references, selectedModel);
-                generationReferences = await hydrateVideoWorkbenchReferenceImages(requestReferences);
-                const duration = Number(normalizeReferenceVideoSeconds(snapshot.config.videoSeconds, selectedModel, requestReferences.length));
+                generationReferences = await hydrateVideoWorkbenchReferenceImages(snapshot.references);
+                const duration = Number(normalizeReferenceVideoSeconds(generationConfig.videoSeconds, selectedModel, generationReferences.length));
                 const promptReferences = await prepareVideoWorkbenchReferenceImages(generationReferences);
                 compiledPrompt = await optimizeVideoWorkbenchPrompt(
-                    snapshot.config,
+                    generationConfig,
                     {
                         mode: snapshot.workbenchMode,
                         model: selectedModel,
                         duration,
-                        aspectRatio: videoAspectRatioForSize(snapshot.config.size),
-                        referenceMode: grokVideoReferenceMode(selectedModel, requestReferences.length),
-                        referenceCount: requestReferences.length,
+                        aspectRatio: videoAspectRatioForSize(generationConfig.size),
+                        referenceMode: videoReferenceMode(selectedModel, generationReferences.length),
+                        referenceCount: generationReferences.length,
                         sourcePrompt: snapshot.text,
                     },
                     promptReferences,
                 );
             }
             setGenerationStage("视频生成中");
-            const task = await createVideoGenerationTask(snapshot.config, compiledPrompt, generationReferences, snapshot.videoReferences, snapshot.audioReferences);
+            const task = await createVideoGenerationTask(generationConfig, compiledPrompt, generationReferences, snapshot.videoReferences, snapshot.audioReferences);
             const log = buildLog({
                 prompt: snapshot.text,
                 compiledPrompt,
                 workbenchMode: snapshot.workbenchMode,
-                model,
-                config: snapshot.config,
+                model: generationConfig.videoModel || generationConfig.model,
+                config: generationConfig,
                 references: snapshot.references,
                 videoReferences: snapshot.videoReferences,
                 audioReferences: snapshot.audioReferences,
@@ -224,7 +227,7 @@ export default function VideoPage() {
                 task,
             });
             await saveLog(log);
-            void pollGenerationLog(log, snapshot.config);
+            void pollGenerationLog(log, generationConfig);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "生成失败";
             setResults([{ id: nanoid(), status: "failed", error: errorMessage }]);
@@ -260,10 +263,14 @@ export default function VideoPage() {
             return null;
         }
         const selectedModel = modelOptionName(model);
-        if (isGrokVideoModel(selectedModel) && !supportsGrokVideoReferenceCount(selectedModel, references.length)) {
-            const limit = grokVideoReferenceImageLimit(selectedModel);
-            message.error(references.length > limit ? `当前模型最多支持 ${limit} 张参考图` : "当前模型需要至少 1 张参考图");
-            return null;
+        if (isGoogleVideoModel(selectedModel)) {
+            const resolvedConfig = resolveReferenceImageVideoConfig(effectiveConfig, references.length);
+            const resolvedModel = modelOptionName(resolvedConfig.videoModel || resolvedConfig.model);
+            if (!supportsGoogleVideoReferenceCount(resolvedModel, references.length)) {
+                const limit = videoReferenceImageLimit(resolvedModel);
+                message.error(references.length > limit ? `当前模型最多支持 ${limit} 张参考图` : "当前模型需要参考图，请改用文生视频模型或添加图片");
+                return null;
+            }
         }
         const videoReferenceError = seedanceVideoReferenceError(videoReferences);
         if (videoReferenceError) {

@@ -37,7 +37,7 @@ import { resolveFusionReferenceRoles } from "@/lib/fusion-reference-roles";
 import { buildIdentityPreservingImageEditPrompt, buildIndependentImageStyleVariantPrompt } from "@/lib/image-reference-prompt";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { buildVideoProductScalePrompt } from "@/lib/video-product-scale";
-import { grokVideoReferenceMode, isGrokVideoModel, normalizeModelVideoSeconds, selectGrokReferenceVideoImagesWithPriority, videoAspectRatioForSize } from "@/lib/video-model-settings";
+import { isGoogleVideoModel, normalizeModelVideoSeconds, selectVideoReferenceImagesWithPriority, videoAspectRatioForSize, videoReferenceMode } from "@/lib/video-model-settings";
 import { buildStoryboardVideoConstraintPrompt, GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, STORYBOARD_DIRECTED_VIDEO_MARKER, unwrapStoryboardVideoUserDirection } from "@/lib/storyboard-video-constraints";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { BrandMark } from "@/components/brand/brand-mark";
@@ -3537,12 +3537,13 @@ function InfiniteCanvasPage() {
             const gap = 96;
             setRunningNodeId(planNode.id);
             const controller = startGenerationRequest(planNode.id, planNode.id, planNode.id);
-            const videoModel = generationConfig.videoModel || generationConfig.model || effectiveConfig.videoModel || effectiveConfig.model;
-            const videoSeconds = normalizeModelVideoSeconds(generationConfig.videoSeconds, videoModel);
+            const clipGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, 1);
+            const videoModel = clipGenerationConfig.videoModel || clipGenerationConfig.model || effectiveConfig.videoModel || effectiveConfig.model;
+            const videoSeconds = normalizeModelVideoSeconds(clipGenerationConfig.videoSeconds, videoModel);
             const videoPromptContext = {
-                model: "grok",
+                model: "veo",
                 duration: Number(videoSeconds),
-                aspectRatio: videoAspectRatioForSize(generationConfig.size),
+                aspectRatio: videoAspectRatioForSize(clipGenerationConfig.size),
                 referenceMode: "i2v",
             } as const;
 
@@ -3564,12 +3565,12 @@ function InfiniteCanvasPage() {
                         ...machinePromptDraft(clipPrompt, provenance.sourceKind, provenance.templateId),
                         status: NODE_STATUS_LOADING,
                         model: videoModel,
-                        size: generationConfig.size,
+                        size: clipGenerationConfig.size,
                         seconds: videoSeconds,
-                        vquality: generationConfig.vquality,
-                        productScaleMode: generationConfig.videoProductScaleMode,
-                        generateAudio: generationConfig.videoGenerateAudio,
-                        watermark: generationConfig.videoWatermark,
+                        vquality: clipGenerationConfig.vquality,
+                        productScaleMode: clipGenerationConfig.videoProductScaleMode,
+                        generateAudio: clipGenerationConfig.videoGenerateAudio,
+                        watermark: clipGenerationConfig.videoWatermark,
                         storyboardPlanId: planId,
                         storyboardBeatIndex: beat.index,
                     },
@@ -3597,7 +3598,7 @@ function InfiniteCanvasPage() {
                     let generationOk = false;
                     let generationError: unknown;
                     try {
-                        const video = await storeGeneratedVideo(await requestVideoGeneration({ ...generationConfig, model: videoModel, videoModel, videoSeconds }, entry.clipPrompt, referenceImages, [], [], { signal: controller.signal }));
+                        const video = await storeGeneratedVideo(await requestVideoGeneration({ ...clipGenerationConfig, model: videoModel, videoModel, videoSeconds }, entry.clipPrompt, referenceImages, [], [], { signal: controller.signal }));
                         const videoSize = fitNodeSize(video.width || videoSpec.width, video.height || videoSpec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                         setNodes((prev) =>
                             prev.map((node) => {
@@ -4108,7 +4109,7 @@ function InfiniteCanvasPage() {
                     const videoReferenceVideos = usesWholeStoryboardSheet ? [] : generationContext.referenceVideos;
                     const videoReferenceAudios = usesWholeStoryboardSheet ? [] : generationContext.referenceAudios;
                     const baseVideoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, allVideoReferenceImages.length);
-                    let videoReferenceImages = usesWholeStoryboardSheet ? storyboardVideoImages : selectGrokReferenceVideoImagesWithPriority(videoIdentityImages, storyboardVideoImages, baseVideoGenerationConfig.model);
+                    let videoReferenceImages = usesWholeStoryboardSheet ? storyboardVideoImages : selectVideoReferenceImagesWithPriority(videoIdentityImages, storyboardVideoImages, baseVideoGenerationConfig.model);
                     let videoPromptSource = effectivePrompt;
                     const directProductLock = buildDirectProductLockVideoContext(videoPromptSource, videoReferenceImages, storyboardVideoImages.length, baseVideoGenerationConfig.model, baseVideoGenerationConfig.videoProductScaleMode);
                     if (directProductLock) {
@@ -4138,17 +4139,17 @@ function InfiniteCanvasPage() {
                     }
                     if (usesWholeStoryboardSheet && storyboardPlan?.beats?.length) {
                         videoPromptSource = compileVideoPrompt(storyboardPlan, {
-                            model: "grok",
+                            model: "veo",
                             duration: Number(videoGenerationConfig.videoSeconds),
                             aspectRatio: videoAspectRatioForSize(videoGenerationConfig.size),
-                            referenceMode: grokVideoReferenceMode(videoGenerationConfig.model, videoReferenceImages.length),
+                            referenceMode: videoReferenceMode(videoGenerationConfig.model, videoReferenceImages.length),
                         });
                     }
                     if (usesWholeStoryboardSheet && !storyboardPlan?.beats?.length) throw new Error("分镜规划数据不完整，无法生成整片视频");
                     const videoPrompt =
                         usesWholeStoryboardSheet && storyboardPlan
                             ? compileStoryboardCleanAnchorVideoPrompt(storyboardPlan, {
-                                  model: "grok",
+                                  model: "veo",
                                   duration: Number(videoGenerationConfig.videoSeconds),
                                   aspectRatio: videoAspectRatioForSize(videoGenerationConfig.size),
                                   referenceMode: "i2v",
@@ -4571,7 +4572,7 @@ function InfiniteCanvasPage() {
             if (node.type === CanvasNodeType.Video) {
                 const retryOriginalGenerationConfig = generationConfig;
                 generationConfig = resolveReferenceImageVideoConfig(retryOriginalGenerationConfig, retryImages.length);
-                retryVideoImages = retriesWholeStoryboardSheet ? retryWholeStoryboardAnchors : selectGrokReferenceVideoImagesWithPriority(retryIdentityImages, storyboardRetryImages, generationConfig.model);
+                retryVideoImages = retriesWholeStoryboardSheet ? retryWholeStoryboardAnchors : selectVideoReferenceImagesWithPriority(retryIdentityImages, storyboardRetryImages, generationConfig.model);
                 retryDirectProductLock = buildDirectProductLockVideoContext(retryVideoPromptSource, retryVideoImages, storyboardRetryImages.length, generationConfig.model, generationConfig.videoProductScaleMode);
                 if (retryDirectProductLock) {
                     retryVideoImages = retryDirectProductLock.referenceImages;
@@ -4701,10 +4702,10 @@ function InfiniteCanvasPage() {
                     }
                     if (retriesWholeStoryboardSheet && retryStoryboardPlan?.beats?.length) {
                         retryVideoPromptSource = compileVideoPrompt(retryStoryboardPlan, {
-                            model: "grok",
+                            model: "veo",
                             duration: Number(generationConfig.videoSeconds),
                             aspectRatio: videoAspectRatioForSize(generationConfig.size),
-                            referenceMode: grokVideoReferenceMode(generationConfig.model, retryVideoImages.length),
+                            referenceMode: videoReferenceMode(generationConfig.model, retryVideoImages.length),
                         });
                     }
                     if (retriesWholeStoryboardSheet && !retryStoryboardPlan?.beats?.length) throw new Error("分镜规划数据不完整，无法重试整片视频");
@@ -4712,7 +4713,7 @@ function InfiniteCanvasPage() {
                     let videoPrompt =
                         retriesWholeStoryboardSheet && retryStoryboardPlan
                             ? compileStoryboardCleanAnchorVideoPrompt(retryStoryboardPlan, {
-                                  model: "grok",
+                                  model: "veo",
                                   duration: Number(generationConfig.videoSeconds),
                                   aspectRatio: videoAspectRatioForSize(generationConfig.size),
                                   referenceMode: "i2v",
@@ -6523,7 +6524,7 @@ function limitInlinePrompt(value: string, maxChars: number) {
 }
 
 function buildDirectProductLockVideoContext(prompt: string, referenceImages: ReferenceImage[], storyboardReferenceCount: number, model: string, productScaleMode = "auto") {
-    if (storyboardReferenceCount > 0 || referenceImages.length < 2 || !isGrokCanvasVideoModel(model)) return null;
+    if (storyboardReferenceCount > 0 || referenceImages.length < 2 || !isGoogleCanvasVideoModel(model)) return null;
     const pair = inferDirectReferencePair(prompt, referenceImages.length);
     if (!pair) return null;
     const baseReference = referenceImages[pair.base - 1];
@@ -6554,7 +6555,7 @@ function buildDirectProductLockVideoContext(prompt: string, referenceImages: Ref
         ].join("\n"),
         prompt: [
             "PRODUCT-LOCKED DIRECT VIDEO.",
-            "The system will first create a product-locked bridge keyframe from the referenced scene/person and product images, then animate that keyframe. Do not use raw multi-reference Grok fusion as the final video source.",
+            "The system will first create a product-locked bridge keyframe from the referenced scene/person and product images, then animate that keyframe. Do not use raw multi-reference fusion as the final video source.",
             `User intent: ${limitInlinePrompt(cleanedIntent || "Create a short commerce video around the locked product reference.", 900)}`,
         ].join("\n"),
     };
@@ -6723,8 +6724,8 @@ function videoBridgeErrorMessage(error: unknown) {
     return message.trim().slice(0, 180) || "首帧生成服务暂时不可用";
 }
 
-function isGrokCanvasVideoModel(model: string) {
-    return isGrokVideoModel(model);
+function isGoogleCanvasVideoModel(model: string) {
+    return isGoogleVideoModel(model);
 }
 
 function inferDirectReferencePair(prompt: string, referenceCount: number) {

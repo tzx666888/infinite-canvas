@@ -55,7 +55,7 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 2. 产品拆解：读取选中产品信息或图片，提炼产品名称、外观描述、包装描述、配件清单、场景关键词、色调关键词、禁止元素，创建中文文本节点并连线到源节点。
 3. 场景扩展：读取产品信息，生成多个不同使用场景的中文提示词，为每个场景创建图片节点并自动排版，可按用户要求触发生成。
 4. 视频分镜：按当前 6/10/15 秒规划 CommerceVideoPlan；商品展示、生活方式、教程和带货使用各自合适结构。JSON 视觉字段用英文，说明用中文。点击生成后创建固定 3×4 的 12 格候选图，用户选一张再生成干净关键帧。
-5. 视频生成提示词：只输出当前 Grok 模型可执行的 90-180 词英文单段 prompt。fast 支持文生/单图 6/10/15 秒；preview 支持 1-7 张参考图 6/10 秒；1080p 需要单图并支持 6/10 秒。不得擅自换模型、时长或宣称不支持的 4K。
+5. 视频生成提示词：只输出当前 Google 视频模型可执行的 90-180 词英文指令。Veo 文生视频不接参考图，首尾帧支持 1-2 图，多参考支持 1-3 图，时长为 4/6/15 秒；Omni 只支持纯文字且固定 10 秒。不得擅自换模式、时长或宣称不支持的分辨率。
 6. 一键流水线：按优化提示词、产品拆解、场景扩展、可选视频分镜的顺序自动创建节点、连线、排版。
 7. 视频反推：读取用户已有视频素材节点，分析关键帧，反推英文视频提示词，仅创建文本节点输出，不创建视频生成配置。
 8. 批量排版：按节点类型分组，图片、文本、音频和已有视频素材分区网格排列，并调整视图让节点可见。
@@ -1004,6 +1004,7 @@ function resolveModelIcon(model: string) {
     if (name.includes("claude") || name.includes("anthropic")) return "/icons/claude.svg";
     if (name.includes("gemini") || name.includes("google")) return "/icons/gemini.svg";
     if (name.includes("gpt") || name.includes("openai")) return "/icons/openai.svg";
+    if (name.includes("veo_") || name === "omni" || name === "omni_portrait") return "/icons/gemini.svg";
     if (name.includes("grok")) return "/icons/grok.svg";
     if (name.includes("deepseek")) return "/icons/deepseek.svg";
     if (name.includes("glm")) return "/icons/glm.svg";

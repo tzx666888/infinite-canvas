@@ -1,4 +1,4 @@
-import type { GrokVideoReferenceMode, VideoAspectRatio } from "@/lib/video-model-settings";
+import type { VideoAspectRatio, VideoReferenceMode } from "@/lib/video-model-settings";
 
 export type VideoWorkbenchMode = "commerce" | "creative";
 
@@ -7,7 +7,7 @@ export type VideoWorkbenchPromptContext = {
     model: string;
     duration: number;
     aspectRatio: VideoAspectRatio;
-    referenceMode: GrokVideoReferenceMode;
+    referenceMode: VideoReferenceMode;
     referenceCount: number;
     sourcePrompt: string;
 };
@@ -63,7 +63,7 @@ export function requestsNoSpeech(prompt: string) {
     return /(?:no\s+(?:speech|dialogue|voice|narration)|silent\s+video|ambient[-\s]?only|music[-\s]?only|不要说话|无口播|无人声|纯音乐|只要环境音|静音)/i.test(prompt);
 }
 
-function workbenchReferenceDirection(mode: GrokVideoReferenceMode, referenceCount: number) {
+function workbenchReferenceDirection(mode: VideoReferenceMode, referenceCount: number) {
     if (mode === "i2v") {
         return "Use the attached image as the exact opening-frame and identity anchor; start with restrained local motion before any clean cut.";
     }

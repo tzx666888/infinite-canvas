@@ -1,17 +1,17 @@
 import axios from "axios";
 
 import {
-    fixedGrokVideoResolution,
-    grokVideoReferenceMode,
-    grokVideoReferenceImageLimit,
-    isGrok1080pVideoModel,
-    isGrokVideoModel,
+    fixedVideoResolution,
+    isGoogleVideoModel,
+    isOmniVideoModel,
     normalizeReferenceVideoSeconds,
-    preferredGrokVideoModel,
-    selectGrokReferenceVideoImages,
-    supportsGrokVideoReferenceCount,
+    preferredGoogleVideoModel,
+    supportsGoogleVideoReferenceCount,
     videoAspectRatioForSize,
+    videoReferenceImageLimit,
+    videoReferenceMode,
 } from "@/lib/video-model-settings";
+import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
@@ -90,17 +90,20 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const selectedModel = selectGrokVideoModel(config, references.length);
-    if (!selectedModel) throw new Error("视频模型只支持 Grok，请先同步模型或配置 Grok 视频模型");
+    const configuredModel = (config.videoModel || config.model).trim();
+    const configuredRequest = resolveModelRequestConfig(config, configuredModel);
+    if (isSeedanceVideoConfig(configuredRequest)) {
+        assertVideoConfig(configuredRequest, configuredRequest.model);
+        return createSeedanceTask(configuredRequest, configuredModel, prompt, references, videoReferences, audioReferences, options);
+    }
+    const selectedModel = selectGoogleVideoModel(config, references.length);
+    if (!selectedModel) throw new Error("当前令牌未开放 Google 视频模型，请先同步 Veo / Omni 模型");
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
-    if (isSeedanceVideoConfig(requestConfig)) {
-        return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
-    }
     if (videoReferences.length || audioReferences.length) {
         throw new Error("当前视频接口不支持参考视频或参考音频，请切换到 Seedance 2.0 / 火山 Agent Plan 模型，或移除参考素材");
     }
-    return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
+    return createFlowVideoTask(requestConfig, selectedModel, prompt, references, options);
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
@@ -116,39 +119,39 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
     throw new Error("视频接口没有返回可播放的视频");
 }
 
-async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
+async function createFlowVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const modelName = modelOptionName(model);
-    if (!supportsGrokVideoReferenceCount(modelName, references.length)) {
-        const limit = grokVideoReferenceImageLimit(modelName);
+    if (!supportsGoogleVideoReferenceCount(modelName, references.length)) {
+        const limit = videoReferenceImageLimit(modelName);
         if (references.length > limit) {
             throw new Error(`${modelDisplayNameForError(modelName)}最多支持 ${limit} 张参考图，请移除多余图片后重试`);
         }
-        throw new Error(`${modelDisplayNameForError(modelName)} 需要连接 1 张参考图后再生成视频`);
+        const mode = videoReferenceMode(modelName, references.length);
+        throw new Error(mode === "i2v" ? `${modelDisplayNameForError(modelName)} 需要连接 1–2 张参考图` : `${modelDisplayNameForError(modelName)} 需要连接 1–3 张参考图`);
     }
-    const requestReferences = selectGrokReferenceVideoImages(references, modelName);
+    const requestReferences = references;
     const seconds = normalizeReferenceVideoSeconds(config.videoSeconds, modelName, requestReferences.length);
     if (!prompt.trim() && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
-    const referenceMode = grokVideoReferenceMode(modelName, requestReferences.length);
+    const referenceMode = videoReferenceMode(modelName, requestReferences.length);
     const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode).trim());
 
-    const referenceImages = await Promise.all(
+    const body = new FormData();
+    body.append("model", modelName);
+    body.append("prompt", promptText);
+    body.append("seconds", seconds);
+    body.append("size", normalizeFlowVideoSize(config.size, modelName));
+    body.append("resolution_name", normalizeVideoResolution(config.vquality, modelName));
+    body.append("preset", "normal");
+    const files = await Promise.all(
         requestReferences.map(async (image, index) => {
-            const url = await imageToDataUrl(image);
-            if (!url) throw new Error(`参考图 ${index + 1} 读取失败，请移除后重新上传`);
-            return { url };
+            const dataUrl = await imageToDataUrl(image);
+            if (!dataUrl) throw new Error(`参考图 ${index + 1} 读取失败，请移除后重新上传`);
+            return dataUrlToFile({ ...image, dataUrl });
         }),
     );
-    const body = {
-        model: modelName,
-        prompt: promptText,
-        seconds,
-        duration: Number(seconds),
-        aspect_ratio: videoAspectRatioForSize(config.size),
-        resolution: normalizeVideoResolution(config.vquality, modelName),
-        ...(referenceMode === "i2v" ? { image: referenceImages[0] } : referenceMode === "r2v" ? { reference_images: referenceImages } : {}),
-    };
+    files.forEach((file) => body.append("input_reference", file));
     try {
-        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos/generations"), body, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
         const taskId = created.id || created.request_id;
         if (!taskId) throw new Error("视频接口没有返回任务 ID");
         return { id: taskId, provider: "openai", model };
@@ -158,10 +161,10 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
             message: errorMessage,
             status: axios.isAxiosError(error) ? error.response?.status : undefined,
             response: axios.isAxiosError(error) ? summarizeDebugValue(error.response?.data) : undefined,
-            endpoint: "/videos/generations",
+            endpoint: "/videos",
             model: modelName,
             seconds,
-            aspectRatio: body.aspect_ratio,
+            size: normalizeFlowVideoSize(config.size, modelName),
             resolution: normalizeVideoResolution(config.vquality, modelName),
             referenceCount: requestReferences.length,
             referenceMode,
@@ -171,19 +174,22 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     }
 }
 
-function selectGrokVideoModel(config: AiConfig, referenceImageCount: number) {
-    const explicitModel = [config.videoModel, config.model].map((model) => model.trim()).find(isGrokVideoModel);
-    if (explicitModel) return explicitModel;
+function selectGoogleVideoModel(config: AiConfig, referenceImageCount: number) {
+    const effectiveReferenceCount = Math.min(referenceImageCount, 3);
+    const explicitModel = [config.videoModel, config.model].map((model) => model.trim()).find(isGoogleVideoModel);
+    if (explicitModel && (isOmniVideoModel(explicitModel) || supportsGoogleVideoReferenceCount(explicitModel, effectiveReferenceCount))) return explicitModel;
 
-    const candidates = [...config.videoModels, ...config.models, preferredGrokVideoModel(), "tokaxis::grok-imagine-video-1.5-fast", "grok-imagine-video-1.5-fast"];
-    return candidates.map((model) => model.trim()).find((model) => isGrokVideoModel(model) && supportsGrokVideoReferenceCount(model, referenceImageCount)) || "";
+    const candidates = [...config.videoModels, ...config.models].map((model) => model.trim()).filter(isGoogleVideoModel);
+    const orientationMatch = candidates.find((model) => supportsGoogleVideoReferenceCount(model, effectiveReferenceCount) && matchesVideoOrientation(model, config.size));
+    return orientationMatch || candidates.find((model) => supportsGoogleVideoReferenceCount(model, effectiveReferenceCount)) || preferredGoogleVideoModel(effectiveReferenceCount, videoAspectRatioForSize(config.size));
 }
 
 function modelDisplayNameForError(model: string) {
-    if (model === "grok-imagine-video-1.5-preview") return "Grok Preview 视频";
-    if (model === "grok-imagine-video-1.5-1080p") return "Grok 1080p 视频";
-    if (model === "grok-imagine-video-1.5-fast") return "Grok Fast 视频";
-    return "当前 Grok 视频模型";
+    if (model === "omni" || model === "omni_portrait") return model === "omni" ? "Omni 横屏文生视频" : "Omni 竖屏文生视频";
+    if (model.startsWith("veo_3_1_t2v")) return "Veo 3.1 文生视频";
+    if (model.startsWith("veo_3_1_i2v")) return "Veo 3.1 首尾帧视频";
+    if (model.startsWith("veo_3_1_r2v")) return "Veo 3.1 多参考视频";
+    return "当前 Google 视频模型";
 }
 
 function buildReferenceVideoPrompt(
@@ -192,7 +198,7 @@ function buildReferenceVideoPrompt(
     requestReferenceCount: number,
     seconds: string,
     productScaleMode = "auto",
-    referenceMode: ReturnType<typeof grokVideoReferenceMode> = requestReferenceCount ? "i2v" : "t2v",
+    referenceMode: ReturnType<typeof videoReferenceMode> = requestReferenceCount ? "i2v" : "t2v",
 ) {
     const rawPrompt = prompt.trim();
     if (isCompiledVideoPrompt(rawPrompt)) return [rawPrompt, buildCompactVideoProductScalePrompt(productScaleMode)].filter(Boolean).join("\n");
@@ -224,7 +230,7 @@ function buildReferenceVideoPrompt(
             : `<IMAGE_1> through <IMAGE_${requestReferenceCount}> are ordered references.`;
     const roleGuidance = buildReferenceRoleGuidance(direction, requestReferenceCount);
     return [
-        `Create a ${duration}-second vertical ecommerce video using all attached images in Grok reference-to-video mode.`,
+        `Create a ${duration}-second ecommerce video using all attached images as distinct ordered references.`,
         referenceCountLine,
         buildReferenceLabelMap(requestReferenceCount),
         roleGuidance,
@@ -487,13 +493,28 @@ function assertVideoConfig(config: AiConfig, model: string) {
     if (config.apiFormat === "gemini") throw new Error("Gemini 调用格式暂不支持视频生成，请使用 OpenAI 格式渠道");
 }
 
+function normalizeFlowVideoSize(value: string, model: string) {
+    const normalizedModel = modelOptionName(model).toLowerCase();
+    if (normalizedModel.includes("portrait")) return "720x1280";
+    if (normalizedModel.includes("landscape") || normalizedModel === "omni") return "1280x720";
+    return videoAspectRatioForSize(value) === "9:16" ? "720x1280" : "1280x720";
+}
+
+function matchesVideoOrientation(model: string, value: string) {
+    const normalizedModel = modelOptionName(model).toLowerCase();
+    if (normalizedModel === "veo_3_1_r2v_fast") return true;
+    const aspectRatio = videoAspectRatioForSize(value);
+    if (aspectRatio === "9:16") return normalizedModel.includes("portrait");
+    if (aspectRatio === "16:9") return normalizedModel.includes("landscape") || normalizedModel === "omni";
+    return normalizedModel.includes("portrait");
+}
+
 function normalizeVideoResolution(value: string, model = "") {
-    const fixedResolution = fixedGrokVideoResolution(model);
+    const fixedResolution = fixedVideoResolution(model);
     if (fixedResolution) return `${fixedResolution}p`;
     if (value === "low") return "480p";
     if (value === "auto" || value === "high" || value === "medium") return "720p";
     const resolution = value.replace(/p$/i, "") || "720";
-    if (resolution === "1080" && !isGrok1080pVideoModel(model)) return "720p";
     return `${resolution}p`;
 }
 
@@ -591,7 +612,7 @@ function normalizeVideoProviderError(message: string, fallback: string) {
         return "参考图数量超过当前视频模型限制，请减少参考图后重试";
     }
     if (lower.includes("duration") && (lower.includes("limit") || lower.includes("unsupported") || lower.includes("maximum"))) {
-        return "Grok 多参考图视频最长支持 10 秒；单图或纯文字视频可按模型选项生成";
+        return "当前视频时长不受模型支持：Veo 支持 4、6、15 秒，Omni 固定 10 秒";
     }
     return text || fallback;
 }

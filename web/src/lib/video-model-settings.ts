@@ -4,8 +4,24 @@ const GROK_IMAGE_REQUIRED_VIDEO_MODEL_IDS = new Set(["grok-imagine-video-1.5-pre
 const GROK_MULTI_REFERENCE_VIDEO_MODEL_IDS = new Set(["grok-imagine-video-1.5-fast", "grok-imagine-video-1.5-preview"]);
 export const GROK_REFERENCE_VIDEO_MAX_IMAGES = 7;
 export const GROK_REFERENCE_VIDEO_MAX_SECONDS = 10;
+export const GOOGLE_VIDEO_MODEL_IDS = [
+    "veo_3_1_t2v_fast_landscape",
+    "veo_3_1_t2v_fast_portrait",
+    "veo_3_1_i2v_s_fast_fl",
+    "veo_3_1_i2v_s_fast_portrait_fl",
+    "veo_3_1_r2v_fast_landscape",
+    "veo_3_1_r2v_fast_portrait",
+    "veo_3_1_r2v_fast",
+    "omni",
+    "omni_portrait",
+] as const;
+const GOOGLE_VIDEO_MODEL_ID_SET = new Set<string>(GOOGLE_VIDEO_MODEL_IDS);
+const OMNI_VIDEO_MODEL_IDS = new Set(["omni", "omni_portrait"]);
+const GOOGLE_VEO_DURATION_OPTIONS = [4, 6, 15] as const;
+const GOOGLE_OMNI_DURATION_OPTIONS = [10] as const;
 export type VideoAspectRatio = "9:16" | "16:9" | "1:1";
-export type GrokVideoReferenceMode = "t2v" | "i2v" | "r2v";
+export type VideoReferenceMode = "t2v" | "i2v" | "r2v";
+export type GrokVideoReferenceMode = VideoReferenceMode;
 
 export function videoAspectRatioForSize(value: string): VideoAspectRatio {
     const normalized = value.trim().toLowerCase();
@@ -21,14 +37,28 @@ export function videoAspectRatioForSize(value: string): VideoAspectRatio {
 }
 
 export function fixedVideoDurationOptions(model: string): readonly number[] | null {
-    const normalized = model.trim().toLowerCase().split("::").at(-1) || "";
+    const normalized = normalizeVideoModelId(model);
+    if (OMNI_VIDEO_MODEL_IDS.has(normalized)) return GOOGLE_OMNI_DURATION_OPTIONS;
+    if (GOOGLE_VIDEO_MODEL_ID_SET.has(normalized)) return GOOGLE_VEO_DURATION_OPTIONS;
     if (!GROK_VIDEO_MODEL_IDS.has(normalized)) return null;
     if (normalized === "grok-imagine-video-1.5-preview" || normalized === "grok-imagine-video-1.5-1080p") return [6, 10];
     return GROK_DURATION_OPTIONS;
 }
 
 export function isGrokVideoModel(model: string) {
-    return GROK_VIDEO_MODEL_IDS.has(model.trim().toLowerCase().split("::").at(-1) || "");
+    return GROK_VIDEO_MODEL_IDS.has(normalizeVideoModelId(model));
+}
+
+export function isGoogleVideoModel(model: string) {
+    return GOOGLE_VIDEO_MODEL_ID_SET.has(normalizeVideoModelId(model));
+}
+
+export function isOmniVideoModel(model: string) {
+    return OMNI_VIDEO_MODEL_IDS.has(normalizeVideoModelId(model));
+}
+
+export function isCanvasVideoModel(model: string) {
+    return isGoogleVideoModel(model) || isGrokVideoModel(model);
 }
 
 export function isGrok1080pVideoModel(model: string) {
@@ -46,6 +76,53 @@ export function grokVideoReferenceMode(model: string, referenceCount: number): G
 export function fixedGrokVideoResolution(model: string): "720" | "1080" | null {
     if (!isGrokVideoModel(model)) return null;
     return isGrok1080pVideoModel(model) ? "1080" : "720";
+}
+
+export function fixedVideoResolution(model: string): "720" | "1080" | null {
+    if (isGoogleVideoModel(model)) return "720";
+    return fixedGrokVideoResolution(model);
+}
+
+export function googleVideoReferenceMode(model: string): VideoReferenceMode {
+    const normalized = normalizeVideoModelId(model);
+    if (normalized.startsWith("veo_3_1_i2v")) return "i2v";
+    if (normalized.startsWith("veo_3_1_r2v")) return "r2v";
+    return "t2v";
+}
+
+export function videoReferenceMode(model: string, referenceCount: number): VideoReferenceMode {
+    return isGoogleVideoModel(model) ? googleVideoReferenceMode(model) : grokVideoReferenceMode(model, referenceCount);
+}
+
+export function googleVideoReferenceImageLimit(model: string) {
+    const mode = googleVideoReferenceMode(model);
+    if (!isGoogleVideoModel(model) || mode === "t2v") return 0;
+    return mode === "i2v" ? 2 : 3;
+}
+
+export function videoReferenceImageLimit(model: string) {
+    if (isGoogleVideoModel(model)) return googleVideoReferenceImageLimit(model);
+    return grokVideoReferenceImageLimit(model);
+}
+
+export function supportsGoogleVideoReferenceCount(model: string, referenceImageCount: number) {
+    if (!isGoogleVideoModel(model)) return false;
+    const mode = googleVideoReferenceMode(model);
+    if (mode === "t2v") return referenceImageCount === 0;
+    if (mode === "i2v") return referenceImageCount >= 1 && referenceImageCount <= 2;
+    return referenceImageCount >= 1 && referenceImageCount <= 3;
+}
+
+export function supportsVideoReferenceCount(model: string, referenceImageCount: number) {
+    if (isGoogleVideoModel(model)) return supportsGoogleVideoReferenceCount(model, referenceImageCount);
+    return supportsGrokVideoReferenceCount(model, referenceImageCount);
+}
+
+export function preferredGoogleVideoModel(referenceImageCount = 1, aspectRatio: VideoAspectRatio = "9:16") {
+    const portrait = aspectRatio !== "16:9";
+    if (referenceImageCount <= 0) return `tokaxis::veo_3_1_t2v_fast_${portrait ? "portrait" : "landscape"}`;
+    if (referenceImageCount <= 2) return portrait ? "tokaxis::veo_3_1_i2v_s_fast_portrait_fl" : "tokaxis::veo_3_1_i2v_s_fast_fl";
+    return `tokaxis::veo_3_1_r2v_fast_${portrait ? "portrait" : "landscape"}`;
 }
 
 export function preferredGrokVideoModel() {
@@ -82,6 +159,23 @@ export function normalizeReferenceVideoSeconds(value: string, model: string, ref
     return String(seconds);
 }
 
+export function selectVideoReferenceImages<T>(items: T[], model: string) {
+    if (!isGoogleVideoModel(model)) return selectGrokReferenceVideoImages(items, model);
+    const limit = googleVideoReferenceImageLimit(model);
+    return items.length <= limit ? items : items.slice(0, limit);
+}
+
+export function selectVideoReferenceImagesWithPriority<T>(priorityItems: T[], timelineItems: T[], model: string) {
+    if (!isGoogleVideoModel(model)) return selectGrokReferenceVideoImagesWithPriority(priorityItems, timelineItems, model);
+    const combined = [...priorityItems, ...timelineItems];
+    const limit = googleVideoReferenceImageLimit(model);
+    if (combined.length <= limit) return combined;
+    // Direct references are user choices and must reach validation unchanged.
+    if (!timelineItems.length || limit <= 0) return combined;
+    const priority = priorityItems.slice(0, Math.min(priorityItems.length, 1, limit));
+    return [...priority, ...pickEvenly(timelineItems, limit - priority.length)];
+}
+
 export function selectGrokReferenceVideoImages<T>(items: T[], model: string) {
     const limit = grokVideoReferenceImageLimit(model);
     if (!isGrokVideoModel(model) || items.length <= limit) return items;
@@ -107,7 +201,7 @@ export function selectGrokReferenceVideoImagesWithPriority<T>(priorityItems: T[]
     return [...priority, ...timeline];
 }
 
-function normalizeVideoModelId(model: string) {
+export function normalizeVideoModelId(model: string) {
     return model.trim().toLowerCase().split("::").at(-1) || "";
 }
 

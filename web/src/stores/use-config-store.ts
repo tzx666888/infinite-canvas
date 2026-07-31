@@ -7,6 +7,7 @@ import { nanoid } from "nanoid";
 
 import { modelDisplayInfo } from "@/lib/model-display";
 import { isTokaxisGoogleImageModel, TOKAXIS_GOOGLE_IMAGE_MODELS, tokaxisGoogleImageSizeFromDimensions, tokaxisGoogleImageSizeFromModel } from "@/lib/tokaxis-google-image";
+import { GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-model-settings";
 
 export type ApiCallFormat = "openai" | "gemini";
 
@@ -67,16 +68,14 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const TOKAXIS_CHANNEL_ID = "tokaxis";
 const TOKAXIS_BASE_URL = "/api/tokaxis";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-const TOKAXIS_DEFAULTS_VERSION = 17;
+const TOKAXIS_DEFAULTS_VERSION = 18;
 const TOKAXIS_FALLBACK_MODELS = [
     "gpt-image-2",
     TOKAXIS_GOOGLE_IMAGE_MODELS["1K"],
     TOKAXIS_GOOGLE_IMAGE_MODELS["2K"],
     TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
     "grok-imagine-image-lite",
-    "grok-imagine-video-1.5-fast",
-    "grok-imagine-video-1.5-preview",
-    "grok-imagine-video-1.5-1080p",
+    ...GOOGLE_VIDEO_MODEL_IDS,
     "gpt-5.6-sol",
     "gpt-5.5",
     "gpt-5.4",
@@ -85,10 +84,20 @@ const TOKAXIS_FALLBACK_MODELS = [
     "tts-1",
 ];
 const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
-const TOKAXIS_DISABLED_VIDEO_MODEL_RE = /^veo_3_1_/;
 const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["1K"], TOKAXIS_GOOGLE_IMAGE_MODELS["2K"], TOKAXIS_GOOGLE_IMAGE_MODELS["4K"], "grok-imagine-image-lite"]);
-const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set(["grok-image-video", "grok-video-1.5", "grok-imagine-video", "grok-imagine-1.0-video", "grok-imagine-1.0-video-16s", "grok-imagine-video-1.5-fast-16s", "grok-imagine-video-preview"]);
-const TOKAXIS_VIDEO_MODEL_IDS = new Set(["grok-imagine-video-1.5-fast", "grok-imagine-video-1.5-preview", "grok-imagine-video-1.5-1080p"]);
+const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set([
+    "grok-image-video",
+    "grok-video-1.5",
+    "grok-imagine-video",
+    "grok-imagine-1.0-video",
+    "grok-imagine-1.0-video-16s",
+    "grok-imagine-video-1.5-fast",
+    "grok-imagine-video-1.5-preview",
+    "grok-imagine-video-1.5-1080p",
+    "grok-imagine-video-1.5-fast-16s",
+    "grok-imagine-video-preview",
+]);
+const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>(GOOGLE_VIDEO_MODEL_IDS);
 const TOKAXIS_FALLBACK_MODEL_OPTIONS = TOKAXIS_FALLBACK_MODELS.map((model) => encodeChannelModel(TOKAXIS_CHANNEL_ID, model));
 const TOKAXIS_IMAGE_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "image");
 const TOKAXIS_VIDEO_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "video");
@@ -113,7 +122,7 @@ export const defaultConfig: AiConfig = {
     ],
     model: "tokaxis::gpt-image-2",
     imageModel: "tokaxis::gpt-image-2",
-    videoModel: "tokaxis::grok-imagine-video-1.5-fast",
+    videoModel: "tokaxis::veo_3_1_i2v_s_fast_portrait_fl",
     textModel: "tokaxis::gpt-5.6-sol",
     audioModel: "tokaxis::gpt-4o-mini-tts",
     audioVoice: "alloy",
@@ -561,7 +570,7 @@ function uniqueRawModels(models: string[]) {
 
 function isDisabledModelName(model: string) {
     const value = modelOptionName(model).trim().toLowerCase();
-    return TOKAXIS_DISABLED_VIDEO_MODEL_RE.test(value) || TOKAXIS_DISABLED_VIDEO_MODEL_IDS.has(value);
+    return TOKAXIS_DISABLED_VIDEO_MODEL_IDS.has(value);
 }
 
 function uniqueModelOptions(models: string[]) {
