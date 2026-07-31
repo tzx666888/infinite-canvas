@@ -13,6 +13,7 @@ import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/c
 import { useSaveAsset } from "@/hooks/use-save-asset";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isContentPolicyErrorMessage } from "@/lib/content-policy-error";
+import { IMAGE_REQUEST_CONCURRENCY_LIMIT, mapSettledWithConcurrency } from "@/lib/image-request-concurrency";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { normalizeImageSizeForSelectedModel } from "@/lib/tokaxis-google-image";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -161,9 +162,8 @@ export default function ImagePage() {
         const batchStartedAt = performance.now();
         setStartedAt(batchStartedAt);
 
-        const tasks = Array.from({ length: generationCount }, (_, index) => runGenerationSlot(index, snapshot));
-
-        const result = await Promise.allSettled(tasks);
+        const slots = Array.from({ length: generationCount }, (_, index) => index);
+        const result = await mapSettledWithConcurrency(slots, IMAGE_REQUEST_CONCURRENCY_LIMIT, (index) => runGenerationSlot(index, snapshot));
         const successImages = result.filter((item): item is PromiseFulfilledResult<GeneratedImage> => item.status === "fulfilled").map((item) => item.value);
         const successCount = successImages.length;
         const failCount = generationCount - successCount;
@@ -295,7 +295,8 @@ export default function ImagePage() {
     const runGenerationSlot = async (index: number, snapshot: { text: string; config: AiConfig; references: ReferenceImage[] }) => {
         const itemStartedAt = performance.now();
         try {
-            const result = snapshot.references.length ? await requestEdit(snapshot.config, snapshot.text, snapshot.references) : await requestGeneration(snapshot.config, snapshot.text);
+            const requestOptions = { jobId: nanoid(32) };
+            const result = snapshot.references.length ? await requestEdit(snapshot.config, snapshot.text, snapshot.references, undefined, requestOptions) : await requestGeneration(snapshot.config, snapshot.text, requestOptions);
             const image = result[0];
             if (!image) throw new Error("接口没有返回图片");
             const meta = await readImageMeta(image.dataUrl);

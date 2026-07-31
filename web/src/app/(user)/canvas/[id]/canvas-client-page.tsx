@@ -30,6 +30,7 @@ import { imageToDataUrl, resolveImageUrl, uploadImage, type UploadedImage } from
 import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
+import { IMAGE_REQUEST_CONCURRENCY_LIMIT } from "@/lib/image-request-concurrency";
 import { isContentPolicyErrorMessage } from "@/lib/content-policy-error";
 import { buildSceneAwareImageEditPrompt } from "@/lib/fusion-plan-prompt";
 import { resolveFusionReferenceRoles } from "@/lib/fusion-reference-roles";
@@ -2894,7 +2895,7 @@ function InfiniteCanvasPage() {
             let hasSuccess = false;
             let hasFailure = false;
             try {
-                await runWithConcurrency(targetIds, 2, async (targetId, index) => {
+                await runWithConcurrency(targetIds, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (targetId, index) => {
                     const shot = shots[index];
                     const shotPrompt = buildProductDetailImagePrompt(plan, shot, index);
                     const generationStartedAt = Date.now();
@@ -3070,7 +3071,7 @@ function InfiniteCanvasPage() {
 
             let successCount = 0;
             try {
-                await runWithConcurrency(targetIds, 2, async (targetId, index) => {
+                await runWithConcurrency(targetIds, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (targetId, index) => {
                     const scene = scenes[index];
                     const scenePrompt = buildSceneExpansionImagePrompt(plan, scene);
                     const generationStartedAt = Date.now();
@@ -3243,7 +3244,7 @@ function InfiniteCanvasPage() {
             let successCount = 0;
             try {
                 const useEdit = referenceImages.length > 0;
-                await runWithConcurrency(targetIds, 2, async (targetId, index) => {
+                await runWithConcurrency(targetIds, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (targetId, index) => {
                     const reviewPrompt = reviewPrompts[index] || reviewPrompts[0];
                     const generationStartedAt = Date.now();
                     let generationOk = false;
@@ -3441,7 +3442,7 @@ function InfiniteCanvasPage() {
 
             let successCount = 0;
             try {
-                await runWithConcurrency(targetIds, 2, async (targetId, index) => {
+                await runWithConcurrency(targetIds, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (targetId, index) => {
                     const beatContext = beatGenerationContexts[index];
                     const beatPrompt = beatContext.prompt;
                     const generationStartedAt = Date.now();
@@ -3986,70 +3987,66 @@ function InfiniteCanvasPage() {
                     let hasFailure = false;
                     let firstFailureDetails = "";
                     let firstFailureKind = "";
-                    await runWithConcurrency(
-                        targetIds,
-                        2,
-                        async (targetId, targetIndex) => {
-                            try {
-                                const imageRequestConfig = { ...generationConfig, count: "1" };
-                                const imageRequestOptions = beginImageRequest(imageRequestConfig, targetId, controller.signal);
-                                const targetRequestPrompt = buildIndependentImageStyleVariantPrompt(requestPrompt, effectivePrompt, targetIndex, targetIds.length);
-                                const image = requestReferenceImages.length
-                                    ? await requestEdit(imageRequestConfig, targetRequestPrompt, requestReferenceImages, undefined, imageRequestOptions).then((items) => items[0])
-                                    : await requestGeneration(imageRequestConfig, effectivePrompt, imageRequestOptions).then((items) => items[0]);
-                                const uploaded = await uploadImage(image.dataUrl);
-                                const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
-                                setNodes((prev) => {
-                                    const root = prev.find((node) => node.id === rootId);
-                                    return prev.map((node) => {
-                                        if (node.id !== targetId && node.id !== rootId) return node;
-                                        const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
-                                        if (node.id === rootId && (targetId === rootId || !root?.metadata?.primaryImageId))
-                                            return {
-                                                ...node,
-                                                position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
-                                                width: imageSize.width,
-                                                height: imageSize.height,
-                                                metadata: {
-                                                    ...node.metadata,
-                                                    ...imageMetadata(uploaded),
-                                                    ...completedGenerationMetadata(provenance, persistedImagePrompt, node.id === nodeId ? attemptIndex : 1, mode, promptResolutionSnapshot),
-                                                    primaryImageId: targetId,
-                                                    statusMessage: undefined,
-                                                    fusionPlacementPlanV1: fusionPlacementPlan,
-                                                },
-                                            };
-                                        if (node.id === targetId)
-                                            return {
-                                                ...node,
-                                                position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
-                                                width: imageSize.width,
-                                                height: imageSize.height,
-                                                metadata: {
-                                                    ...node.metadata,
-                                                    ...imageMetadata(uploaded),
-                                                    ...completedGenerationMetadata(provenance, persistedImagePrompt, node.id === nodeId ? attemptIndex : 1, mode, promptResolutionSnapshot),
-                                                    statusMessage: undefined,
-                                                    fusionPlacementPlanV1: fusionPlacementPlan,
-                                                },
-                                            };
-                                        return node;
-                                    });
+                    await runWithConcurrency(targetIds, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (targetId, targetIndex) => {
+                        try {
+                            const imageRequestConfig = { ...generationConfig, count: "1" };
+                            const imageRequestOptions = beginImageRequest(imageRequestConfig, targetId, controller.signal);
+                            const targetRequestPrompt = buildIndependentImageStyleVariantPrompt(requestPrompt, effectivePrompt, targetIndex, targetIds.length);
+                            const image = requestReferenceImages.length
+                                ? await requestEdit(imageRequestConfig, targetRequestPrompt, requestReferenceImages, undefined, imageRequestOptions).then((items) => items[0])
+                                : await requestGeneration(imageRequestConfig, effectivePrompt, imageRequestOptions).then((items) => items[0]);
+                            const uploaded = await uploadImage(image.dataUrl);
+                            const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
+                            setNodes((prev) => {
+                                const root = prev.find((node) => node.id === rootId);
+                                return prev.map((node) => {
+                                    if (node.id !== targetId && node.id !== rootId) return node;
+                                    const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
+                                    if (node.id === rootId && (targetId === rootId || !root?.metadata?.primaryImageId))
+                                        return {
+                                            ...node,
+                                            position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
+                                            width: imageSize.width,
+                                            height: imageSize.height,
+                                            metadata: {
+                                                ...node.metadata,
+                                                ...imageMetadata(uploaded),
+                                                ...completedGenerationMetadata(provenance, persistedImagePrompt, node.id === nodeId ? attemptIndex : 1, mode, promptResolutionSnapshot),
+                                                primaryImageId: targetId,
+                                                statusMessage: undefined,
+                                                fusionPlacementPlanV1: fusionPlacementPlan,
+                                            },
+                                        };
+                                    if (node.id === targetId)
+                                        return {
+                                            ...node,
+                                            position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
+                                            width: imageSize.width,
+                                            height: imageSize.height,
+                                            metadata: {
+                                                ...node.metadata,
+                                                ...imageMetadata(uploaded),
+                                                ...completedGenerationMetadata(provenance, persistedImagePrompt, node.id === nodeId ? attemptIndex : 1, mode, promptResolutionSnapshot),
+                                                statusMessage: undefined,
+                                                fusionPlacementPlanV1: fusionPlacementPlan,
+                                            },
+                                        };
+                                    return node;
                                 });
-                                hasSuccess = true;
-                                if (isConfigNode) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined } } : node)));
-                            } catch (error) {
-                                if (isGenerationCanceled(error)) return;
-                                const errorDetails = error instanceof Error ? error.message : "生成失败";
-                                if (!firstFailureDetails) firstFailureDetails = errorDetails;
-                                if (!firstFailureKind) firstFailureKind = generationTelemetryErrorKind(error);
-                                hasFailure = true;
-                                setNodes((prev) => prev.map((node) => (node.id === targetId ? { ...node, metadata: imageFailureMetadata(node.metadata, error, errorDetails) } : node)));
-                            } finally {
-                                finishGenerationRequest(targetId, controller);
-                            }
-                        },
-                    );
+                            });
+                            hasSuccess = true;
+                            if (isConfigNode) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined } } : node)));
+                        } catch (error) {
+                            if (isGenerationCanceled(error)) return;
+                            const errorDetails = error instanceof Error ? error.message : "生成失败";
+                            if (!firstFailureDetails) firstFailureDetails = errorDetails;
+                            if (!firstFailureKind) firstFailureKind = generationTelemetryErrorKind(error);
+                            hasFailure = true;
+                            setNodes((prev) => prev.map((node) => (node.id === targetId ? { ...node, metadata: imageFailureMetadata(node.metadata, error, errorDetails) } : node)));
+                        } finally {
+                            finishGenerationRequest(targetId, controller);
+                        }
+                    });
                     if (count > 1) finishGenerationRequest(rootId, controller);
                     if (controller.signal.aborted) {
                         generationErrorKind = "cancelled";
@@ -4943,7 +4940,14 @@ function InfiniteCanvasPage() {
         );
         const leafFailures = failedNodes.filter((node) => leafFailureIds.has(node.id));
         const retryNodes = (leafFailures.length ? leafFailures : failedNodes).slice(0, 6);
-        retryNodes.forEach((node) => void handleRetryNode(node));
+        void runWithConcurrency(retryNodes, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (node) => {
+            try {
+                await handleRetryNode(node);
+            } catch (error) {
+                console.error("[canvas] retry failed before submission", error);
+                message.error(error instanceof Error ? error.message : "任务重试失败");
+            }
+        });
         const retryableCount = leafFailures.length || failedNodes.length;
         if (retryableCount > retryNodes.length) message.info(`已重试前 ${retryNodes.length} 个失败节点，剩余节点请稍后再重试。`);
     }, [handleRetryNode, message]);

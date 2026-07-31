@@ -12,6 +12,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { useSaveAsset } from "@/hooks/use-save-asset";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
+import { IMAGE_REQUEST_CONCURRENCY_LIMIT } from "@/lib/image-request-concurrency";
 import { normalizeImageSizeForSelectedModel } from "@/lib/tokaxis-google-image";
 import { requestEdit } from "@/services/api/image";
 import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
@@ -79,7 +80,7 @@ const sizeOptions = [
     { value: "16:9", label: "16:9" },
     { value: "9:16", label: "9:16" },
 ];
-const concurrencyOptions = [1, 2, 3, 4, 5].map((value) => ({ value, label: `${value} 个任务` }));
+const concurrencyOptions = Array.from({ length: IMAGE_REQUEST_CONCURRENCY_LIMIT }, (_, index) => index + 1).map((value) => ({ value, label: `${value} 个任务` }));
 const timeoutOptions = [
     { value: 0, label: "不限制" },
     { value: 60, label: "1 分钟" },
@@ -106,7 +107,7 @@ export default function BatchPage() {
     const [model, setModel] = useState(effectiveConfig.imageModel || effectiveConfig.model);
     const [quality, setQuality] = useState(effectiveConfig.quality || "auto");
     const [size, setSize] = useState(effectiveConfig.size || "auto");
-    const [concurrency, setConcurrency] = useState(3);
+    const [concurrency, setConcurrency] = useState(IMAGE_REQUEST_CONCURRENCY_LIMIT);
     const [timeoutSeconds, setTimeoutSeconds] = useState(300);
     const [hydrated, setHydrated] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -147,7 +148,7 @@ export default function BatchPage() {
                 setModel(workspace.model || effectiveConfig.imageModel || effectiveConfig.model);
                 setQuality(workspace.quality || "auto");
                 setSize(workspace.size || "auto");
-                setConcurrency(clamp(workspace.concurrency, 1, 5));
+                setConcurrency(clamp(workspace.concurrency, 1, IMAGE_REQUEST_CONCURRENCY_LIMIT));
                 setTimeoutSeconds([0, 60, 120, 300, 600].includes(workspace.timeoutSeconds) ? workspace.timeoutSeconds : 300);
                 itemsRef.current = workspace.items;
                 setItems(workspace.items);
@@ -419,7 +420,7 @@ export default function BatchPage() {
             }
         };
 
-        await Promise.all(Array.from({ length: Math.min(concurrency, selected.length) }, () => worker()));
+        await Promise.all(Array.from({ length: Math.min(concurrency, IMAGE_REQUEST_CONCURRENCY_LIMIT, selected.length) }, () => worker()));
         if (token !== runTokenRef.current) return;
         runningRef.current = false;
         setRunning(false);

@@ -3,6 +3,7 @@ import axios from "axios";
 import { buildApiUrl, isTokaxisProxyBaseUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
+import { imageRequestSemaphore } from "@/lib/image-request-concurrency";
 import { buildImageReferencePromptText, buildMaskConstrainedImageEditPrompt } from "@/lib/image-reference-prompt";
 import {
     GENERIC_IMAGE_MAX_EDGE,
@@ -581,11 +582,7 @@ async function requestTokaxisGoogleChatImages(config: AiConfig, prompt: string, 
     if (options?.jobId && supportsResumableImageJobs(config)) {
         return requestCanvasImageJob(config, "chat-completions", body, options);
     }
-    const response = await axios.post<ChatImageApiResponse>(
-        aiApiUrl(config, "/chat/completions"),
-        body,
-        { headers: aiHeaders(config, "application/json"), signal: options?.signal },
-    );
+    const response = await axios.post<ChatImageApiResponse>(aiApiUrl(config, "/chat/completions"), body, { headers: aiHeaders(config, "application/json"), signal: options?.signal });
     return parseChatImagePayload(response.data);
 }
 
@@ -1011,8 +1008,11 @@ function parseGeminiToolResponse(payload: GeminiPayload): ToolResponseResult {
 }
 
 async function requestGeminiImages(config: AiConfig, prompt: string, references: ReferenceImage[], count: number, options?: RequestOptions) {
-    const requests = Array.from({ length: count }, () => requestGeminiImagesOnce(config, prompt, references, options));
-    return (await Promise.all(requests)).flat();
+    const images: Array<{ id: string; dataUrl: string }> = [];
+    for (let index = 0; index < count; index += 1) {
+        images.push(...(await requestGeminiImagesOnce(config, prompt, references, options)));
+    }
+    return images;
 }
 
 async function requestGeminiImagesOnce(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions) {
@@ -1047,7 +1047,11 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
     return images;
 }
 
-export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
+export function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
+    return imageRequestSemaphore.run(options?.signal, () => requestGenerationWithPermit(config, prompt, options));
+}
+
+async function requestGenerationWithPermit(config: AiConfig, prompt: string, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const quality = normalizeQuality(config.quality);
@@ -1096,7 +1100,11 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     }
 }
 
-export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
+export function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
+    return imageRequestSemaphore.run(options?.signal, () => requestEditWithPermit(config, prompt, references, mask, options));
+}
+
+async function requestEditWithPermit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(mask ? buildMaskConstrainedImageEditPrompt(prompt) : prompt, references);

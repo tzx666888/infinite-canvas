@@ -332,7 +332,7 @@ function detectImageMimeType(bytes: Uint8Array, declared?: string) {
     if (ascii(bytes, 0, 4) === "GIF8") return "image/gif";
     if (ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP") return "image/webp";
     if (ascii(bytes, 4, 12).includes("ftyp")) return "image/avif";
-    return declared?.startsWith("image/") ? declared.split(";")[0] : "image/png";
+    throw new Error(`图片服务返回了损坏或不受支持的图片${declared?.startsWith("image/") ? `（${declared.split(";")[0]}）` : ""}`);
 }
 
 function ascii(bytes: Uint8Array, start: number, end: number) {
