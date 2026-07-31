@@ -133,7 +133,7 @@ try {
 
     const canvasClientSource = await readFile(path.join(import.meta.dirname, "../src/app/(user)/canvas/[id]/canvas-client-page.tsx"), "utf8");
     assert.match(canvasClientSource, /if \(generationRequestsRef\.current\.has\(pendingNode\.id\)\) return;/, "reload recovery must not take over and abort a live image submission");
-    assert.match(canvasClientSource, /await runWithConcurrency\(\s*targetIds,\s*IMAGE_REQUEST_CONCURRENCY_LIMIT,\s*async \(targetId, targetIndex\) =>/, "generic image batches must bound concurrent submissions");
+    assert.match(canvasClientSource, /await runWithConcurrency\(\s*targetIds,\s*IMAGE_TASK_CONCURRENCY_LIMIT,\s*async \(targetId, targetIndex\) =>/, "generic image batches must allow all selected tasks while the API layer bounds uploads");
 
     const imageApiSource = await readFile(path.join(import.meta.dirname, "../src/services/api/image.ts"), "utf8");
     assert.match(imageApiSource, /return status === 408 \|\| status >= 500;/, "gateway submit failures must be treated as ambiguous");

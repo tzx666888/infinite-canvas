@@ -1,4 +1,5 @@
-export const IMAGE_REQUEST_CONCURRENCY_LIMIT = 2;
+export const IMAGE_SUBMISSION_CONCURRENCY_LIMIT = 2;
+export const IMAGE_TASK_CONCURRENCY_LIMIT = 10;
 
 type SemaphoreWaiter = {
     resolve: (release: () => void) => void;
@@ -65,7 +66,11 @@ export class AsyncSemaphore {
     }
 }
 
-export const imageRequestSemaphore = new AsyncSemaphore(IMAGE_REQUEST_CONCURRENCY_LIMIT);
+const imageSubmissionSemaphore = new AsyncSemaphore(IMAGE_SUBMISSION_CONCURRENCY_LIMIT);
+
+export function runImageSubmission<T>(signal: AbortSignal | undefined, submit: () => Promise<T>) {
+    return imageSubmissionSemaphore.run(signal, submit);
+}
 
 export async function mapSettledWithConcurrency<T, R>(items: T[], limit: number, task: (item: T, index: number) => Promise<R>) {
     const results = new Array<PromiseSettledResult<R>>(items.length);

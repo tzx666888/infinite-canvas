@@ -3,7 +3,7 @@ import axios from "axios";
 import { buildApiUrl, isTokaxisProxyBaseUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
-import { imageRequestSemaphore } from "@/lib/image-request-concurrency";
+import { runImageSubmission } from "@/lib/image-request-concurrency";
 import { buildImageReferencePromptText, buildMaskConstrainedImageEditPrompt } from "@/lib/image-reference-prompt";
 import {
     GENERIC_IMAGE_MAX_EDGE,
@@ -217,21 +217,29 @@ export async function resumeCanvasImageJob(jobId: string, options?: Pick<Request
     throw new CanvasImageJobError("图片任务等待超时，请稍后重试");
 }
 
-async function requestCanvasImageJob(config: AiConfig, operation: "generations" | "edits" | "chat-completions", body: Record<string, unknown> | FormData, options: RequestOptions) {
+type ImageJobBodyFactory = () => Record<string, unknown> | FormData | Promise<Record<string, unknown> | FormData>;
+
+async function requestCanvasImageJob(config: AiConfig, operation: "generations" | "edits" | "chat-completions", buildBody: ImageJobBodyFactory, options: RequestOptions) {
     const jobId = options.jobId;
     if (!jobId) throw new CanvasImageJobError("图片任务缺少恢复 ID");
-    const isFormData = body instanceof FormData;
     let response: Response;
+    let submissionStarted = false;
     try {
-        response = await fetch(`/api/image-jobs/${encodeURIComponent(jobId)}?operation=${operation}`, {
-            method: "POST",
-            headers: aiHeaders(config, isFormData ? undefined : "application/json"),
-            body: isFormData ? body : JSON.stringify(body),
-            cache: "no-store",
-            signal: options.signal,
+        response = await runImageSubmission(options.signal, async () => {
+            const body = await buildBody();
+            const isFormData = body instanceof FormData;
+            submissionStarted = true;
+            return fetch(`/api/image-jobs/${encodeURIComponent(jobId)}?operation=${operation}`, {
+                method: "POST",
+                headers: aiHeaders(config, isFormData ? undefined : "application/json"),
+                body: isFormData ? body : JSON.stringify(body),
+                cache: "no-store",
+                signal: options.signal,
+            });
         });
     } catch (error) {
         if (options.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+        if (!submissionStarted) throw error;
         const submitError = new CanvasImageJobError(error instanceof Error ? `图片任务提交连接中断：${error.message}` : "图片任务提交连接中断");
         return resumeCanvasImageJobAfterAmbiguousSubmit(jobId, submitError, options);
     }
@@ -559,31 +567,35 @@ async function requestTokaxisGoogleChatImages(config: AiConfig, prompt: string, 
     const imageConfig = resolveTokaxisGoogleImageConfig(config.model, size, quality);
     const requestModel = tokaxisGoogleModelForSize(config.model, imageConfig.image_size);
     const controlledPrompt = withTokaxisGoogleImageControls(requestModel, withSystemPrompt(config, prompt), size, quality, n);
-    const content: AiTextMessage["content"] = [
-        {
-            type: "text",
-            text: controlledPrompt,
-        },
-        ...(await Promise.all(
-            references.map(async (image) => ({
-                type: "image_url" as const,
-                image_url: { url: await imageToDataUrl(image) },
-            })),
-        )),
-    ];
-    const body = {
-        model: requestModel,
-        messages: [{ role: "user", content }],
-        temperature: 0.2,
-        stream: false,
-        image_config: imageConfig,
-        ...(quality ? { quality } : {}),
+    const buildBody = async () => {
+        const content: AiTextMessage["content"] = [
+            {
+                type: "text",
+                text: controlledPrompt,
+            },
+            ...(await Promise.all(
+                references.map(async (image) => ({
+                    type: "image_url" as const,
+                    image_url: { url: await imageToDataUrl(image) },
+                })),
+            )),
+        ];
+        return {
+            model: requestModel,
+            messages: [{ role: "user", content }],
+            temperature: 0.2,
+            stream: false,
+            image_config: imageConfig,
+            ...(quality ? { quality } : {}),
+        };
     };
     if (options?.jobId && supportsResumableImageJobs(config)) {
-        return requestCanvasImageJob(config, "chat-completions", body, options);
+        return requestCanvasImageJob(config, "chat-completions", buildBody, options);
     }
-    const response = await axios.post<ChatImageApiResponse>(aiApiUrl(config, "/chat/completions"), body, { headers: aiHeaders(config, "application/json"), signal: options?.signal });
-    return parseChatImagePayload(response.data);
+    return runImageSubmission(options?.signal, async () => {
+        const response = await axios.post<ChatImageApiResponse>(aiApiUrl(config, "/chat/completions"), await buildBody(), { headers: aiHeaders(config, "application/json"), signal: options?.signal });
+        return parseChatImagePayload(response.data);
+    });
 }
 
 function readAxiosError(error: unknown, fallback: string) {
@@ -1008,11 +1020,13 @@ function parseGeminiToolResponse(payload: GeminiPayload): ToolResponseResult {
 }
 
 async function requestGeminiImages(config: AiConfig, prompt: string, references: ReferenceImage[], count: number, options?: RequestOptions) {
-    const images: Array<{ id: string; dataUrl: string }> = [];
-    for (let index = 0; index < count; index += 1) {
-        images.push(...(await requestGeminiImagesOnce(config, prompt, references, options)));
-    }
-    return images;
+    return runImageSubmission(options?.signal, async () => {
+        const images: Array<{ id: string; dataUrl: string }> = [];
+        for (let index = 0; index < count; index += 1) {
+            images.push(...(await requestGeminiImagesOnce(config, prompt, references, options)));
+        }
+        return images;
+    });
 }
 
 async function requestGeminiImagesOnce(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions) {
@@ -1047,11 +1061,7 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
     return images;
 }
 
-export function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
-    return imageRequestSemaphore.run(options?.signal, () => requestGenerationWithPermit(config, prompt, options));
-}
-
-async function requestGenerationWithPermit(config: AiConfig, prompt: string, options?: RequestOptions) {
+export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const quality = normalizeQuality(config.quality);
@@ -1084,27 +1094,24 @@ async function requestGenerationWithPermit(config: AiConfig, prompt: string, opt
         output_format: IMAGE_OUTPUT_FORMAT,
     };
     if (options?.jobId && supportsResumableImageJobs(requestConfig)) {
-        return requestCanvasImageJob(requestConfig, "generations", body, options);
+        return requestCanvasImageJob(requestConfig, "generations", () => body, options);
     }
     try {
-        const response = await axios.post<string>(aiApiUrl(requestConfig, "/images/generations"), body, {
-            headers: aiHeaders(requestConfig, "application/json"),
-            signal: options?.signal,
-            responseType: "text",
-            transformResponse: [(responseBody) => responseBody],
+        return await runImageSubmission(options?.signal, async () => {
+            const response = await axios.post<string>(aiApiUrl(requestConfig, "/images/generations"), body, {
+                headers: aiHeaders(requestConfig, "application/json"),
+                signal: options?.signal,
+                responseType: "text",
+                transformResponse: [(responseBody) => responseBody],
+            });
+            return validateDecodedImageResults(parseImagePayload(parseImageResponseBody(response.data)));
         });
-        const images = await validateDecodedImageResults(parseImagePayload(parseImageResponseBody(response.data)));
-        return images;
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }
 }
 
-export function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
-    return imageRequestSemaphore.run(options?.signal, () => requestEditWithPermit(config, prompt, references, mask, options));
-}
-
-async function requestEditWithPermit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
+export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(mask ? buildMaskConstrainedImageEditPrompt(prompt) : prompt, references);
@@ -1129,38 +1136,42 @@ async function requestEditWithPermit(config: AiConfig, prompt: string, reference
             throw new Error(readAxiosError(error, "请求失败"));
         }
     }
-    const formData = new FormData();
     const requestModel = requestConfig.model;
-    formData.set("model", requestModel);
-    formData.set("prompt", withSystemPrompt(requestConfig, requestPrompt));
-    formData.set("n", String(n));
-    formData.set("response_format", "b64_json");
-    formData.set("output_format", IMAGE_OUTPUT_FORMAT);
-    if (/^gpt-image(?:-|$)/i.test(requestModel)) {
-        formData.set("input_fidelity", "high");
-    }
-    if (quality) {
-        formData.set("quality", quality);
-    }
-    if (requestSize) {
-        formData.set("size", requestSize);
-    }
-    const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
-    files.forEach((file) => formData.append("image", file));
-    if (mask) formData.set("mask", dataUrlToFile(mask));
+    const buildFormData = async () => {
+        const formData = new FormData();
+        formData.set("model", requestModel);
+        formData.set("prompt", withSystemPrompt(requestConfig, requestPrompt));
+        formData.set("n", String(n));
+        formData.set("response_format", "b64_json");
+        formData.set("output_format", IMAGE_OUTPUT_FORMAT);
+        if (/^gpt-image(?:-|$)/i.test(requestModel)) {
+            formData.set("input_fidelity", "high");
+        }
+        if (quality) {
+            formData.set("quality", quality);
+        }
+        if (requestSize) {
+            formData.set("size", requestSize);
+        }
+        const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
+        files.forEach((file) => formData.append("image", file));
+        if (mask) formData.set("mask", dataUrlToFile(mask));
+        return formData;
+    };
 
     if (options?.jobId && supportsResumableImageJobs(requestConfig)) {
-        return requestCanvasImageJob(requestConfig, "edits", formData, options);
+        return requestCanvasImageJob(requestConfig, "edits", buildFormData, options);
     }
     try {
-        const response = await axios.post<string>(aiApiUrl(requestConfig, "/images/edits"), formData, {
-            headers: aiHeaders(requestConfig),
-            signal: options?.signal,
-            responseType: "text",
-            transformResponse: [(body) => body],
+        return await runImageSubmission(options?.signal, async () => {
+            const response = await axios.post<string>(aiApiUrl(requestConfig, "/images/edits"), await buildFormData(), {
+                headers: aiHeaders(requestConfig),
+                signal: options?.signal,
+                responseType: "text",
+                transformResponse: [(body) => body],
+            });
+            return validateDecodedImageResults(parseImagePayload(parseImageResponseBody(response.data)));
         });
-        const images = await validateDecodedImageResults(parseImagePayload(parseImageResponseBody(response.data)));
-        return images;
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }

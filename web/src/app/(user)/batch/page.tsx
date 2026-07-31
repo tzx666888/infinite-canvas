@@ -12,9 +12,8 @@ import { ModelPicker } from "@/components/model-picker";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { useSaveAsset } from "@/hooks/use-save-asset";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
-import { IMAGE_REQUEST_CONCURRENCY_LIMIT } from "@/lib/image-request-concurrency";
 import { normalizeImageSizeForSelectedModel } from "@/lib/tokaxis-google-image";
-import { requestEdit } from "@/services/api/image";
+import { cancelCanvasImageJob, requestEdit, supportsResumableImageJobs } from "@/services/api/image";
 import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
@@ -64,6 +63,8 @@ type RunSnapshot = {
 };
 
 const MAX_BATCH_IMAGES = 30;
+const MAX_BATCH_CONCURRENCY = 5;
+const DEFAULT_BATCH_CONCURRENCY = 3;
 const WORKSPACE_KEY = "current";
 const workspaceStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_batch_workspace" });
 const qualityOptions = [
@@ -80,7 +81,7 @@ const sizeOptions = [
     { value: "16:9", label: "16:9" },
     { value: "9:16", label: "9:16" },
 ];
-const concurrencyOptions = Array.from({ length: IMAGE_REQUEST_CONCURRENCY_LIMIT }, (_, index) => index + 1).map((value) => ({ value, label: `${value} 个任务` }));
+const concurrencyOptions = Array.from({ length: MAX_BATCH_CONCURRENCY }, (_, index) => index + 1).map((value) => ({ value, label: `${value} 个任务` }));
 const timeoutOptions = [
     { value: 0, label: "不限制" },
     { value: 60, label: "1 分钟" },
@@ -107,7 +108,7 @@ export default function BatchPage() {
     const [model, setModel] = useState(effectiveConfig.imageModel || effectiveConfig.model);
     const [quality, setQuality] = useState(effectiveConfig.quality || "auto");
     const [size, setSize] = useState(effectiveConfig.size || "auto");
-    const [concurrency, setConcurrency] = useState(IMAGE_REQUEST_CONCURRENCY_LIMIT);
+    const [concurrency, setConcurrency] = useState(DEFAULT_BATCH_CONCURRENCY);
     const [timeoutSeconds, setTimeoutSeconds] = useState(300);
     const [hydrated, setHydrated] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -148,7 +149,7 @@ export default function BatchPage() {
                 setModel(workspace.model || effectiveConfig.imageModel || effectiveConfig.model);
                 setQuality(workspace.quality || "auto");
                 setSize(workspace.size || "auto");
-                setConcurrency(clamp(workspace.concurrency, 1, IMAGE_REQUEST_CONCURRENCY_LIMIT));
+                setConcurrency(clamp(workspace.concurrency, 1, MAX_BATCH_CONCURRENCY));
                 setTimeoutSeconds([0, 60, 120, 300, 600].includes(workspace.timeoutSeconds) ? workspace.timeoutSeconds : 300);
                 itemsRef.current = workspace.items;
                 setItems(workspace.items);
@@ -264,6 +265,7 @@ export default function BatchPage() {
     const executeTask = async (task: BatchItem, snapshot: RunSnapshot, token: number) => {
         if (token !== runTokenRef.current) return;
         const controller = new AbortController();
+        const imageJobId = supportsResumableImageJobs(snapshot.config) ? nanoid(32) : undefined;
         controllersRef.current.set(task.id, controller);
         const startedAt = Date.now();
         let timedOut = false;
@@ -283,7 +285,7 @@ export default function BatchPage() {
                 dataUrl: task.sourceUrl,
                 storageKey: task.sourceStorageKey,
             };
-            const [generated] = await requestEdit(snapshot.config, snapshot.prompt, [reference], undefined, { signal: controller.signal });
+            const [generated] = await requestEdit(snapshot.config, snapshot.prompt, [reference], undefined, { signal: controller.signal, jobId: imageJobId });
             if (!generated) throw new Error("接口没有返回图片");
             if (timeout) {
                 window.clearTimeout(timeout);
@@ -335,6 +337,7 @@ export default function BatchPage() {
             );
         } finally {
             if (timeout) window.clearTimeout(timeout);
+            if (controller.signal.aborted && imageJobId) await cancelCanvasImageJob(imageJobId).catch(() => undefined);
             if (controllersRef.current.get(task.id) === controller) controllersRef.current.delete(task.id);
         }
     };
@@ -420,7 +423,7 @@ export default function BatchPage() {
             }
         };
 
-        await Promise.all(Array.from({ length: Math.min(concurrency, IMAGE_REQUEST_CONCURRENCY_LIMIT, selected.length) }, () => worker()));
+        await Promise.all(Array.from({ length: Math.min(concurrency, selected.length) }, () => worker()));
         if (token !== runTokenRef.current) return;
         runningRef.current = false;
         setRunning(false);

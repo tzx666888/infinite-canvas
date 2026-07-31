@@ -13,7 +13,7 @@ import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/c
 import { useSaveAsset } from "@/hooks/use-save-asset";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isContentPolicyErrorMessage } from "@/lib/content-policy-error";
-import { IMAGE_REQUEST_CONCURRENCY_LIMIT, mapSettledWithConcurrency } from "@/lib/image-request-concurrency";
+import { IMAGE_TASK_CONCURRENCY_LIMIT, mapSettledWithConcurrency } from "@/lib/image-request-concurrency";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { normalizeImageSizeForSelectedModel } from "@/lib/tokaxis-google-image";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -163,7 +163,7 @@ export default function ImagePage() {
         setStartedAt(batchStartedAt);
 
         const slots = Array.from({ length: generationCount }, (_, index) => index);
-        const result = await mapSettledWithConcurrency(slots, IMAGE_REQUEST_CONCURRENCY_LIMIT, (index) => runGenerationSlot(index, snapshot));
+        const result = await mapSettledWithConcurrency(slots, IMAGE_TASK_CONCURRENCY_LIMIT, (index) => runGenerationSlot(index, snapshot));
         const successImages = result.filter((item): item is PromiseFulfilledResult<GeneratedImage> => item.status === "fulfilled").map((item) => item.value);
         const successCount = successImages.length;
         const failCount = generationCount - successCount;

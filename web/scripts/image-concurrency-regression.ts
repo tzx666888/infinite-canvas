@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { AsyncSemaphore, IMAGE_REQUEST_CONCURRENCY_LIMIT, mapSettledWithConcurrency } from "../src/lib/image-request-concurrency.ts";
+import { AsyncSemaphore, IMAGE_SUBMISSION_CONCURRENCY_LIMIT, IMAGE_TASK_CONCURRENCY_LIMIT, mapSettledWithConcurrency, runImageSubmission } from "../src/lib/image-request-concurrency.ts";
 
 let active = 0;
 let maximumActive = 0;
-const semaphore = new AsyncSemaphore(IMAGE_REQUEST_CONCURRENCY_LIMIT);
+const semaphore = new AsyncSemaphore(IMAGE_SUBMISSION_CONCURRENCY_LIMIT);
 await Promise.all(
     Array.from({ length: 8 }, () =>
         semaphore.run(undefined, async () => {
@@ -17,7 +17,39 @@ await Promise.all(
         }),
     ),
 );
-assert.equal(maximumActive, IMAGE_REQUEST_CONCURRENCY_LIMIT, "the shared image semaphore must cap active requests at two");
+assert.equal(maximumActive, IMAGE_SUBMISSION_CONCURRENCY_LIMIT, "image submission must cap active uploads at two");
+
+let activeSubmissions = 0;
+let maximumSubmissions = 0;
+let pollingTasks = 0;
+let markAllPolling!: () => void;
+let releasePolling!: () => void;
+const allPolling = new Promise<void>((resolve) => {
+    markAllPolling = resolve;
+});
+const pollingGate = new Promise<void>((resolve) => {
+    releasePolling = resolve;
+});
+const submittedJobs = Array.from({ length: 6 }, (_, index) =>
+    (async () => {
+        const jobId = await runImageSubmission(undefined, async () => {
+            activeSubmissions += 1;
+            maximumSubmissions = Math.max(maximumSubmissions, activeSubmissions);
+            await delay(5);
+            activeSubmissions -= 1;
+            return index;
+        });
+        pollingTasks += 1;
+        if (pollingTasks === 6) markAllPolling();
+        await pollingGate;
+        return jobId;
+    })(),
+);
+await allPolling;
+assert.equal(maximumSubmissions, IMAGE_SUBMISSION_CONCURRENCY_LIMIT, "only two uploads may overlap");
+assert.equal(pollingTasks, 6, "all server jobs must enter polling without waiting for earlier generations to finish");
+releasePolling();
+assert.deepEqual(await Promise.all(submittedJobs), [0, 1, 2, 3, 4, 5]);
 
 const blockingSemaphore = new AsyncSemaphore(1);
 let releaseBlockingTask!: () => void;
@@ -46,7 +78,7 @@ assert.equal(canceledTaskRan, false, "a queued request canceled by the user must
 
 active = 0;
 maximumActive = 0;
-const settled = await mapSettledWithConcurrency([0, 1, 2, 3, 4], IMAGE_REQUEST_CONCURRENCY_LIMIT, async (value) => {
+const settled = await mapSettledWithConcurrency([0, 1, 2, 3, 4], IMAGE_SUBMISSION_CONCURRENCY_LIMIT, async (value) => {
     active += 1;
     maximumActive = Math.max(maximumActive, active);
     await delay(5);
@@ -54,7 +86,7 @@ const settled = await mapSettledWithConcurrency([0, 1, 2, 3, 4], IMAGE_REQUEST_C
     if (value === 2) throw new Error("expected failure");
     return value * 2;
 });
-assert.equal(maximumActive, IMAGE_REQUEST_CONCURRENCY_LIMIT);
+assert.equal(maximumActive, IMAGE_SUBMISSION_CONCURRENCY_LIMIT);
 assert.deepEqual(
     settled.map((result) => result.status),
     ["fulfilled", "fulfilled", "rejected", "fulfilled", "fulfilled"],
@@ -66,10 +98,14 @@ const imagePageSource = await readFile(path.join(import.meta.dirname, "../src/ap
 const batchPageSource = await readFile(path.join(import.meta.dirname, "../src/app/(user)/batch/page.tsx"), "utf8");
 const imageApiSource = await readFile(path.join(import.meta.dirname, "../src/services/api/image.ts"), "utf8");
 
-assert.match(canvasSource, /runWithConcurrency\(retryNodes, IMAGE_REQUEST_CONCURRENCY_LIMIT,/, "one-click canvas retry must use the shared limit");
-assert.match(imagePageSource, /mapSettledWithConcurrency\(slots, IMAGE_REQUEST_CONCURRENCY_LIMIT,/, "the image workbench must not launch every slot at once");
-assert.match(batchPageSource, /Math\.min\(concurrency, IMAGE_REQUEST_CONCURRENCY_LIMIT, selected\.length\)/, "the batch workbench must enforce the shared limit");
-assert.equal((imageApiSource.match(/imageRequestSemaphore\.run/g) || []).length, 2, "generation and edit requests must both use the shared semaphore");
+assert.equal(IMAGE_TASK_CONCURRENCY_LIMIT, 10, "the canvas must be able to run all ten selected image tasks");
+assert.match(canvasSource, /runWithConcurrency\(retryNodes, IMAGE_TASK_CONCURRENCY_LIMIT,/, "one-click canvas retry must restore task concurrency");
+assert.match(imagePageSource, /mapSettledWithConcurrency\(slots, IMAGE_TASK_CONCURRENCY_LIMIT,/, "the image workbench must submit all selected tasks");
+assert.match(batchPageSource, /const MAX_BATCH_CONCURRENCY = 5;/, "the batch workbench must restore its configurable concurrency");
+assert.match(batchPageSource, /Math\.min\(concurrency, selected\.length\)/, "the batch worker must honor the selected task concurrency");
+assert.match(imageApiSource, /response = await runImageSubmission\(options\.signal, async \(\) => \{/, "resumable jobs must limit only their submission stage");
+assert.match(imageApiSource, /return resumeCanvasImageJob\(jobId, options\);/, "polling must continue after the submission permit is released");
+assert.doesNotMatch(imageApiSource, /imageRequestSemaphore/, "image generation must not hold a semaphore while polling");
 assert.doesNotMatch(imageApiSource, /Promise\.all\(requests\)/, "a single Gemini request must not fan out behind the shared semaphore");
 
 process.stdout.write("image concurrency regression passed\n");

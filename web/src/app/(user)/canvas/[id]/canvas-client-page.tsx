@@ -30,7 +30,7 @@ import { imageToDataUrl, resolveImageUrl, uploadImage, type UploadedImage } from
 import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
-import { IMAGE_REQUEST_CONCURRENCY_LIMIT } from "@/lib/image-request-concurrency";
+import { IMAGE_TASK_CONCURRENCY_LIMIT } from "@/lib/image-request-concurrency";
 import { isContentPolicyErrorMessage } from "@/lib/content-policy-error";
 import { buildSceneAwareImageEditPrompt } from "@/lib/fusion-plan-prompt";
 import { resolveFusionReferenceRoles } from "@/lib/fusion-reference-roles";
@@ -2895,7 +2895,7 @@ function InfiniteCanvasPage() {
             let hasSuccess = false;
             let hasFailure = false;
             try {
-                await runWithConcurrency(targetIds, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (targetId, index) => {
+                await runWithConcurrency(targetIds, IMAGE_TASK_CONCURRENCY_LIMIT, async (targetId, index) => {
                     const shot = shots[index];
                     const shotPrompt = buildProductDetailImagePrompt(plan, shot, index);
                     const generationStartedAt = Date.now();
@@ -3071,7 +3071,7 @@ function InfiniteCanvasPage() {
 
             let successCount = 0;
             try {
-                await runWithConcurrency(targetIds, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (targetId, index) => {
+                await runWithConcurrency(targetIds, IMAGE_TASK_CONCURRENCY_LIMIT, async (targetId, index) => {
                     const scene = scenes[index];
                     const scenePrompt = buildSceneExpansionImagePrompt(plan, scene);
                     const generationStartedAt = Date.now();
@@ -3244,7 +3244,7 @@ function InfiniteCanvasPage() {
             let successCount = 0;
             try {
                 const useEdit = referenceImages.length > 0;
-                await runWithConcurrency(targetIds, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (targetId, index) => {
+                await runWithConcurrency(targetIds, IMAGE_TASK_CONCURRENCY_LIMIT, async (targetId, index) => {
                     const reviewPrompt = reviewPrompts[index] || reviewPrompts[0];
                     const generationStartedAt = Date.now();
                     let generationOk = false;
@@ -3442,7 +3442,7 @@ function InfiniteCanvasPage() {
 
             let successCount = 0;
             try {
-                await runWithConcurrency(targetIds, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (targetId, index) => {
+                await runWithConcurrency(targetIds, IMAGE_TASK_CONCURRENCY_LIMIT, async (targetId, index) => {
                     const beatContext = beatGenerationContexts[index];
                     const beatPrompt = beatContext.prompt;
                     const generationStartedAt = Date.now();
@@ -3987,7 +3987,7 @@ function InfiniteCanvasPage() {
                     let hasFailure = false;
                     let firstFailureDetails = "";
                     let firstFailureKind = "";
-                    await runWithConcurrency(targetIds, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (targetId, targetIndex) => {
+                    await runWithConcurrency(targetIds, IMAGE_TASK_CONCURRENCY_LIMIT, async (targetId, targetIndex) => {
                         try {
                             const imageRequestConfig = { ...generationConfig, count: "1" };
                             const imageRequestOptions = beginImageRequest(imageRequestConfig, targetId, controller.signal);
@@ -4940,7 +4940,7 @@ function InfiniteCanvasPage() {
         );
         const leafFailures = failedNodes.filter((node) => leafFailureIds.has(node.id));
         const retryNodes = (leafFailures.length ? leafFailures : failedNodes).slice(0, 6);
-        void runWithConcurrency(retryNodes, IMAGE_REQUEST_CONCURRENCY_LIMIT, async (node) => {
+        void runWithConcurrency(retryNodes, IMAGE_TASK_CONCURRENCY_LIMIT, async (node) => {
             try {
                 await handleRetryNode(node);
             } catch (error) {
