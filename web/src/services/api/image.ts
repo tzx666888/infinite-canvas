@@ -119,11 +119,13 @@ type CanvasImageJobResponse = {
 
 export class CanvasImageJobError extends Error {
     terminal: boolean;
+    status?: number;
 
-    constructor(message: string, terminal = true) {
+    constructor(message: string, terminal = true, status?: number) {
         super(message);
         this.name = "CanvasImageJobError";
         this.terminal = terminal;
+        this.status = status;
     }
 }
 
@@ -146,6 +148,8 @@ const DEFAULT_IMAGE_SHORT_SIDE = 1024;
 const IMAGE_OUTPUT_FORMAT = "png";
 const CANVAS_IMAGE_JOB_POLL_INTERVAL_MS = 1_500;
 const CANVAS_IMAGE_JOB_TIMEOUT_MS = 22 * 60 * 1000;
+const CANVAS_IMAGE_JOB_SUBMIT_RECOVERY_ATTEMPTS = 3;
+const CANVAS_IMAGE_JOB_SUBMIT_RECOVERY_DELAY_MS = 750;
 
 export function supportsResumableImageJobs(config: AiConfig) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
@@ -188,7 +192,7 @@ export async function resumeCanvasImageJob(jobId: string, options?: Pick<Request
             const payload = (await response.json().catch(() => null)) as CanvasImageJobResponse | { error?: { message?: string } } | null;
             if (!response.ok) {
                 const message = imageJobResponseError(payload) || (response.status === 404 ? "图片任务不存在或已过期" : `图片任务查询失败（${response.status}）`);
-                throw new CanvasImageJobError(message, response.status >= 400 && response.status < 500);
+                throw new CanvasImageJobError(message, response.status >= 400 && response.status < 500, response.status);
             }
             consecutiveNetworkFailures = 0;
             const job = payload as CanvasImageJobResponse;
@@ -216,18 +220,45 @@ async function requestCanvasImageJob(config: AiConfig, operation: "generations" 
     const jobId = options.jobId;
     if (!jobId) throw new CanvasImageJobError("图片任务缺少恢复 ID");
     const isFormData = body instanceof FormData;
-    const response = await fetch(`/api/image-jobs/${encodeURIComponent(jobId)}?operation=${operation}`, {
-        method: "POST",
-        headers: aiHeaders(config, isFormData ? undefined : "application/json"),
-        body: isFormData ? body : JSON.stringify(body),
-        cache: "no-store",
-        signal: options.signal,
-    });
+    let response: Response;
+    try {
+        response = await fetch(`/api/image-jobs/${encodeURIComponent(jobId)}?operation=${operation}`, {
+            method: "POST",
+            headers: aiHeaders(config, isFormData ? undefined : "application/json"),
+            body: isFormData ? body : JSON.stringify(body),
+            cache: "no-store",
+            signal: options.signal,
+        });
+    } catch (error) {
+        if (options.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+        const submitError = new CanvasImageJobError(error instanceof Error ? `图片任务提交连接中断：${error.message}` : "图片任务提交连接中断");
+        return resumeCanvasImageJobAfterAmbiguousSubmit(jobId, submitError, options);
+    }
     if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-        throw new CanvasImageJobError(imageJobResponseError(payload) || `图片任务提交失败（${response.status}）`);
+        const submitError = new CanvasImageJobError(imageJobResponseError(payload) || `图片任务提交失败（${response.status}）`, true, response.status);
+        if (shouldRecoverCanvasImageJobSubmission(response.status)) return resumeCanvasImageJobAfterAmbiguousSubmit(jobId, submitError, options);
+        throw submitError;
     }
     return resumeCanvasImageJob(jobId, options);
+}
+
+function shouldRecoverCanvasImageJobSubmission(status: number) {
+    return status === 408 || status >= 500;
+}
+
+async function resumeCanvasImageJobAfterAmbiguousSubmit(jobId: string, submitError: CanvasImageJobError, options: Pick<RequestOptions, "signal">) {
+    for (let attempt = 0; attempt < CANVAS_IMAGE_JOB_SUBMIT_RECOVERY_ATTEMPTS; attempt += 1) {
+        try {
+            return await resumeCanvasImageJob(jobId, options);
+        } catch (error) {
+            if (!(error instanceof CanvasImageJobError) || error.status !== 404) throw error;
+            if (attempt + 1 < CANVAS_IMAGE_JOB_SUBMIT_RECOVERY_ATTEMPTS) {
+                await waitForImageJobPoll(CANVAS_IMAGE_JOB_SUBMIT_RECOVERY_DELAY_MS, options.signal);
+            }
+        }
+    }
+    throw submitError;
 }
 
 function imageJobResponseError(payload: unknown) {

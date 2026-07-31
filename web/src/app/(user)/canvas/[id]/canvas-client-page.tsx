@@ -3986,8 +3986,10 @@ function InfiniteCanvasPage() {
                     let hasFailure = false;
                     let firstFailureDetails = "";
                     let firstFailureKind = "";
-                    await Promise.all(
-                        targetIds.map(async (targetId, targetIndex) => {
+                    await runWithConcurrency(
+                        targetIds,
+                        2,
+                        async (targetId, targetIndex) => {
                             try {
                                 const imageRequestConfig = { ...generationConfig, count: "1" };
                                 const imageRequestOptions = beginImageRequest(imageRequestConfig, targetId, controller.signal);
@@ -4036,9 +4038,8 @@ function InfiniteCanvasPage() {
                                 });
                                 hasSuccess = true;
                                 if (isConfigNode) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined } } : node)));
-                                return true;
                             } catch (error) {
-                                if (isGenerationCanceled(error)) return false;
+                                if (isGenerationCanceled(error)) return;
                                 const errorDetails = error instanceof Error ? error.message : "生成失败";
                                 if (!firstFailureDetails) firstFailureDetails = errorDetails;
                                 if (!firstFailureKind) firstFailureKind = generationTelemetryErrorKind(error);
@@ -4047,8 +4048,7 @@ function InfiniteCanvasPage() {
                             } finally {
                                 finishGenerationRequest(targetId, controller);
                             }
-                            return false;
-                        }),
+                        },
                     );
                     if (count > 1) finishGenerationRequest(rootId, controller);
                     if (controller.signal.aborted) {

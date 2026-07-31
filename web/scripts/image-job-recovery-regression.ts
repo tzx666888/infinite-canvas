@@ -105,6 +105,19 @@ try {
         /if \(generationRequestsRef\.current\.has\(pendingNode\.id\)\) return;/,
         "reload recovery must not take over and abort a live image submission",
     );
+    assert.match(
+        canvasClientSource,
+        /await runWithConcurrency\(\s*targetIds,\s*2,\s*async \(targetId, targetIndex\) =>/,
+        "generic image batches must bound concurrent submissions",
+    );
+
+    const imageApiSource = await readFile(path.join(import.meta.dirname, "../src/services/api/image.ts"), "utf8");
+    assert.match(imageApiSource, /return status === 408 \|\| status >= 500;/, "gateway submit failures must be treated as ambiguous");
+    assert.match(
+        imageApiSource,
+        /return resumeCanvasImageJobAfterAmbiguousSubmit\(jobId, submitError, options\);/,
+        "ambiguous submissions must probe their persisted job before failing",
+    );
 
     process.stdout.write("image job recovery regression passed\n");
 } finally {
