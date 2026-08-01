@@ -185,7 +185,7 @@ function selectGoogleVideoModel(config: AiConfig, referenceImageCount: number) {
 }
 
 function modelDisplayNameForError(model: string) {
-    if (model === "omni" || model === "omni_portrait") return model === "omni" ? "Omni 横屏文生视频" : "Omni 竖屏文生视频";
+    if (model === "omni" || model === "omni_portrait") return model === "omni" ? "Omni 横屏视频" : "Omni 竖屏视频";
     if (model.startsWith("veo_3_1_t2v")) return "Veo 3.1 文生视频";
     if (model.startsWith("veo_3_1_i2v")) return "Veo 3.1 首尾帧视频";
     if (model.startsWith("veo_3_1_r2v")) return "Veo 3.1 多参考视频";

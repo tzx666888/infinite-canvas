@@ -83,20 +83,23 @@ export function fixedVideoResolution(model: string): "720" | "1080" | null {
     return fixedGrokVideoResolution(model);
 }
 
-export function googleVideoReferenceMode(model: string): VideoReferenceMode {
+export function googleVideoReferenceMode(model: string, referenceCount = 0): VideoReferenceMode {
     const normalized = normalizeVideoModelId(model);
+    if (OMNI_VIDEO_MODEL_IDS.has(normalized)) return referenceCount > 0 ? "r2v" : "t2v";
     if (normalized.startsWith("veo_3_1_i2v")) return "i2v";
     if (normalized.startsWith("veo_3_1_r2v")) return "r2v";
     return "t2v";
 }
 
 export function videoReferenceMode(model: string, referenceCount: number): VideoReferenceMode {
-    return isGoogleVideoModel(model) ? googleVideoReferenceMode(model) : grokVideoReferenceMode(model, referenceCount);
+    return isGoogleVideoModel(model) ? googleVideoReferenceMode(model, referenceCount) : grokVideoReferenceMode(model, referenceCount);
 }
 
 export function googleVideoReferenceImageLimit(model: string) {
+    if (!isGoogleVideoModel(model)) return 0;
+    if (isOmniVideoModel(model)) return 3;
     const mode = googleVideoReferenceMode(model);
-    if (!isGoogleVideoModel(model) || mode === "t2v") return 0;
+    if (mode === "t2v") return 0;
     return mode === "i2v" ? 2 : 3;
 }
 
@@ -107,7 +110,8 @@ export function videoReferenceImageLimit(model: string) {
 
 export function supportsGoogleVideoReferenceCount(model: string, referenceImageCount: number) {
     if (!isGoogleVideoModel(model)) return false;
-    const mode = googleVideoReferenceMode(model);
+    if (isOmniVideoModel(model)) return referenceImageCount >= 0 && referenceImageCount <= 3;
+    const mode = googleVideoReferenceMode(model, referenceImageCount);
     if (mode === "t2v") return referenceImageCount === 0;
     if (mode === "i2v") return referenceImageCount >= 1 && referenceImageCount <= 2;
     return referenceImageCount >= 1 && referenceImageCount <= 3;

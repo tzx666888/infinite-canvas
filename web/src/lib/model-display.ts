@@ -21,8 +21,8 @@ export function modelDisplayInfo(model: string): ModelDisplayInfo {
     if (lower === "veo_3_1_r2v_fast_landscape") return { label: "Veo 3.1 多参考 · 横屏", description: "1–3 张参考图；4、6、15 秒；720p", badge: "Google" };
     if (lower === "veo_3_1_r2v_fast_portrait") return { label: "Veo 3.1 多参考 · 竖屏", description: "1–3 张参考图；4、6、15 秒；720p", badge: "Google" };
     if (lower === "veo_3_1_r2v_fast") return { label: "Veo 3.1 多参考 · 自适应", description: "1–3 张参考图；4、6、15 秒；720p", badge: "Google" };
-    if (lower === "omni") return { label: "Omni 文生视频 · 横屏", description: "纯文字生成；固定 10 秒；720p", badge: "Google" };
-    if (lower === "omni_portrait") return { label: "Omni 文生视频 · 竖屏", description: "纯文字生成；固定 10 秒；720p", badge: "Google" };
+    if (lower === "omni") return { label: "Omni 视频 · 横屏", description: "文字或 1–3 张参考图；固定 10 秒；720p", badge: "Google" };
+    if (lower === "omni_portrait") return { label: "Omni 视频 · 竖屏", description: "文字或 1–3 张参考图；固定 10 秒；720p", badge: "Google" };
     if (lower === "grok-imagine-video-1.5-fast") return { label: "Grok Fast 视频", description: "无参考/单图 6、10、15 秒；2–7 图 6、10 秒；720p", badge: "Grok" };
     if (lower === "grok-imagine-video-1.5-preview") return { label: "Grok Preview 视频", description: "1–7 张参考图；6、10 秒；720p", badge: "Grok" };
     if (lower === "grok-imagine-video-1.5-1080p") return { label: "Grok 1080p 视频", description: "仅 1 张参考图；6、10 秒；固定 1080p", badge: "Grok" };

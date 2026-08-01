@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v3.0.43 - 2026-07-31
+
++ [修复] 按 Flow2API 真实协议恢复 `omni` / `omni_portrait` 的参考图视频能力；无图走 T2V，连接 1–3 张图时走 Omni Reference Images 链路，固定 10 秒与 720p 不变。
++ [修复] 画布、视频创作台和 Agent 不再把 Omni 误报为纯文生模型；参考图数量、R2V 提示词编译与模型说明保持一致。
++ [测试] 新增 Omni 0–3 图能力、4 图拒绝和 T2V/R2V 模式回归，并通过桥接单元测试、TypeScript 与生产构建。
+
 ## v3.0.42 - 2026-07-31
 
 + [新增] 画布接入 Google/Flow 的 9 个视频模型，包含 Veo 3.1 文生、首尾帧、多参考的横竖屏模型以及 `omni` / `omni_portrait`；Grok 视频暂不在画布候选中显示。

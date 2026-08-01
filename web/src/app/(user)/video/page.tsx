@@ -15,7 +15,7 @@ import { useSaveAsset } from "@/hooks/use-save-asset";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { isGoogleVideoModel, isOmniVideoModel, normalizeReferenceVideoSeconds, supportsGoogleVideoReferenceCount, videoAspectRatioForSize, videoReferenceImageLimit, videoReferenceMode } from "@/lib/video-model-settings";
+import { isGoogleVideoModel, normalizeReferenceVideoSeconds, supportsGoogleVideoReferenceCount, videoAspectRatioForSize, videoReferenceImageLimit, videoReferenceMode } from "@/lib/video-model-settings";
 import type { VideoWorkbenchMode } from "@/lib/video-workbench-prompt";
 import { resolveReferenceImageVideoConfig } from "@/app/(user)/canvas/utils/video-reference-model";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
@@ -106,7 +106,7 @@ export default function VideoPage() {
 
     const model = effectiveConfig.videoModel || effectiveConfig.model;
     const selectedVideoModel = modelOptionName(model);
-    const imageReferenceLimit = isOmniVideoModel(selectedVideoModel) ? 0 : isGoogleVideoModel(selectedVideoModel) ? 3 : SEEDANCE_REFERENCE_LIMITS.images;
+    const imageReferenceLimit = isGoogleVideoModel(selectedVideoModel) ? videoReferenceImageLimit(selectedVideoModel) : SEEDANCE_REFERENCE_LIMITS.images;
     const canGenerate = Boolean(prompt.trim());
 
     useEffect(() => {
