@@ -602,7 +602,7 @@ assert.match(canvasClientSource, /storyboardVideoAnchorMode === "generated-bridg
 assert.match(canvasClientSource, /needsRetryStoryboardBridge/, "whole-video retry must rebuild unsafe legacy anchors before resubmission");
 assert.match(canvasClientSource, /const retryReferenceVideos = retriesWholeStoryboardSheet \? \[\]/, "whole-storyboard retry must discard graph-derived video references");
 assert.match(canvasClientSource, /storyboardRetryWholeImages\.length > 0 \|\| isStoredWholeStoryboardVideo\(node\)/, "retry must recognize a persisted whole-storyboard video without requiring a directly connected review sheet");
-assert.match(canvasClientSource, /retriesWholeStoryboardSheet \? retryWholeStoryboardAnchors : selectGrokReferenceVideoImagesWithPriority/, "whole-grid retry must keep exactly one model-specific review-sheet anchor");
+assert.match(canvasClientSource, /retriesWholeStoryboardSheet \? retryWholeStoryboardAnchors : selectVideoReferenceImagesWithPriority/, "whole-grid retry must keep exactly one model-specific review-sheet anchor");
 assert.match(canvasClientSource, /compileStoryboardCleanAnchorVideoPrompt\(storyboardPlan/, "whole-grid I2V must use the compact clean-anchor compiler");
 assert.doesNotMatch(canvasClientSource, /buildWholeStoryboardI2VPrompt|buildWholeStoryboardLegacyI2VDirection/, "the markerless legacy whole-grid wrapper must stay removed");
 assert.match(canvasClientSource, /recoverLegacyStoryboardVideoPlan/, "legacy whole-grid videos must recover lost semantic direction before submission");
