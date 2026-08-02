@@ -497,7 +497,7 @@ function normalizeVideoProviderError(message: string, fallback: string) {
         return "参考图数量超过当前视频模型限制，请减少参考图后重试";
     }
     if (lower.includes("duration") && (lower.includes("limit") || lower.includes("unsupported") || lower.includes("maximum"))) {
-        return "当前视频时长不受模型支持：Veo 智能生成支持 4、6、8 秒，多参考固定 8 秒，Omni 固定 10 秒";
+        return "当前视频时长不受模型支持：Veo 智能生成支持原生 4、6、8 秒及 16 秒接力测试（2×8 秒），多参考固定 8 秒，Omni 固定 10 秒";
     }
     return text || fallback;
 }

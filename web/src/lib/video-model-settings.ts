@@ -4,6 +4,7 @@ import {
     googleVideoReferenceImageLimit,
     googleVideoReferenceMode,
     isGoogleVideoModel,
+    normalizeGoogleVideoSeconds,
     selectGoogleVideoReferenceImages,
     selectGoogleVideoReferenceImagesWithPriority,
     supportsGoogleVideoReferenceCount,
@@ -30,6 +31,7 @@ export {
     googleVideoReferenceImageLimit,
     googleVideoReferenceMode,
     googleVideoRouteAspectRatio,
+    isGoogleVeoRelayDuration,
     isGoogleVideoModel,
     isOmniVideoModel,
     normalizeGoogleVideoSeconds,
@@ -78,6 +80,7 @@ export function supportsVideoReferenceCount(model: string, referenceImageCount: 
 }
 
 export function normalizeModelVideoSeconds(value: string, model: string) {
+    if (isGoogleVideoModel(model)) return normalizeGoogleVideoSeconds(value, model);
     const seconds = Math.floor(Number(value) || 6);
     const options = fixedVideoDurationOptions(model);
     if (!options) return String(Math.max(1, Math.min(20, seconds)));

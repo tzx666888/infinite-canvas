@@ -15,14 +15,14 @@ export const DEFAULT_GOOGLE_VIDEO_MODEL = "tokaxis::veo_3_1_i2v_s_fast_portrait_
 
 const GOOGLE_VIDEO_MODEL_ID_SET = new Set<string>(GOOGLE_VIDEO_MODEL_IDS);
 const OMNI_VIDEO_MODEL_IDS = new Set(["omni", "omni_portrait"]);
-const GOOGLE_VEO_DURATION_OPTIONS = [4, 6, 8] as const;
+const GOOGLE_VEO_DURATION_OPTIONS = [4, 6, 8, 16] as const;
 const GOOGLE_VEO_R2V_DURATION_OPTIONS = [8] as const;
 const GOOGLE_OMNI_DURATION_OPTIONS = [10] as const;
 
 export type GoogleVideoEntryMode = "veo-auto" | "veo-r2v" | "omni";
 
 const GOOGLE_VIDEO_ENTRY_INFO: Record<GoogleVideoEntryMode, { label: string; description: string; badge?: string }> = {
-    "veo-auto": { label: "Veo 3.1 智能生成", description: "4/6/8 秒 · 1080p；无图文生、1 张首帧、2 张首尾帧", badge: "Google" },
+    "veo-auto": { label: "Veo 3.1 智能生成", description: "4/6/8 秒原生 · 16 秒接力测试 · 1080p；无图文生、1 张首帧、2 张首尾帧", badge: "Google" },
     "veo-r2v": { label: "Veo 3.1 多参考", description: "固定 8 秒 · 1080p；需 1–3 张人物、产品或场景参考图", badge: "Google" },
     omni: { label: "Omni 智能创作", description: "固定 10 秒 · 720p；文字或 1–3 张参考图", badge: "Google" },
 };
@@ -44,8 +44,14 @@ export function normalizeGoogleVideoSeconds(value: string, model: string) {
     const seconds = Math.floor(Number(value) || 6);
     const options = fixedGoogleVideoDurationOptions(model);
     if (!options) return String(Math.max(1, Math.min(20, seconds)));
-    const nearest = options.reduce((best, candidate) => (Math.abs(candidate - seconds) < Math.abs(best - seconds) ? candidate : best));
+    const candidates = options.includes(16) && seconds !== 16 ? options.filter((candidate) => candidate !== 16) : options;
+    const nearest = candidates.reduce((best, candidate) => (Math.abs(candidate - seconds) < Math.abs(best - seconds) ? candidate : best));
     return String(nearest);
+}
+
+export function isGoogleVeoRelayDuration(value: string | number, model: string) {
+    const normalized = normalizeVideoModelId(model);
+    return Number(value) === 16 && normalized.startsWith("veo_3_1_") && !normalized.startsWith("veo_3_1_r2v");
 }
 
 export function isGoogleVideoModel(model: string) {

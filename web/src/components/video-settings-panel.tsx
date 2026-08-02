@@ -18,7 +18,7 @@ import {
 } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { normalizeVideoProductScaleMode, videoProductScaleOptions } from "@/lib/video-product-scale";
-import { fixedVideoDurationOptions, fixedVideoResolution, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
+import { fixedVideoDurationOptions, fixedVideoResolution, isGoogleVeoRelayDuration, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const baseResolutionOptions = [
@@ -118,7 +118,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     <div className={`grid gap-2.5 ${secondOptions.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>
                         {secondOptions.map((value) => (
                             <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
-                                {value}s
+                                {isGoogleVeoRelayDuration(value, model) ? "16s接力" : `${value}s`}
                             </OptionPill>
                         ))}
                         {fixedSecondOptions ? null : <NumberInput value={seconds} min={1} max={20} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}

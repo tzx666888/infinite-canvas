@@ -244,7 +244,7 @@ const VIDEO_WORKBENCH_SYSTEM = `你是电商短视频创作台的智能编导。
 - 只输出 60-85 个英文单词左右的一个自然段，不要标题、列表、JSON、解释或 Negative prompt。把篇幅留给明确的镜头动作和完整口播，不要重复通用安全约束。
 - 先根据参考图锁定真实可见的成年人物、服装、商品、场景和尺寸关系；不得编造参考图中不存在的人物或商品。
 - 画面编排只使用输入中的实体。人体、脸、手、服装和商品从第一帧起就必须稳定；商品是独立的刚性物体，不与身体或服装融合。
-- i2v 必须从首张图的精确构图开始，r2v 必须把各张图作为分工明确的身份/商品/场景素材，用干净硬切连接，不能把多张图熔成一个变形镜头。
+- i2v 必须从首张图的精确构图开始；有第二张图时，它是整条视频的最终目标帧，不是同时出现的参考素材。r2v 必须把各张图作为分工明确的身份/商品/场景素材，用干净硬切连接，不能把多张图熔成一个变形镜头。
 - 按用户语言或其明确指定的市场语言生成口播，不翻译商品上的品牌文字。
 
 真人带货模式：
@@ -365,6 +365,9 @@ export async function optimizeVideoWorkbenchPrompt(config: AiConfig, context: Vi
         `Creation mode: ${context.mode === "commerce" ? "real-person ecommerce creator video" : "free creative video"}.`,
         `Target video model: ${context.model}.`,
         `Target duration: ${context.duration} seconds; aspect ratio: ${context.aspectRatio}; reference mode: ${context.referenceMode}.`,
+        context.duration === 16
+            ? "This is a two-part 8+8 second relay. Plan one continuous 16-second action and one continuous spoken thought: the first half must not finish the story or CTA, and the second half must continue without restarting or repeating."
+            : "",
         `Use exactly ${shotCount} readable story stages joined by clean edits.`,
         context.mode === "commerce" && !silent
             ? `The Spoken script must fit the duration: ${minimumWords}-${maximumWords} words for a space-delimited language, or an equivalent natural speaking length for Chinese/Japanese/Korean. It must sound spontaneous, warm, and conversational.`
