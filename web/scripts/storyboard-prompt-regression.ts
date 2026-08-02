@@ -645,8 +645,9 @@ assert.match(configStoreSource, /textModel: "tokaxis::gpt-5\.6-sol"/, "built-in 
 assert.match(configStoreSource, /shouldMigrateTokaxisDefaults \? defaultConfig\.textModel/, "existing persisted defaults must migrate to GPT-5.6 Sol");
 assert.match(configStoreSource, /shouldMigrateTextModel \? \["gpt-5\.6-sol", \.\.\.Object\.values\(TOKAXIS_GOOGLE_IMAGE_MODELS\)\]/, "legacy channel model lists must receive GPT-5.6 Sol during migration");
 assert.doesNotMatch(promptPanelSource, /tokaxis::gpt-5\.5/, "prompt polish UI must not retain a GPT-5.5 fallback");
-assert.match(videoServiceSource, /referenceMode === "i2v" \? \{ image: referenceImages\[0\] \}/, "Fast single-image mode must send the explicit image field");
-assert.match(videoServiceSource, /referenceMode === "r2v" \? \{ reference_images: referenceImages \}/, "reference-to-video mode must preserve reference_images");
+assert.match(videoServiceSource, /const requestReferences = references;/, "Google video requests must preserve the routed reference-image set");
+assert.match(videoServiceSource, /requestReferences\.map\(async \(image, index\)/, "each routed Google video reference must be converted into an upload file");
+assert.match(videoServiceSource, /files\.forEach\(\(file\) => body\.append\("input_reference", file\)\)/, "Google I2V and R2V requests must send references through multipart input_reference fields");
 assert.match(videoServiceSource, /if \(isCompiledVideoPrompt\(rawPrompt\)\)/, "compiled storyboard, workbench, and product-lock prompts must bypass the generic wrapper");
 assert.match(videoServiceSource, /prompt\.includes\("PRODUCT-LOCKED KEYFRAME VIDEO\."\)/, "product bridge prompts must not be wrapped a second time");
 assert.match(videoServiceSource, /Visible speech rule: when a visible presenter is speaking, keep the face clearly visible for the complete line/i, "single-image I2V must preserve the task-245 visible-speech contract");
