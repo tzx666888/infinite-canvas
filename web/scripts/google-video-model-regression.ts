@@ -9,7 +9,7 @@ import {
     googleVideoEntryReferenceImageLimit,
     googleVideoReferenceImageLimit,
     googleVideoReferenceMode,
-    isGoogleVeoRelayDuration,
+    isGoogleVeoOfficialExtendDuration,
     isGoogleVideoModel,
     normalizeGoogleVideoSeconds,
     resolveGoogleVideoRouteModelId,
@@ -44,18 +44,19 @@ assert.equal(supportsGoogleVideoReferenceCount("omni_portrait", 4), false);
 assert.equal(googleVideoReferenceImageLimit("omni"), 3);
 assert.equal(googleVideoReferenceMode("omni", 0), "t2v");
 assert.equal(googleVideoReferenceMode("omni_portrait", 1), "r2v");
-assert.deepEqual(fixedGoogleVideoDurationOptions(t2v), [4, 6, 8, 16]);
+assert.deepEqual(fixedGoogleVideoDurationOptions(t2v), [4, 6, 8, 15]);
 assert.deepEqual(fixedGoogleVideoDurationOptions(r2v), [8]);
 assert.deepEqual(fixedGoogleVideoDurationOptions("omni"), [10]);
-assert.equal(normalizeGoogleVideoSeconds("15", t2v), "8");
-assert.equal(normalizeGoogleVideoSeconds("16", t2v), "16");
+assert.equal(normalizeGoogleVideoSeconds("15", t2v), "15");
+assert.equal(normalizeGoogleVideoSeconds("16", t2v), "15");
 assert.equal(normalizeGoogleVideoSeconds("16", r2v), "8");
 assert.equal(normalizeGoogleVideoSeconds("15", "omni"), "10");
-assert.equal(isGoogleVeoRelayDuration("16", t2v), true);
-assert.equal(isGoogleVeoRelayDuration("16", i2v), true);
-assert.equal(isGoogleVeoRelayDuration("16", r2v), false);
-assert.equal(isGoogleVeoRelayDuration("16", "omni"), false);
+assert.equal(isGoogleVeoOfficialExtendDuration("15", t2v), true);
+assert.equal(isGoogleVeoOfficialExtendDuration("15", i2v), true);
+assert.equal(isGoogleVeoOfficialExtendDuration("15", r2v), false);
+assert.equal(isGoogleVeoOfficialExtendDuration("15", "omni"), false);
 assert.equal(fixedGoogleVideoResolution(r2v), "1080");
+assert.equal(fixedGoogleVideoResolution(t2v, "15"), "720");
 assert.equal(fixedGoogleVideoResolution("omni_portrait"), "720");
 
 assert.equal(googleVideoEntryMode(t2v), "veo-auto");

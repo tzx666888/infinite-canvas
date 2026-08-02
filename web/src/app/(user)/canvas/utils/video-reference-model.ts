@@ -8,10 +8,11 @@ export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImag
     const nextConfig = model && (model !== config.model || model !== config.videoModel) ? { ...config, model, videoModel: model } : config;
     const effectiveReferenceCount = Math.min(referenceImageCount, Math.max(0, googleVideoReferenceImageLimit(model || nextConfig.model)));
     if (!isGoogleVideoModel(model || nextConfig.model)) return nextConfig;
+    const videoSeconds = normalizeGoogleVideoSeconds(nextConfig.videoSeconds, model || nextConfig.model);
     return {
         ...nextConfig,
-        videoSeconds: normalizeGoogleVideoSeconds(nextConfig.videoSeconds, model || nextConfig.model),
-        vquality: fixedGoogleVideoResolution(model || nextConfig.model) || nextConfig.vquality,
+        videoSeconds,
+        vquality: fixedGoogleVideoResolution(model || nextConfig.model, videoSeconds) || nextConfig.vquality,
         size: googleVideoSize(model || nextConfig.model, nextConfig.size),
     };
 }

@@ -31,7 +31,7 @@ export {
     googleVideoReferenceImageLimit,
     googleVideoReferenceMode,
     googleVideoRouteAspectRatio,
-    isGoogleVeoRelayDuration,
+    isGoogleVeoOfficialExtendDuration,
     isGoogleVideoModel,
     isOmniVideoModel,
     normalizeGoogleVideoSeconds,
@@ -63,8 +63,8 @@ export function isCanvasVideoModel(model: string) {
     return isGoogleVideoModel(model) || isGrokVideoModel(model);
 }
 
-export function fixedVideoResolution(model: string): "720" | "1080" | null {
-    return fixedGoogleVideoResolution(model) || fixedGrokVideoResolution(model);
+export function fixedVideoResolution(model: string, duration?: string | number): "720" | "1080" | null {
+    return fixedGoogleVideoResolution(model, duration) || fixedGrokVideoResolution(model);
 }
 
 export function videoReferenceMode(model: string, referenceCount: number) {

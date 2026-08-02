@@ -18,7 +18,7 @@ import {
 } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { normalizeVideoProductScaleMode, videoProductScaleOptions } from "@/lib/video-product-scale";
-import { fixedVideoDurationOptions, fixedVideoResolution, isGoogleVeoRelayDuration, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
+import { fixedVideoDurationOptions, fixedVideoResolution, isGoogleVeoOfficialExtendDuration, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const baseResolutionOptions = [
@@ -57,9 +57,9 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const size = googleVideo && ["", "auto", "1:1"].includes(config.size) ? (model.toLowerCase().includes("portrait") ? "720x1280" : "1280x720") : normalizeVideoSizeValue(config.size);
     const dimensions = readSizeDimensions(size);
     const availableSizeOptions = googleVideo ? sizeOptions.filter((item) => item.value === "1280x720" || item.value === "720x1280") : sizeOptions;
-    const fixedResolution = fixedVideoResolution(model);
+    const fixedResolution = fixedVideoResolution(model, seconds);
     const resolutionOptions = fixedResolution ? [{ value: fixedResolution, label: `${fixedResolution}p` }] : baseResolutionOptions;
-    const resolution = normalizeVideoResolutionValue(config.vquality, model);
+    const resolution = normalizeVideoResolutionValue(config.vquality, model, seconds);
     const productScaleMode = normalizeVideoProductScaleMode(config.videoProductScaleMode);
     const updateDimension = (key: "width" | "height", value: number | null) => {
         const next = Math.max(1, Math.floor(value || dimensions[key] || 720));
@@ -118,7 +118,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     <div className={`grid gap-2.5 ${secondOptions.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>
                         {secondOptions.map((value) => (
                             <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
-                                {isGoogleVeoRelayDuration(value, model) ? "16s接力" : `${value}s`}
+                                {isGoogleVeoOfficialExtendDuration(value, model) ? "15s续写" : `${value}s`}
                             </OptionPill>
                         ))}
                         {fixedSecondOptions ? null : <NumberInput value={seconds} min={1} max={20} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
@@ -216,8 +216,8 @@ export function normalizeVideoSizeValue(value: string) {
     return ["9:16", "2:3", "3:4"].includes(value) ? "720x1280" : "1280x720";
 }
 
-export function normalizeVideoResolutionValue(value: string, model = "") {
-    const fixedResolution = fixedVideoResolution(model);
+export function normalizeVideoResolutionValue(value: string, model = "", duration?: string | number) {
+    const fixedResolution = fixedVideoResolution(model, duration);
     if (fixedResolution) return fixedResolution;
     if (value === "480p" || value === "low") return "480";
     if (value === "720p" || value === "auto" || value === "high" || value === "medium") return "720";

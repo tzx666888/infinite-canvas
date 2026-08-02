@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { fixedGoogleVideoResolution, googleVideoModelDisplayName, googleVideoReferenceImageLimit, googleVideoReferenceMode, normalizeGoogleVideoSeconds, supportsGoogleVideoReferenceCount } from "@/lib/video-providers/google-video";
+import { fixedGoogleVideoResolution, googleVideoModelDisplayName, googleVideoReferenceImageLimit, googleVideoReferenceMode, isGoogleVeoOfficialExtendDuration, normalizeGoogleVideoSeconds, supportsGoogleVideoReferenceCount } from "@/lib/video-providers/google-video";
 import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
 import { resolveConfiguredGoogleVideoModel } from "@/lib/google-video-routing";
 import { dataUrlToFile } from "@/lib/image-utils";
@@ -116,6 +116,9 @@ async function createFlowVideoTask(config: AiConfig, model: string, prompt: stri
     }
     const requestReferences = references;
     const seconds = normalizeGoogleVideoSeconds(config.videoSeconds, modelName);
+    if (isGoogleVeoOfficialExtendDuration(seconds, modelName) && requestReferences.length > 1) {
+        throw new Error("Veo 15 秒官方续写只支持 1 张首帧；请移除尾帧后重试");
+    }
     if (!prompt.trim() && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
     const referenceMode = googleVideoReferenceMode(modelName, requestReferences.length);
     const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode).trim());
@@ -136,7 +139,7 @@ async function createFlowVideoTask(config: AiConfig, model: string, prompt: stri
             prompt: promptText,
             seconds,
             size: normalizeFlowVideoSize(config.size, modelName),
-            resolution: normalizeVideoResolution(config.vquality, modelName),
+            resolution: normalizeVideoResolution(config.vquality, modelName, seconds),
             files,
             options,
         });
@@ -150,7 +153,7 @@ async function createFlowVideoTask(config: AiConfig, model: string, prompt: stri
             model: modelName,
             seconds,
             size: normalizeFlowVideoSize(config.size, modelName),
-            resolution: normalizeVideoResolution(config.vquality, modelName),
+            resolution: normalizeVideoResolution(config.vquality, modelName, seconds),
             referenceCount: requestReferences.length,
             referenceMode,
             promptLength: promptText.length,
@@ -437,8 +440,8 @@ function normalizeFlowVideoSize(value: string, model: string) {
     return videoAspectRatioForSize(value) === "9:16" ? "720x1280" : "1280x720";
 }
 
-function normalizeVideoResolution(value: string, model = "") {
-    const fixedResolution = fixedGoogleVideoResolution(model);
+function normalizeVideoResolution(value: string, model = "", duration?: string | number) {
+    const fixedResolution = fixedGoogleVideoResolution(model, duration);
     if (fixedResolution) return `${fixedResolution}p`;
     if (value === "low") return "480p";
     if (value === "auto" || value === "high" || value === "medium") return "720p";
@@ -497,7 +500,7 @@ function normalizeVideoProviderError(message: string, fallback: string) {
         return "参考图数量超过当前视频模型限制，请减少参考图后重试";
     }
     if (lower.includes("duration") && (lower.includes("limit") || lower.includes("unsupported") || lower.includes("maximum"))) {
-        return "当前视频时长不受模型支持：Veo 智能生成支持原生 4、6、8 秒及 16 秒接力测试（2×8 秒），多参考固定 8 秒，Omni 固定 10 秒";
+        return "当前视频时长不受模型支持：Veo 智能生成支持原生 4、6、8 秒及 15 秒官方续写（8+7 秒），多参考固定 8 秒，Omni 固定 10 秒";
     }
     return text || fallback;
 }

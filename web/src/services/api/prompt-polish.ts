@@ -365,8 +365,8 @@ export async function optimizeVideoWorkbenchPrompt(config: AiConfig, context: Vi
         `Creation mode: ${context.mode === "commerce" ? "real-person ecommerce creator video" : "free creative video"}.`,
         `Target video model: ${context.model}.`,
         `Target duration: ${context.duration} seconds; aspect ratio: ${context.aspectRatio}; reference mode: ${context.referenceMode}.`,
-        context.duration === 16
-            ? "This is a two-part 8+8 second relay. Plan one continuous 16-second action and one continuous spoken thought: the first half must not finish the story or CTA, and the second half must continue without restarting or repeating."
+        context.duration === 15
+            ? "This uses official Veo Extend: an 8-second base clip followed by a 7-second continuation. Plan one continuous 15-second action and one continuous spoken thought: the base clip must not finish the story or CTA, and the continuation must resume without restarting or repeating."
             : "",
         `Use exactly ${shotCount} readable story stages joined by clean edits.`,
         context.mode === "commerce" && !silent

@@ -5,7 +5,7 @@ import {
     googleVideoEntryInfo,
     googleVideoEntryMode,
     googleVideoRouteAspectRatio,
-    isGoogleVeoRelayDuration,
+    isGoogleVeoOfficialExtendDuration,
     isGoogleVideoModel,
     normalizeGoogleVideoSeconds,
     resolveGoogleVideoRouteModelId,
@@ -55,9 +55,9 @@ export function summarizeConfiguredGoogleVideoRoute(config: AiConfig, referenceI
         const modelId = rawModelName(resolved);
         const route = modelId.startsWith("veo_3_1_t2v") ? "Veo 文生" : modelId.startsWith("veo_3_1_i2v") ? (referenceImageCount >= 2 ? "Veo 首尾帧" : "Veo 首帧") : modelId.startsWith("veo_3_1_r2v") ? "Veo 多参考" : "Omni";
         const orientation = modelId.includes("portrait") ? "竖屏" : "横屏";
-        const resolution = fixedGoogleVideoResolution(modelId) || config.vquality || "720";
         const seconds = normalizeGoogleVideoSeconds(config.videoSeconds, modelId);
-        const duration = isGoogleVeoRelayDuration(seconds, modelId) ? "16秒接力（2×8秒）" : `${seconds}秒`;
+        const resolution = fixedGoogleVideoResolution(modelId, seconds) || config.vquality || "720";
+        const duration = isGoogleVeoOfficialExtendDuration(seconds, modelId) ? "15秒官方续写（8+7秒）" : `${seconds}秒`;
         return { model: resolved, text: `${route} · ${orientation} · ${resolution}p · ${duration}`, error: false } as const;
     } catch (error) {
         return { model: "", text: error instanceof Error ? error.message : "视频参数不兼容", error: true } as const;
