@@ -43,10 +43,13 @@ assert.equal(supportsGoogleVideoReferenceCount("omni_portrait", 4), false);
 assert.equal(googleVideoReferenceImageLimit("omni"), 3);
 assert.equal(googleVideoReferenceMode("omni", 0), "t2v");
 assert.equal(googleVideoReferenceMode("omni_portrait", 1), "r2v");
-assert.deepEqual(fixedGoogleVideoDurationOptions(t2v), [4, 6, 15]);
+assert.deepEqual(fixedGoogleVideoDurationOptions(t2v), [4, 6, 8]);
+assert.deepEqual(fixedGoogleVideoDurationOptions(r2v), [8]);
 assert.deepEqual(fixedGoogleVideoDurationOptions("omni"), [10]);
+assert.equal(normalizeGoogleVideoSeconds("15", t2v), "8");
 assert.equal(normalizeGoogleVideoSeconds("15", "omni"), "10");
-assert.equal(fixedGoogleVideoResolution(r2v), "720");
+assert.equal(fixedGoogleVideoResolution(r2v), "1080");
+assert.equal(fixedGoogleVideoResolution("omni_portrait"), "720");
 
 assert.equal(googleVideoEntryMode(t2v), "veo-auto");
 assert.equal(googleVideoEntryMode(i2v), "veo-auto");
@@ -75,6 +78,8 @@ assert.match(serviceSource, /aiApiUrl\(config, "\/videos"\)/, "Flow video creati
 assert.doesNotMatch(serviceSource, /aiApiUrl\(config, "\/videos\/generations"\)/, "Google video must not use the legacy Grok endpoint");
 assert.match(googleAdapterSource, /new FormData\(\)/, "Flow video requests must be multipart");
 assert.match(googleAdapterSource, /body\.append\("input_reference", file\)/, "reference images must be uploaded as multipart files");
+assert.match(googleAdapterSource, /body\.append\("seconds", input\.seconds\)/, "Google video duration must be sent explicitly");
+assert.match(googleAdapterSource, /body\.append\("resolution_name", input\.resolution\)/, "Google video resolution must be sent explicitly");
 assert.match(configSource, /videoModel: DEFAULT_GOOGLE_VIDEO_MODEL/, "TokAxis default must come from the isolated Google provider contract");
 assert.match(configSource, /video-providers\/google-video/, "TokAxis defaults must import only the Google provider contract");
 assert.match(configSource, /\.\.\.GOOGLE_VIDEO_MODEL_IDS/, "TokAxis fallback must expose all Google models");

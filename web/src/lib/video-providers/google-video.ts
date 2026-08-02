@@ -15,25 +15,29 @@ export const DEFAULT_GOOGLE_VIDEO_MODEL = "tokaxis::veo_3_1_i2v_s_fast_portrait_
 
 const GOOGLE_VIDEO_MODEL_ID_SET = new Set<string>(GOOGLE_VIDEO_MODEL_IDS);
 const OMNI_VIDEO_MODEL_IDS = new Set(["omni", "omni_portrait"]);
-const GOOGLE_VEO_DURATION_OPTIONS = [4, 6, 15] as const;
+const GOOGLE_VEO_DURATION_OPTIONS = [4, 6, 8] as const;
+const GOOGLE_VEO_R2V_DURATION_OPTIONS = [8] as const;
 const GOOGLE_OMNI_DURATION_OPTIONS = [10] as const;
 
 export type GoogleVideoEntryMode = "veo-auto" | "veo-r2v" | "omni";
 
 const GOOGLE_VIDEO_ENTRY_INFO: Record<GoogleVideoEntryMode, { label: string; description: string; badge?: string }> = {
-    "veo-auto": { label: "Veo 3.1 智能生成", description: "无图文生；1 张首帧；2 张首尾帧", badge: "Google" },
-    "veo-r2v": { label: "Veo 3.1 多参考", description: "人物、产品、场景；需 1–3 张参考图", badge: "Google" },
-    omni: { label: "Omni 智能创作", description: "文字或 1–3 张参考图；固定 10 秒", badge: "Google" },
+    "veo-auto": { label: "Veo 3.1 智能生成", description: "4/6/8 秒 · 1080p；无图文生、1 张首帧、2 张首尾帧", badge: "Google" },
+    "veo-r2v": { label: "Veo 3.1 多参考", description: "固定 8 秒 · 1080p；需 1–3 张人物、产品或场景参考图", badge: "Google" },
+    omni: { label: "Omni 智能创作", description: "固定 10 秒 · 720p；文字或 1–3 张参考图", badge: "Google" },
 };
 
 export function fixedGoogleVideoDurationOptions(model: string): readonly number[] | null {
     const normalized = normalizeVideoModelId(model);
     if (OMNI_VIDEO_MODEL_IDS.has(normalized)) return GOOGLE_OMNI_DURATION_OPTIONS;
+    if (normalized.startsWith("veo_3_1_r2v")) return GOOGLE_VEO_R2V_DURATION_OPTIONS;
     return GOOGLE_VIDEO_MODEL_ID_SET.has(normalized) ? GOOGLE_VEO_DURATION_OPTIONS : null;
 }
 
-export function fixedGoogleVideoResolution(model: string): "720" | null {
-    return isGoogleVideoModel(model) ? "720" : null;
+export function fixedGoogleVideoResolution(model: string): "720" | "1080" | null {
+    const normalized = normalizeVideoModelId(model);
+    if (OMNI_VIDEO_MODEL_IDS.has(normalized)) return "720";
+    return GOOGLE_VIDEO_MODEL_ID_SET.has(normalized) ? "1080" : null;
 }
 
 export function normalizeGoogleVideoSeconds(value: string, model: string) {
