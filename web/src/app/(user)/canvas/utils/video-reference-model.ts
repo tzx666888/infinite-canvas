@@ -1,14 +1,6 @@
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
-import {
-    fixedVideoResolution,
-    isGoogleVideoModel,
-    isOmniVideoModel,
-    normalizeReferenceVideoSeconds,
-    preferredGoogleVideoModel,
-    supportsGoogleVideoReferenceCount,
-    videoAspectRatioForSize,
-    videoReferenceImageLimit,
-} from "@/lib/video-model-settings";
+import { resolveConfiguredGoogleVideoModel } from "@/lib/google-video-routing";
+import { fixedVideoResolution, isGoogleVideoModel, normalizeReferenceVideoSeconds, videoAspectRatioForSize, videoReferenceImageLimit } from "@/lib/video-model-settings";
 
 export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImageCount: number): AiConfig {
     const model = selectReferenceImageVideoModel(config, referenceImageCount);
@@ -25,23 +17,7 @@ export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImag
 
 export function selectReferenceImageVideoModel(config: AiConfig, referenceImageCount: number) {
     const currentModel = config.videoModel || config.model;
-    const effectiveReferenceCount = Math.min(referenceImageCount, 3);
-    if (isOmniVideoModel(currentModel) || (isGoogleVideoModel(currentModel) && supportsGoogleVideoReferenceCount(currentModel, effectiveReferenceCount))) return currentModel;
-    const googleModel = pickVideoModel(config, (model) => isGoogleVideoModel(modelOptionName(model)) && supportsGoogleVideoReferenceCount(model, effectiveReferenceCount));
-    return googleModel || preferredGoogleVideoModel(effectiveReferenceCount, videoAspectRatioForSize(config.size));
-}
-
-function pickVideoModel(config: AiConfig, predicate: (model: string) => boolean) {
-    return config.videoModels.find((model) => predicate(model) && matchesRequestedOrientation(model, config.size)) || config.videoModels.find(predicate);
-}
-
-function matchesRequestedOrientation(model: string, size: string) {
-    const value = modelOptionName(model).toLowerCase();
-    if (size === "9:16") return value.includes("portrait") || (!value.includes("landscape") && !value.includes("16:9"));
-    if (size === "16:9") return value.includes("landscape") || (!value.includes("portrait") && !value.includes("9:16"));
-    const dimensions = /^(\d+)x(\d+)$/.exec(size);
-    if (dimensions) return Number(dimensions[2]) > Number(dimensions[1]) ? value.includes("portrait") : value.includes("landscape") || !value.includes("portrait");
-    return value.includes("portrait") || (!value.includes("landscape") && value === "veo_3_1_r2v_fast");
+    return isGoogleVideoModel(currentModel) ? resolveConfiguredGoogleVideoModel(config, referenceImageCount) : currentModel;
 }
 
 function googleVideoSize(model: string, requestedSize: string) {

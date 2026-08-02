@@ -22,6 +22,13 @@ const GOOGLE_OMNI_DURATION_OPTIONS = [10] as const;
 export type VideoAspectRatio = "9:16" | "16:9" | "1:1";
 export type VideoReferenceMode = "t2v" | "i2v" | "r2v";
 export type GrokVideoReferenceMode = VideoReferenceMode;
+export type GoogleVideoEntryMode = "veo-auto" | "veo-r2v" | "omni";
+
+const GOOGLE_VIDEO_ENTRY_INFO: Record<GoogleVideoEntryMode, { label: string; description: string; badge?: string }> = {
+    "veo-auto": { label: "Veo 3.1 智能生成", description: "无图文生；1 张首帧；2 张首尾帧", badge: "Google" },
+    "veo-r2v": { label: "Veo 3.1 多参考", description: "人物、产品、场景；需 1–3 张参考图", badge: "Google" },
+    omni: { label: "Omni 智能创作", description: "文字或 1–3 张参考图；固定 10 秒", badge: "Google" },
+};
 
 export function videoAspectRatioForSize(value: string): VideoAspectRatio {
     const normalized = value.trim().toLowerCase();
@@ -55,6 +62,53 @@ export function isGoogleVideoModel(model: string) {
 
 export function isOmniVideoModel(model: string) {
     return OMNI_VIDEO_MODEL_IDS.has(normalizeVideoModelId(model));
+}
+
+export function googleVideoEntryMode(model: string): GoogleVideoEntryMode | null {
+    const normalized = normalizeVideoModelId(model);
+    if (OMNI_VIDEO_MODEL_IDS.has(normalized)) return "omni";
+    if (normalized.startsWith("veo_3_1_r2v")) return "veo-r2v";
+    if (normalized.startsWith("veo_3_1_t2v") || normalized.startsWith("veo_3_1_i2v")) return "veo-auto";
+    return null;
+}
+
+export function googleVideoEntryInfo(model: string) {
+    const mode = googleVideoEntryMode(model);
+    return mode ? GOOGLE_VIDEO_ENTRY_INFO[mode] : null;
+}
+
+export function googleVideoEntryReferenceImageLimit(model: string) {
+    const mode = googleVideoEntryMode(model);
+    if (mode === "veo-auto") return 2;
+    if (mode === "veo-r2v" || mode === "omni") return 3;
+    return 0;
+}
+
+export function googleVideoRouteAspectRatio(model: string, requestedSize: string): Exclude<VideoAspectRatio, "1:1"> {
+    const requested = videoAspectRatioForSize(requestedSize);
+    if (requested !== "1:1") return requested;
+    const normalized = normalizeVideoModelId(model);
+    return normalized.includes("landscape") || normalized === "omni" || normalized === "veo_3_1_r2v_fast" ? "16:9" : "9:16";
+}
+
+export function resolveGoogleVideoRouteModelId(model: string, referenceImageCount: number, aspectRatio: Exclude<VideoAspectRatio, "1:1">) {
+    const mode = googleVideoEntryMode(model);
+    if (!mode) throw new Error("当前选择不是可用的 Google 视频入口");
+    const count = Math.max(0, Math.floor(referenceImageCount));
+    const portrait = aspectRatio === "9:16";
+
+    if (mode === "veo-auto") {
+        if (count > 2) throw new Error("Veo 智能生成最多支持 2 张参考图；3 张素材请切换到 Veo 3.1 多参考");
+        if (count === 0) return `veo_3_1_t2v_fast_${portrait ? "portrait" : "landscape"}`;
+        return portrait ? "veo_3_1_i2v_s_fast_portrait_fl" : "veo_3_1_i2v_s_fast_fl";
+    }
+    if (mode === "veo-r2v") {
+        if (count < 1) throw new Error("Veo 3.1 多参考需要连接 1–3 张参考图");
+        if (count > 3) throw new Error("Veo 3.1 多参考最多支持 3 张参考图");
+        return `veo_3_1_r2v_fast_${portrait ? "portrait" : "landscape"}`;
+    }
+    if (count > 3) throw new Error("Omni 智能创作最多支持 3 张参考图");
+    return portrait ? "omni_portrait" : "omni";
 }
 
 export function isCanvasVideoModel(model: string) {

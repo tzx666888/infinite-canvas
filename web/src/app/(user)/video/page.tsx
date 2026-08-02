@@ -15,7 +15,8 @@ import { useSaveAsset } from "@/hooks/use-save-asset";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { isGoogleVideoModel, normalizeReferenceVideoSeconds, supportsGoogleVideoReferenceCount, videoAspectRatioForSize, videoReferenceImageLimit, videoReferenceMode } from "@/lib/video-model-settings";
+import { summarizeConfiguredGoogleVideoRoute } from "@/lib/google-video-routing";
+import { googleVideoEntryReferenceImageLimit, isGoogleVideoModel, normalizeReferenceVideoSeconds, supportsGoogleVideoReferenceCount, videoAspectRatioForSize, videoReferenceImageLimit, videoReferenceMode } from "@/lib/video-model-settings";
 import type { VideoWorkbenchMode } from "@/lib/video-workbench-prompt";
 import { resolveReferenceImageVideoConfig } from "@/app/(user)/canvas/utils/video-reference-model";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
@@ -106,7 +107,7 @@ export default function VideoPage() {
 
     const model = effectiveConfig.videoModel || effectiveConfig.model;
     const selectedVideoModel = modelOptionName(model);
-    const imageReferenceLimit = isGoogleVideoModel(selectedVideoModel) ? videoReferenceImageLimit(selectedVideoModel) : SEEDANCE_REFERENCE_LIMITS.images;
+    const imageReferenceLimit = isGoogleVideoModel(selectedVideoModel) ? googleVideoEntryReferenceImageLimit(selectedVideoModel) : SEEDANCE_REFERENCE_LIMITS.images;
     const canGenerate = Boolean(prompt.trim());
 
     useEffect(() => {
@@ -586,7 +587,7 @@ export default function VideoPage() {
                             </div>
 
                             <div className="hidden gap-4 sm:grid sm:grid-cols-2">
-                                <GenerationSettings config={effectiveConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
+                                <GenerationSettings config={effectiveConfig} model={model} referenceCount={references.length} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
                             </div>
                         </div>
 
@@ -651,7 +652,7 @@ export default function VideoPage() {
             </Drawer>
             <Drawer title="参数" placement="bottom" height="82vh" open={settingsOpen} onClose={() => setSettingsOpen(false)}>
                 <div className="grid grid-cols-2 gap-3 pb-4">
-                    <GenerationSettings config={effectiveConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
+                    <GenerationSettings config={effectiveConfig} model={model} referenceCount={references.length} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
                 </div>
             </Drawer>
             <PromptSelectDialog open={promptDialogOpen} onOpenChange={setPromptDialogOpen} onSelect={setPrompt} />
@@ -663,14 +664,16 @@ export default function VideoPage() {
     );
 }
 
-function GenerationSettings({ config, model, updateConfig, openConfigDialog }: { config: AiConfig; model: string; updateConfig: UpdateAiConfig; openConfigDialog: (shouldPromptContinue?: boolean) => void }) {
+function GenerationSettings({ config, model, referenceCount, updateConfig, openConfigDialog }: { config: AiConfig; model: string; referenceCount: number; updateConfig: UpdateAiConfig; openConfigDialog: (shouldPromptContinue?: boolean) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const route = summarizeConfiguredGoogleVideoRoute({ ...config, model, videoModel: model }, referenceCount);
 
     return (
         <>
             <label className="col-span-2 block min-w-0 sm:col-span-1">
                 <span className="mb-1.5 block text-sm font-semibold sm:mb-2 sm:text-base">模型</span>
                 <ModelPicker config={config} value={model} onChange={(value) => updateConfig("videoModel", value)} capability="video" fullWidth onMissingConfig={() => openConfigDialog(false)} />
+                {route ? <span className={`mt-1.5 block text-xs ${route.error ? "text-red-500 dark:text-red-300" : "text-stone-500 dark:text-stone-400"}`}>本次：{route.text}</span> : null}
             </label>
             <div className="col-span-2">
                 <VideoSettingsPanel config={config} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} showTitle={false} className="space-y-4" />

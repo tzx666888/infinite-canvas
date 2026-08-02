@@ -4,9 +4,10 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { Cpu } from "lucide-react";
 
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { compactVideoModelPickerOptions, normalizeVideoModelPickerValue, videoModelPickerEntryInfo } from "@/lib/google-video-routing";
 import { modelDisplayInfo } from "@/lib/model-display";
 import { cn } from "@/lib/utils";
-import { modelOptionLabel, modelOptionName, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { decodeChannelModel, modelOptionLabel, modelOptionName, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 type ModelPickerProps = {
     config: AiConfig;
@@ -22,11 +23,12 @@ type ModelPickerProps = {
 export function ModelPicker({ config, value, onChange, capability, className, fullWidth = false, placeholder = "选择模型", onMissingConfig }: ModelPickerProps) {
     const pickerId = useId();
     const [open, setOpen] = useState(false);
-    const options = useMemo(
-        () => Array.from(new Set([...(config.channelMode === "local" && !capability ? [value] : []), ...selectableModelsByCapability(config, capability)].filter((model): model is string => Boolean(model)))),
-        [capability, config, value],
-    );
+    const options = useMemo(() => {
+        const available = Array.from(new Set([...(config.channelMode === "local" && !capability ? [value] : []), ...selectableModelsByCapability(config, capability)].filter((model): model is string => Boolean(model))));
+        return capability === "video" ? compactVideoModelPickerOptions(available, config.size) : available;
+    }, [capability, config, value]);
     const current = value || "";
+    const pickerValue = capability === "video" ? normalizeVideoModelPickerValue(options, current) : current;
 
     useEffect(() => {
         const closeOtherPicker = (event: Event) => {
@@ -36,7 +38,7 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
         return () => window.removeEventListener("model-picker-open", closeOtherPicker);
     }, [pickerId]);
 
-    if (options.length === 1 && current && options[0] === current) {
+    if (options.length === 1 && pickerValue && options[0] === pickerValue) {
         return (
             <button
                 type="button"
@@ -47,13 +49,13 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
                     fullWidth ? "w-full min-w-0 justify-start" : "w-fit min-w-[9rem] justify-start",
                     className,
                 )}
-                title={modelOptionLabel(config, current)}
-                aria-label={`当前模型：${modelOptionLabel(config, current)}`}
+                title={pickerOptionLabel(config, pickerValue, capability)}
+                aria-label={`当前模型：${pickerOptionLabel(config, pickerValue, capability)}`}
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
             >
-                <ModelIcon model={current} />
-                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{modelOptionLabel(config, current)}</span>
+                <ModelIcon model={pickerValue} />
+                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{pickerOptionLabel(config, pickerValue, capability)}</span>
             </button>
         );
     }
@@ -61,7 +63,7 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
     return (
         <Select
             open={open}
-            value={current}
+            value={pickerValue}
             onOpenChange={(nextOpen) => {
                 if (nextOpen && !options.length && config.channelMode === "local") onMissingConfig?.();
                 if (nextOpen) window.dispatchEvent(new CustomEvent("model-picker-open", { detail: pickerId }));
@@ -78,10 +80,10 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
                 )}
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
-                title={current ? modelOptionLabel(config, current) : placeholder}
+                title={pickerValue ? pickerOptionLabel(config, pickerValue, capability) : placeholder}
             >
-                <ModelIcon model={current} />
-                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{current ? modelOptionLabel(config, current) : placeholder}</span>
+                <ModelIcon model={pickerValue} />
+                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{pickerValue ? pickerOptionLabel(config, pickerValue, capability) : placeholder}</span>
             </SelectTrigger>
             <SelectContent
                 data-canvas-no-zoom
@@ -95,8 +97,8 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
             >
                 {options.length ? (
                     options.map((model) => (
-                        <SelectItem key={model} value={model} textValue={modelPickerText(config, model)}>
-                            <ModelLabel config={config} model={model} />
+                        <SelectItem key={model} value={model} textValue={modelPickerText(config, model, capability)}>
+                            <ModelLabel config={config} model={model} capability={capability} />
                         </SelectItem>
                     ))
                 ) : (
@@ -115,13 +117,13 @@ function emptyModelLabel(config: AiConfig, capability?: ModelCapability) {
     return config.models.length ? `暂无匹配的${label}模型` : "请先到配置里添加渠道和模型";
 }
 
-function ModelLabel({ config, model }: { config: AiConfig; model: string }) {
-    const display = modelDisplayInfo(modelOptionName(model));
+function ModelLabel({ config, model, capability }: { config: AiConfig; model: string; capability?: ModelCapability }) {
+    const display = pickerDisplayInfo(model, capability);
     return (
         <span className="flex min-w-0 items-center gap-2 py-1">
             <ModelIcon model={model} />
             <span className="min-w-0 flex-1">
-                <span className="block truncate">{modelOptionLabel(config, model)}</span>
+                <span className="block truncate">{pickerOptionLabel(config, model, capability)}</span>
                 {display.description ? <span className="block truncate text-xs opacity-60">{display.description}</span> : null}
             </span>
             {display.badge ? <span className="shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] leading-none opacity-70">{display.badge}</span> : null}
@@ -129,9 +131,22 @@ function ModelLabel({ config, model }: { config: AiConfig; model: string }) {
     );
 }
 
-function modelPickerText(config: AiConfig, model: string) {
-    const display = modelDisplayInfo(modelOptionName(model));
-    return [modelOptionLabel(config, model), display.description, modelOptionName(model)].filter(Boolean).join(" ");
+function modelPickerText(config: AiConfig, model: string, capability?: ModelCapability) {
+    const display = pickerDisplayInfo(model, capability);
+    return [pickerOptionLabel(config, model, capability), display.description, modelOptionName(model)].filter(Boolean).join(" ");
+}
+
+function pickerDisplayInfo(model: string, capability?: ModelCapability) {
+    return (capability === "video" ? videoModelPickerEntryInfo(model) : null) || modelDisplayInfo(modelOptionName(model));
+}
+
+function pickerOptionLabel(config: AiConfig, model: string, capability?: ModelCapability) {
+    const entry = capability === "video" ? videoModelPickerEntryInfo(model) : null;
+    if (!entry) return modelOptionLabel(config, model);
+    const decoded = decodeChannelModel(model);
+    if (!decoded || config.channels.length <= 1) return entry.label;
+    const channel = config.channels.find((item) => item.id === decoded.channelId);
+    return channel ? `${entry.label}（${channel.name}）` : entry.label;
 }
 
 function ModelIcon({ model }: { model: string }) {

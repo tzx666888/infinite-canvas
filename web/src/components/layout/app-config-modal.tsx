@@ -10,6 +10,7 @@ import { cleanupUnusedMedia, getMediaStorageStats } from "@/services/file-storag
 import { cleanupUnusedImages, getImageStorageStats } from "@/services/image-storage";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
+import { compactVideoModelPickerOptions, expandVideoModelPickerSelection, videoModelPickerEntryInfo } from "@/lib/google-video-routing";
 import { normalizeImageSizeForSelectedModel } from "@/lib/tokaxis-google-image";
 import { useAssetStore } from "@/stores/use-asset-store";
 import {
@@ -345,20 +346,28 @@ export function AppConfigModal() {
                                     <div className="mt-1 text-xs leading-5 text-stone-500">可选项决定各处下拉框展示哪些模型；同名模型会以括号里的渠道名区分。</div>
                                 </div>
                                 <div className="grid gap-4 md:grid-cols-2">
-                                    {visibleModelGroups.map((group) => (
-                                        <Form.Item key={group.modelsKey} label={group.optionsLabel} className="mb-0">
-                                            <Select
-                                                mode="tags"
-                                                showSearch
-                                                allowClear
-                                                maxTagCount="responsive"
-                                                placeholder={config.models.length ? `请选择或输入${group.optionsLabel}` : "先到渠道里填写或拉取模型"}
-                                                value={config[group.modelsKey]}
-                                                options={filterModelsByCapability(config.models, group.capability).map((model) => ({ label: modelOptionLabel(config, model), value: model }))}
-                                                onChange={(models) => updateCapabilityModels(group, models)}
-                                            />
-                                        </Form.Item>
-                                    ))}
+                                    {visibleModelGroups.map((group) => {
+                                        const available = filterModelsByCapability(config.models, group.capability);
+                                        const displayedAvailable = group.capability === "video" ? compactVideoModelPickerOptions(available, config.size) : available;
+                                        const displayedValue = group.capability === "video" ? compactVideoModelPickerOptions(config[group.modelsKey], config.size) : config[group.modelsKey];
+                                        return (
+                                            <Form.Item key={group.modelsKey} label={group.optionsLabel} className="mb-0">
+                                                <Select
+                                                    mode="tags"
+                                                    showSearch
+                                                    allowClear
+                                                    maxTagCount="responsive"
+                                                    placeholder={config.models.length ? `请选择或输入${group.optionsLabel}` : "先到渠道里填写或拉取模型"}
+                                                    value={displayedValue}
+                                                    options={displayedAvailable.map((model) => ({
+                                                        label: group.capability === "video" ? videoModelPickerEntryInfo(model)?.label || modelOptionLabel(config, model) : modelOptionLabel(config, model),
+                                                        value: model,
+                                                    }))}
+                                                    onChange={(models) => updateCapabilityModels(group, group.capability === "video" ? expandVideoModelPickerSelection(models, available) : models)}
+                                                />
+                                            </Form.Item>
+                                        );
+                                    })}
                                 </div>
                                 <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                                     {visibleModelGroups.map((group) => (

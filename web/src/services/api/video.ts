@@ -1,16 +1,7 @@
 import axios from "axios";
 
-import {
-    fixedVideoResolution,
-    isGoogleVideoModel,
-    isOmniVideoModel,
-    normalizeReferenceVideoSeconds,
-    preferredGoogleVideoModel,
-    supportsGoogleVideoReferenceCount,
-    videoAspectRatioForSize,
-    videoReferenceImageLimit,
-    videoReferenceMode,
-} from "@/lib/video-model-settings";
+import { fixedVideoResolution, normalizeReferenceVideoSeconds, supportsGoogleVideoReferenceCount, videoAspectRatioForSize, videoReferenceImageLimit, videoReferenceMode } from "@/lib/video-model-settings";
+import { resolveConfiguredGoogleVideoModel } from "@/lib/google-video-routing";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -96,7 +87,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
         assertVideoConfig(configuredRequest, configuredRequest.model);
         return createSeedanceTask(configuredRequest, configuredModel, prompt, references, videoReferences, audioReferences, options);
     }
-    const selectedModel = selectGoogleVideoModel(config, references.length);
+    const selectedModel = resolveConfiguredGoogleVideoModel(config, references.length);
     if (!selectedModel) throw new Error("当前令牌未开放 Google 视频模型，请先同步 Veo / Omni 模型");
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
@@ -174,16 +165,6 @@ async function createFlowVideoTask(config: AiConfig, model: string, prompt: stri
     }
 }
 
-function selectGoogleVideoModel(config: AiConfig, referenceImageCount: number) {
-    const effectiveReferenceCount = Math.min(referenceImageCount, 3);
-    const explicitModel = [config.videoModel, config.model].map((model) => model.trim()).find(isGoogleVideoModel);
-    if (explicitModel && (isOmniVideoModel(explicitModel) || supportsGoogleVideoReferenceCount(explicitModel, effectiveReferenceCount))) return explicitModel;
-
-    const candidates = [...config.videoModels, ...config.models].map((model) => model.trim()).filter(isGoogleVideoModel);
-    const orientationMatch = candidates.find((model) => supportsGoogleVideoReferenceCount(model, effectiveReferenceCount) && matchesVideoOrientation(model, config.size));
-    return orientationMatch || candidates.find((model) => supportsGoogleVideoReferenceCount(model, effectiveReferenceCount)) || preferredGoogleVideoModel(effectiveReferenceCount, videoAspectRatioForSize(config.size));
-}
-
 function modelDisplayNameForError(model: string) {
     if (model === "omni" || model === "omni_portrait") return model === "omni" ? "Omni 横屏视频" : "Omni 竖屏视频";
     if (model.startsWith("veo_3_1_t2v")) return "Veo 3.1 文生视频";
@@ -192,14 +173,7 @@ function modelDisplayNameForError(model: string) {
     return "当前 Google 视频模型";
 }
 
-function buildReferenceVideoPrompt(
-    prompt: string,
-    originalReferenceCount: number,
-    requestReferenceCount: number,
-    seconds: string,
-    productScaleMode = "auto",
-    referenceMode: ReturnType<typeof videoReferenceMode> = requestReferenceCount ? "i2v" : "t2v",
-) {
+function buildReferenceVideoPrompt(prompt: string, originalReferenceCount: number, requestReferenceCount: number, seconds: string, productScaleMode = "auto", referenceMode: ReturnType<typeof videoReferenceMode> = requestReferenceCount ? "i2v" : "t2v") {
     const rawPrompt = prompt.trim();
     if (isCompiledVideoPrompt(rawPrompt)) return [rawPrompt, buildCompactVideoProductScalePrompt(productScaleMode)].filter(Boolean).join("\n");
     const explicitProductScalePrompt = productScaleMode !== "auto" ? buildVideoProductScalePrompt(productScaleMode) : "";
@@ -498,15 +472,6 @@ function normalizeFlowVideoSize(value: string, model: string) {
     if (normalizedModel.includes("portrait")) return "720x1280";
     if (normalizedModel.includes("landscape") || normalizedModel === "omni") return "1280x720";
     return videoAspectRatioForSize(value) === "9:16" ? "720x1280" : "1280x720";
-}
-
-function matchesVideoOrientation(model: string, value: string) {
-    const normalizedModel = modelOptionName(model).toLowerCase();
-    if (normalizedModel === "veo_3_1_r2v_fast") return true;
-    const aspectRatio = videoAspectRatioForSize(value);
-    if (aspectRatio === "9:16") return normalizedModel.includes("portrait");
-    if (aspectRatio === "16:9") return normalizedModel.includes("landscape") || normalizedModel === "omni";
-    return normalizedModel.includes("portrait");
 }
 
 function normalizeVideoResolution(value: string, model = "") {
