@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
-    fixedVideoDurationOptions,
-    fixedVideoResolution,
+    fixedGoogleVideoDurationOptions,
+    fixedGoogleVideoResolution,
     GOOGLE_VIDEO_MODEL_IDS,
     googleVideoEntryMode,
     googleVideoEntryReferenceImageLimit,
+    googleVideoReferenceImageLimit,
     googleVideoReferenceMode,
     isGoogleVideoModel,
-    normalizeReferenceVideoSeconds,
+    normalizeGoogleVideoSeconds,
     resolveGoogleVideoRouteModelId,
     supportsGoogleVideoReferenceCount,
-    videoReferenceImageLimit,
-} from "../src/lib/video-model-settings.ts";
+} from "../src/lib/video-providers/google-video.ts";
 
 const t2v = "veo_3_1_t2v_fast_portrait";
 const i2v = "veo_3_1_i2v_s_fast_portrait_fl";
@@ -25,9 +25,9 @@ for (const model of GOOGLE_VIDEO_MODEL_IDS) assert.equal(isGoogleVideoModel(`tok
 assert.equal(googleVideoReferenceMode(t2v), "t2v");
 assert.equal(googleVideoReferenceMode(i2v), "i2v");
 assert.equal(googleVideoReferenceMode(r2v), "r2v");
-assert.equal(videoReferenceImageLimit(t2v), 0);
-assert.equal(videoReferenceImageLimit(i2v), 2);
-assert.equal(videoReferenceImageLimit(r2v), 3);
+assert.equal(googleVideoReferenceImageLimit(t2v), 0);
+assert.equal(googleVideoReferenceImageLimit(i2v), 2);
+assert.equal(googleVideoReferenceImageLimit(r2v), 3);
 assert.equal(supportsGoogleVideoReferenceCount(t2v, 0), true);
 assert.equal(supportsGoogleVideoReferenceCount(t2v, 1), false);
 assert.equal(supportsGoogleVideoReferenceCount(i2v, 1), true);
@@ -40,13 +40,13 @@ assert.equal(supportsGoogleVideoReferenceCount("omni", 0), true);
 assert.equal(supportsGoogleVideoReferenceCount("omni_portrait", 1), true);
 assert.equal(supportsGoogleVideoReferenceCount("omni", 3), true);
 assert.equal(supportsGoogleVideoReferenceCount("omni_portrait", 4), false);
-assert.equal(videoReferenceImageLimit("omni"), 3);
+assert.equal(googleVideoReferenceImageLimit("omni"), 3);
 assert.equal(googleVideoReferenceMode("omni", 0), "t2v");
 assert.equal(googleVideoReferenceMode("omni_portrait", 1), "r2v");
-assert.deepEqual(fixedVideoDurationOptions(t2v), [4, 6, 15]);
-assert.deepEqual(fixedVideoDurationOptions("omni"), [10]);
-assert.equal(normalizeReferenceVideoSeconds("15", "omni", 0), "10");
-assert.equal(fixedVideoResolution(r2v), "720");
+assert.deepEqual(fixedGoogleVideoDurationOptions(t2v), [4, 6, 15]);
+assert.deepEqual(fixedGoogleVideoDurationOptions("omni"), [10]);
+assert.equal(normalizeGoogleVideoSeconds("15", "omni"), "10");
+assert.equal(fixedGoogleVideoResolution(r2v), "720");
 
 assert.equal(googleVideoEntryMode(t2v), "veo-auto");
 assert.equal(googleVideoEntryMode(i2v), "veo-auto");
@@ -64,17 +64,21 @@ assert.equal(resolveGoogleVideoRouteModelId("omni", 0, "9:16"), "omni_portrait")
 assert.equal(resolveGoogleVideoRouteModelId("omni_portrait", 3, "16:9"), "omni");
 
 const serviceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
+const googleAdapterSource = readFileSync(new URL("../src/services/api/video/google-flow-adapter.ts", import.meta.url), "utf8");
 const configSource = readFileSync(new URL("../src/stores/use-config-store.ts", import.meta.url), "utf8");
 const settingsRouteSource = readFileSync(new URL("../src/app/api/settings/route.ts", import.meta.url), "utf8");
 const canvasSource = readFileSync(new URL("../src/app/(user)/canvas/[id]/canvas-client-page.tsx", import.meta.url), "utf8");
 const routingSource = readFileSync(new URL("../src/lib/google-video-routing.ts", import.meta.url), "utf8");
 const pickerSource = readFileSync(new URL("../src/components/model-picker.tsx", import.meta.url), "utf8");
-assert.match(serviceSource, /new FormData\(\)/, "Flow video requests must be multipart");
+assert.match(serviceSource, /createGoogleFlowVideoTaskRequest/, "video orchestration must delegate Google requests to the Google adapter");
 assert.match(serviceSource, /aiApiUrl\(config, "\/videos"\)/, "Flow video creation must use the async /videos contract");
 assert.doesNotMatch(serviceSource, /aiApiUrl\(config, "\/videos\/generations"\)/, "Google video must not use the legacy Grok endpoint");
-assert.match(serviceSource, /body\.append\("input_reference", file\)/, "reference images must be uploaded as multipart files");
-assert.match(configSource, /videoModel: "tokaxis::veo_3_1_i2v_s_fast_portrait_fl"/, "TokAxis default must migrate away from Grok");
+assert.match(googleAdapterSource, /new FormData\(\)/, "Flow video requests must be multipart");
+assert.match(googleAdapterSource, /body\.append\("input_reference", file\)/, "reference images must be uploaded as multipart files");
+assert.match(configSource, /videoModel: DEFAULT_GOOGLE_VIDEO_MODEL/, "TokAxis default must come from the isolated Google provider contract");
+assert.match(configSource, /video-providers\/google-video/, "TokAxis defaults must import only the Google provider contract");
 assert.match(configSource, /\.\.\.GOOGLE_VIDEO_MODEL_IDS/, "TokAxis fallback must expose all Google models");
+assert.match(settingsRouteSource, /video-providers\/google-video/, "settings fallback must import only the Google provider contract");
 assert.match(settingsRouteSource, /\.\.\.GOOGLE_VIDEO_MODEL_IDS/, "settings fallback must expose all Google models");
 assert.match(canvasSource, /model: "veo"/, "storyboard video prompts must compile for Veo");
 assert.match(routingSource, /resolveGoogleVideoRouteModelId/, "all Google requests must use the deterministic route matrix");

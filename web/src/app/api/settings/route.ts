@@ -1,5 +1,5 @@
 import { TOKAXIS_GOOGLE_IMAGE_MODELS } from "@/lib/tokaxis-google-image";
-import { GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-model-settings";
+import { GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-providers/google-video";
 
 const FALLBACK_MODELS = [
     "gpt-image-2",

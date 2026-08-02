@@ -16,7 +16,8 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { summarizeConfiguredGoogleVideoRoute } from "@/lib/google-video-routing";
-import { googleVideoEntryReferenceImageLimit, isGoogleVideoModel, normalizeReferenceVideoSeconds, supportsGoogleVideoReferenceCount, videoAspectRatioForSize, videoReferenceImageLimit, videoReferenceMode } from "@/lib/video-model-settings";
+import { googleVideoEntryReferenceImageLimit, googleVideoReferenceImageLimit, googleVideoReferenceMode, isGoogleVideoModel, normalizeGoogleVideoSeconds, supportsGoogleVideoReferenceCount } from "@/lib/video-providers/google-video";
+import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
 import type { VideoWorkbenchMode } from "@/lib/video-workbench-prompt";
 import { resolveReferenceImageVideoConfig } from "@/app/(user)/canvas/utils/video-reference-model";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
@@ -196,7 +197,7 @@ export default function VideoPage() {
                 selectedModel = modelOptionName(generationConfig.videoModel || generationConfig.model);
                 setGenerationStage("正在编写口播与镜头");
                 generationReferences = await hydrateVideoWorkbenchReferenceImages(snapshot.references);
-                const duration = Number(normalizeReferenceVideoSeconds(generationConfig.videoSeconds, selectedModel, generationReferences.length));
+                const duration = Number(normalizeGoogleVideoSeconds(generationConfig.videoSeconds, selectedModel));
                 const promptReferences = await prepareVideoWorkbenchReferenceImages(generationReferences);
                 compiledPrompt = await optimizeVideoWorkbenchPrompt(
                     generationConfig,
@@ -205,7 +206,7 @@ export default function VideoPage() {
                         model: selectedModel,
                         duration,
                         aspectRatio: videoAspectRatioForSize(generationConfig.size),
-                        referenceMode: videoReferenceMode(selectedModel, generationReferences.length),
+                        referenceMode: googleVideoReferenceMode(selectedModel, generationReferences.length),
                         referenceCount: generationReferences.length,
                         sourcePrompt: snapshot.text,
                     },
@@ -268,7 +269,7 @@ export default function VideoPage() {
             const resolvedConfig = resolveReferenceImageVideoConfig(effectiveConfig, references.length);
             const resolvedModel = modelOptionName(resolvedConfig.videoModel || resolvedConfig.model);
             if (!supportsGoogleVideoReferenceCount(resolvedModel, references.length)) {
-                const limit = videoReferenceImageLimit(resolvedModel);
+                const limit = googleVideoReferenceImageLimit(resolvedModel);
                 message.error(references.length > limit ? `当前模型最多支持 ${limit} 张参考图` : "当前模型需要参考图，请改用文生视频模型或添加图片");
                 return null;
             }

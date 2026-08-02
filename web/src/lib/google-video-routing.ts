@@ -1,6 +1,15 @@
 import type { AiConfig } from "@/stores/use-config-store";
 
-import { fixedVideoResolution, googleVideoEntryInfo, googleVideoEntryMode, googleVideoRouteAspectRatio, isGoogleVideoModel, normalizeReferenceVideoSeconds, resolveGoogleVideoRouteModelId, type GoogleVideoEntryMode } from "@/lib/video-model-settings";
+import {
+    fixedGoogleVideoResolution,
+    googleVideoEntryInfo,
+    googleVideoEntryMode,
+    googleVideoRouteAspectRatio,
+    isGoogleVideoModel,
+    normalizeGoogleVideoSeconds,
+    resolveGoogleVideoRouteModelId,
+    type GoogleVideoEntryMode,
+} from "@/lib/video-providers/google-video";
 
 const CHANNEL_MODEL_SEPARATOR = "::";
 const ENTRY_ORDER: GoogleVideoEntryMode[] = ["veo-auto", "veo-r2v", "omni"];
@@ -45,8 +54,8 @@ export function summarizeConfiguredGoogleVideoRoute(config: AiConfig, referenceI
         const modelId = rawModelName(resolved);
         const route = modelId.startsWith("veo_3_1_t2v") ? "Veo 文生" : modelId.startsWith("veo_3_1_i2v") ? (referenceImageCount >= 2 ? "Veo 首尾帧" : "Veo 首帧") : modelId.startsWith("veo_3_1_r2v") ? "Veo 多参考" : "Omni";
         const orientation = modelId.includes("portrait") ? "竖屏" : "横屏";
-        const resolution = fixedVideoResolution(modelId) || config.vquality || "720";
-        const seconds = normalizeReferenceVideoSeconds(config.videoSeconds, modelId, referenceImageCount);
+        const resolution = fixedGoogleVideoResolution(modelId) || config.vquality || "720";
+        const seconds = normalizeGoogleVideoSeconds(config.videoSeconds, modelId);
         return { model: resolved, text: `${route} · ${orientation} · ${resolution}p · ${seconds}秒`, error: false } as const;
     } catch (error) {
         return { model: "", text: error instanceof Error ? error.message : "视频参数不兼容", error: true } as const;

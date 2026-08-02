@@ -7,7 +7,8 @@ import { nanoid } from "nanoid";
 
 import { modelDisplayInfo } from "@/lib/model-display";
 import { isTokaxisGoogleImageModel, TOKAXIS_GOOGLE_IMAGE_MODELS, tokaxisGoogleImageSizeFromDimensions, tokaxisGoogleImageSizeFromModel } from "@/lib/tokaxis-google-image";
-import { GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-model-settings";
+import { DEFAULT_GOOGLE_VIDEO_MODEL, GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-providers/google-video";
+import { GROK_DISABLED_VIDEO_MODEL_IDS } from "@/lib/video-providers/grok-video";
 
 export type ApiCallFormat = "openai" | "gemini";
 
@@ -85,18 +86,7 @@ const TOKAXIS_FALLBACK_MODELS = [
 ];
 const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
 const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["1K"], TOKAXIS_GOOGLE_IMAGE_MODELS["2K"], TOKAXIS_GOOGLE_IMAGE_MODELS["4K"], "grok-imagine-image-lite"]);
-const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set([
-    "grok-image-video",
-    "grok-video-1.5",
-    "grok-imagine-video",
-    "grok-imagine-1.0-video",
-    "grok-imagine-1.0-video-16s",
-    "grok-imagine-video-1.5-fast",
-    "grok-imagine-video-1.5-preview",
-    "grok-imagine-video-1.5-1080p",
-    "grok-imagine-video-1.5-fast-16s",
-    "grok-imagine-video-preview",
-]);
+const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set<string>(GROK_DISABLED_VIDEO_MODEL_IDS);
 const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>(GOOGLE_VIDEO_MODEL_IDS);
 const TOKAXIS_FALLBACK_MODEL_OPTIONS = TOKAXIS_FALLBACK_MODELS.map((model) => encodeChannelModel(TOKAXIS_CHANNEL_ID, model));
 const TOKAXIS_IMAGE_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "image");
@@ -122,7 +112,7 @@ export const defaultConfig: AiConfig = {
     ],
     model: "tokaxis::gpt-image-2",
     imageModel: "tokaxis::gpt-image-2",
-    videoModel: "tokaxis::veo_3_1_i2v_s_fast_portrait_fl",
+    videoModel: DEFAULT_GOOGLE_VIDEO_MODEL,
     textModel: "tokaxis::gpt-5.6-sol",
     audioModel: "tokaxis::gpt-4o-mini-tts",
     audioVoice: "alloy",

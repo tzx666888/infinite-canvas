@@ -17,7 +17,8 @@ import {
     storyboardShotBudget,
 } from "../src/app/(user)/canvas/utils/video-prompt-compiler";
 import { buildStoryboardVideoConstraintPrompt, GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, STORYBOARD_DIRECTED_VIDEO_MARKER, unwrapStoryboardVideoUserDirection } from "../src/lib/storyboard-video-constraints";
-import { grokVideoReferenceMode, selectGrokReferenceVideoImagesWithPriority, supportsGrokVideoReferenceCount, videoAspectRatioForSize } from "../src/lib/video-model-settings";
+import { grokVideoReferenceMode, selectGrokReferenceVideoImagesWithPriority, supportsGrokVideoReferenceCount } from "../src/lib/video-providers/grok-video";
+import { videoAspectRatioForSize } from "../src/lib/video-providers/shared";
 import { buildCompactVideoProductScalePrompt } from "../src/lib/video-product-scale";
 import { buildStoryboardKeyframePrompt, buildStoryboardReviewSheetPrompt, normalizeGeneratedVideoPrompt, VIDEO_PROMPT_SYSTEM } from "../src/services/api/prompt-polish";
 
@@ -567,6 +568,7 @@ const hoverToolbarSource = readFileSync(new URL("../src/app/(user)/canvas/compon
 const configStoreSource = readFileSync(new URL("../src/stores/use-config-store.ts", import.meta.url), "utf8");
 const promptPanelSource = readFileSync(new URL("../src/app/(user)/canvas/components/canvas-node-prompt-panel.tsx", import.meta.url), "utf8");
 const videoServiceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
+const googleVideoAdapterSource = readFileSync(new URL("../src/services/api/video/google-flow-adapter.ts", import.meta.url), "utf8");
 const videoPromptCompilerSource = readFileSync(new URL("../src/app/(user)/canvas/utils/video-prompt-compiler.ts", import.meta.url), "utf8");
 const promptPolishSource = readFileSync(new URL("../src/services/api/prompt-polish.ts", import.meta.url), "utf8");
 assert.match(promptPanelSource, /mode !== "video" && storyboardPlan\?\.beats\?\.length/, "a completed video node must resubmit its video request instead of regenerating storyboard review sheets");
@@ -647,7 +649,7 @@ assert.match(configStoreSource, /shouldMigrateTextModel \? \["gpt-5\.6-sol", \.\
 assert.doesNotMatch(promptPanelSource, /tokaxis::gpt-5\.5/, "prompt polish UI must not retain a GPT-5.5 fallback");
 assert.match(videoServiceSource, /const requestReferences = references;/, "Google video requests must preserve the routed reference-image set");
 assert.match(videoServiceSource, /requestReferences\.map\(async \(image, index\)/, "each routed Google video reference must be converted into an upload file");
-assert.match(videoServiceSource, /files\.forEach\(\(file\) => body\.append\("input_reference", file\)\)/, "Google I2V and R2V requests must send references through multipart input_reference fields");
+assert.match(googleVideoAdapterSource, /input\.files\.forEach\(\(file\) => body\.append\("input_reference", file\)\)/, "Google I2V and R2V requests must send references through multipart input_reference fields");
 assert.match(videoServiceSource, /if \(isCompiledVideoPrompt\(rawPrompt\)\)/, "compiled storyboard, workbench, and product-lock prompts must bypass the generic wrapper");
 assert.match(videoServiceSource, /prompt\.includes\("PRODUCT-LOCKED KEYFRAME VIDEO\."\)/, "product bridge prompts must not be wrapped a second time");
 assert.match(videoServiceSource, /Visible speech rule: when a visible presenter is speaking, keep the face clearly visible for the complete line/i, "single-image I2V must preserve the task-245 visible-speech contract");

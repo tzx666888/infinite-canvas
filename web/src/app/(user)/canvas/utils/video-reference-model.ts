@@ -1,16 +1,17 @@
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 import { resolveConfiguredGoogleVideoModel } from "@/lib/google-video-routing";
-import { fixedVideoResolution, isGoogleVideoModel, normalizeReferenceVideoSeconds, videoAspectRatioForSize, videoReferenceImageLimit } from "@/lib/video-model-settings";
+import { fixedGoogleVideoResolution, googleVideoReferenceImageLimit, isGoogleVideoModel, normalizeGoogleVideoSeconds } from "@/lib/video-providers/google-video";
+import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
 
 export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImageCount: number): AiConfig {
     const model = selectReferenceImageVideoModel(config, referenceImageCount);
     const nextConfig = model && (model !== config.model || model !== config.videoModel) ? { ...config, model, videoModel: model } : config;
-    const effectiveReferenceCount = Math.min(referenceImageCount, Math.max(0, videoReferenceImageLimit(model || nextConfig.model)));
+    const effectiveReferenceCount = Math.min(referenceImageCount, Math.max(0, googleVideoReferenceImageLimit(model || nextConfig.model)));
     if (!isGoogleVideoModel(model || nextConfig.model)) return nextConfig;
     return {
         ...nextConfig,
-        videoSeconds: normalizeReferenceVideoSeconds(nextConfig.videoSeconds, model || nextConfig.model, effectiveReferenceCount),
-        vquality: fixedVideoResolution(model || nextConfig.model) || nextConfig.vquality,
+        videoSeconds: normalizeGoogleVideoSeconds(nextConfig.videoSeconds, model || nextConfig.model),
+        vquality: fixedGoogleVideoResolution(model || nextConfig.model) || nextConfig.vquality,
         size: googleVideoSize(model || nextConfig.model, nextConfig.size),
     };
 }
