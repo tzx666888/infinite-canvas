@@ -595,7 +595,8 @@ assert.match(canvasClientSource, /VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS/, "clean-an
 assert.match(canvasClientSource, /requestVideoBridgeImageAttempt\(fallbackConfig/, "clean-anchor generation must retry transient primary-model failures with an available fallback");
 assert.match(canvasClientSource, /首帧服务繁忙，正在切换备用模型/, "the UI must disclose clean-anchor fallback instead of silently changing models");
 assert.match(canvasClientSource, /const storyboardVideoImages = usesWholeStoryboardSheet \? wholeStoryboardImages : storyboardReferenceFrames/, "whole-video generation must use the model-specific opening anchor while the plan carries the full story");
-assert.match(canvasClientSource, /referenceMode: grokVideoReferenceMode\(videoGenerationConfig\.model, videoReferenceImages\.length\)/, "whole-grid prompt compilation must describe each model's actual I2V or R2V contract");
+assert.match(canvasClientSource, /referenceMode: videoReferenceMode\(videoGenerationConfig\.model, videoReferenceImages\.length\)/, "whole-grid prompt compilation must describe each model's actual I2V or R2V contract");
+assert.match(canvasClientSource, /referenceMode: videoReferenceMode\(generationConfig\.model, retryVideoImages\.length\)/, "whole-grid retry must preserve the selected model's actual I2V or R2V contract");
 assert.match(canvasClientSource, /hasReusableStoredStoryboardAnchor/, "whole-video retry must trust only an independent keyframe or generated bridge");
 assert.match(canvasClientSource, /storyboardVideoAnchorMode === "generated-bridge" \|\| node\.metadata\?\.storyboardVideoAnchorMode === "keyframe"/, "retry must reject obsolete raw-sheet and panel anchors");
 assert.match(canvasClientSource, /needsRetryStoryboardBridge/, "whole-video retry must rebuild unsafe legacy anchors before resubmission");
