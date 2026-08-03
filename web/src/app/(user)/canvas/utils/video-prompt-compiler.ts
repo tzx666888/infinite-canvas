@@ -50,50 +50,105 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
     const duration = Math.max(1, Math.floor(context.duration || 15));
     const mode = resolveStoryboardMode(plan);
     const beats = selectBeatsForDuration(plan.beats, duration) || [];
-    const stageRanges = grokStageRanges(beats.length || 1, duration);
+    const stageRanges = storyboardExecutionRanges(beats.length || 1, duration);
     const stages = beats.length
-        ? beats.map((beat, index) => `${stageRanges[index]} ${compactStoryboardStageAction(beat, plan, 11)}`).join("; cut to ")
-        : `${stageRanges[0]} ${limitBeatWords(fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")), 10)}`;
+        ? beats.map((beat, index) => compileStoryboardExecutionShot(plan, beat, index, stageRanges[index] || stageRanges.at(-1)!))
+        : [
+              `${stageRanges[0]} SHOT 1 - medium shot; controlled camera movement. Beat: ${ensureSentenceEnding(
+                  fallbackActionChain(plan, mode, readableText(plan.productCategory, "the referenced subject")),
+              )} End this shot on one stable resolving pose or product position.`,
+          ];
     const audioPlan = plan.audioPlan;
-    const script = storyboardAudioScriptForDuration(plan, duration);
+    const script = storyboardAudioScriptForDuration(plan, duration) || fallbackStoryboardScript(duration);
     const audioDirection =
         audioPlan?.mode === "ambient-only"
-            ? "Audio: natural location sound and restrained music only; no speech."
+            ? ["AUDIO PLAN: natural location sound and restrained music only; no speech, dialogue, narration, singing, captions, or subtitles."]
             : [
-                  `Audio: ${audioPlan?.language || "English"}, ${limitBeatWords(compactStoryboardVoice(audioPlan?.voice), 6)}.`,
-                  script ? `Say exactly once, naturally: "${script}"` : "Deliver one short connected creator-style line once.",
-                  audioPlan?.mode === "on-camera" ? "Keep the same face visible and lip-synced throughout." : audioPlan?.mode === "voiceover" ? "Voice off-screen; visible people act naturally." : "Lip-sync opening sentence; same voice off-screen.",
-                  "No repeats, filler, stretched words, voice changes.",
-              ].join(" ");
-    const visualIdentity = limitBeatWords(readableText(plan.visualIdentity, ""), 20).replace(/[.!?]+$/g, "");
-    const identityDirection = [
-        visualIdentity ? `Visual lock: ${visualIdentity}.` : "",
+                  `AUDIO PLAN: ${audioPlan?.language || "English"}; ${ensureSentenceEnding(readableText(audioPlan?.voice, compactStoryboardVoice(audioPlan?.voice)))}`,
+                  storyboardExecutionAudioMode(audioPlan?.mode),
+                  `Spoken script: "${compactSpeechText(script, 560)}"`,
+                  "Say the script exactly once in one connected, natural creator delivery. Keep music below the voice; no repeats, filler, stretched words, speaker changes, captions, or unsupported claims.",
+              ];
+    const visualIdentity = readableText(plan.visualIdentity, "").replace(/[.!?]+$/g, "");
+    const modeIdentityDirection =
         mode === "product"
-            ? visualIdentity
-                ? ""
-                : "Lock presenter, wardrobe, product geometry, colors, label, count, and scale."
+            ? "Preserve the same presenter, wardrobe, product geometry, colors, label, count, and scale in every shot."
             : mode === "apparel"
-              ? visualIdentity
-                  ? ""
-                  : "Lock the adult face, hair, body, garment design, fit, material, and coverage."
-              : visualIdentity
-                ? ""
-                : "Lock the same subject, wardrobe, body proportions, and visual world.",
-    ]
+              ? "Preserve the same adult face, hair, body, garment design, fit, material, and coverage in every shot."
+              : "Preserve the same subject, wardrobe, body proportions, and visual world in every shot.";
+    const identityDirection = [visualIdentity ? `CONTINUITY LOCK: ${visualIdentity}.` : "CONTINUITY LOCK:", modeIdentityDirection]
         .filter(Boolean)
         .join(" ");
-    const prompt = [
+    const forbidden = [...(plan.forbiddenAdditions || []), ...(plan.compliance?.mustNotInclude || [])]
+        .map((item) => readableText(item, ""))
+        .filter(Boolean)
+        .join(", ");
+    const promptLines = [
         STORYBOARD_DIRECTED_VIDEO_MARKER,
-        `${duration}s ${context.aspectRatio}. Exact first frame: clean keyframe. Lock person, wardrobe, product, composition, setting.`,
+        `Create exactly ${duration} seconds in ${context.aspectRatio}. Execute exactly ${Math.max(1, stages.length)} numbered shots in the stated order.`,
+        "OPENING FRAME: use the attached independent keyframe as the exact first frame of SHOT 1 only. Lock identity, wardrobe, product design, colors, count, and scale from it. Do not lock later framing, camera angle, action, or explicitly planned locations to the opening composition.",
         identityDirection,
-        `Ordered story: ${stages}.`,
-        "No wardrobe changes or unplanned furniture, props, actions, entities, locations.",
-        audioDirection,
-        `At most ${storyboardShotBudget(duration)} hard-cut shots; no morphs, duplicates, anatomy errors, text, claims.`,
-    ]
-        .filter(Boolean)
-        .join(" ");
-    return normalizeSpaces(prompt);
+        "VISUAL TIMELINE (mandatory; render every shot below and use one direct hard cut between adjacent shots):",
+        ...stages,
+        "END VISUAL TIMELINE.",
+        resolveLocationStrategy(plan, mode) === "single-location"
+            ? "LOCATION RULE: keep one coherent environment, but visibly change framing, camera position, depth, and action exactly as assigned per shot."
+            : "LOCATION RULE: use exactly the scene assigned inside each numbered shot, in timeline order. Never collapse all shots into the opening background or revisit an earlier scene unless that shot explicitly says so.",
+        "Do not collapse the sequence into one continuous talking-head shot. Do not add, omit, reorder, merge, or replay a numbered shot.",
+        forbidden ? `PROHIBITED ADDITIONS: ${forbidden}.` : "PROHIBITED ADDITIONS: no unplanned furniture, props, actions, entities, products, wardrobe changes, or locations.",
+        ...audioDirection,
+        "OUTPUT LOCK: clean full-frame footage only; no storyboard grid, panel borders, labels, captions, watermarks, morphs, duplicate people or products, identity drift, anatomy errors, or unsupported claims.",
+    ].filter(Boolean);
+    return promptLines.map((line) => normalizeSpaces(line)).join("\n");
+}
+
+function compileStoryboardExecutionShot(plan: CanvasCommerceVideoPlan, beat: CommerceVideoBeat, index: number, range: string) {
+    const shotType = readableText(beat.shotType, "medium shot");
+    const cameraMove = readableText(beat.cameraMove, "controlled camera movement");
+    const rawAction = readableText(beat.eightElements?.action, "");
+    const action = /^continue only the described action\.?$/i.test(rawAction) ? "" : executionSentence(rawAction);
+    const rawDescription = executionSentence(readableText(beat.description, fallbackBeatDescription(beat, plan)));
+    const description = action && /(?:visible|ordered) panels?|panel-order explanation|storyboard instruction/i.test(rawDescription) ? action : rawDescription;
+    const scene = executionSentence(readableText(beat.eightElements?.scene, ""));
+    const rawLighting = executionSentence(readableText(beat.eightElements?.lighting, ""));
+    const lighting = /^(?:consistent )?natural light\.?$/i.test(rawLighting) ? "" : rawLighting;
+    const rawCamera = executionSentence(readableText(beat.eightElements?.camera, ""));
+    const camera = /^(?:stable )?camera continuity\.?$/i.test(rawCamera) ? "" : rawCamera;
+    const rawConstraint = executionSentence(readableText(beat.eightElements?.constraint, ""));
+    const constraint = /^(?:preserve|maintain) (?:the )?exact identity(?: and add no new entities)?\.?$/i.test(rawConstraint) ? "" : rawConstraint;
+    const details = [
+        `Beat: ${description}`,
+        action && normalizeSpaces(action).toLowerCase() !== normalizeSpaces(description).toLowerCase() ? `Action: ${action}` : "",
+        scene ? `Scene: ${scene}` : "",
+        lighting ? `Lighting: ${lighting}` : "",
+        camera ? `Camera detail: ${camera}` : "",
+        constraint ? `Shot constraint: ${constraint}` : "",
+    ].filter(Boolean);
+    return `${range} SHOT ${index + 1} - ${shotType}; ${cameraMove}. ${details.join(" ")} End at this shot's final described state, then hard cut.`;
+}
+
+function executionSentence(value: string) {
+    const cleaned = sanitizeStoryboardBeatDirection(value)
+        .replace(/^(?:hard\s+)?cut\s+to\s+/i, "")
+        .trim();
+    return cleaned ? ensureSentenceEnding(cleaned) : "";
+}
+
+function storyboardExecutionRanges(count: number, duration: number) {
+    if (count === 2 && duration <= 4) return ["[0:00-0:02]", `[0:02-0:${String(duration).padStart(2, "0")}]`];
+    if (count === 2 && duration <= 6) return ["[0:00-0:03]", `[0:03-0:${String(duration).padStart(2, "0")}]`];
+    if (count === 3 && duration <= 8) return ["[0:00-0:02]", "[0:02-0:06]", `[0:06-0:${String(duration).padStart(2, "0")}]`];
+    if (count === 3 && duration <= 10) return ["[0:00-0:03]", "[0:03-0:07]", `[0:07-0:${String(duration).padStart(2, "0")}]`];
+    if (count === 4 && duration >= 15) return ["[0:00-0:03]", "[0:03-0:08]", "[0:08-0:13]", `[0:13-0:${String(duration).padStart(2, "0")}]`];
+    return timelineRanges(count, duration);
+}
+
+function storyboardExecutionAudioMode(mode: "voiceover" | "on-camera" | "mixed" | "ambient-only" | undefined) {
+    if (mode === "on-camera") {
+        return "DELIVERY: the same presenter speaks only while the face and mouth are clearly visible, with synchronized lips, jaw, breath, and expression. Pause speech during product-detail, back-view, or face-hidden shots.";
+    }
+    if (mode === "voiceover") return "DELIVERY: one consistent off-screen creator voice; visible people act naturally and never fake the narration.";
+    return "DELIVERY: the same presenter lip-syncs the short opening sentence in the first face-visible shot, then the same voice continues off-screen over B-roll. Never animate a hidden or mismatched mouth as speaking.";
 }
 
 export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | undefined, sourcePrompt = "", duration = 15): string {
@@ -358,8 +413,10 @@ function compileGrokPrompt(plan: CanvasCommerceVideoPlan, beats: CommerceVideoBe
     return normalizeSpaces(limitWords(prompt, 200));
 }
 
-function storyboardScriptDurationKey(duration: number): "6" | "10" | "15" {
+function storyboardScriptDurationKey(duration: number): "4" | "6" | "8" | "10" | "15" {
+    if (duration <= 4) return "4";
     if (duration <= 6) return "6";
+    if (duration <= 8) return "8";
     if (duration <= 10) return "10";
     return "15";
 }
@@ -378,7 +435,9 @@ function speechWordCount(value: string) {
 }
 
 function storyboardSpeechWordRange(duration: number): [number, number] {
+    if (duration <= 4) return [6, 9];
     if (duration <= 6) return [10, 14];
+    if (duration <= 8) return [14, 18];
     if (duration <= 10) return [18, 24];
     return [26, 34];
 }
@@ -391,7 +450,7 @@ function repairEnglishStoryboardScript(value: string, duration: number) {
     const words = normalized.split(/\s+/).filter(Boolean);
     if (words.length >= minimum && words.length <= maximum) return ensureSentenceEnding(normalized);
     if (words.length < minimum) {
-        const suffix = duration <= 6 ? "right now" : duration <= 10 ? "and see the final result" : "so you can see the finished result clearly";
+        const suffix = duration <= 4 ? "right now" : duration <= 6 ? "and see it clearly" : duration <= 8 ? "and see the result clearly" : duration <= 10 ? "and see the final result" : "so you can see the finished result clearly";
         const extended = `${normalized.replace(/[,;:.!?\s]+$/g, "")} ${suffix}.`;
         const extendedWords = speechWordCount(extended);
         return extendedWords >= minimum && extendedWords <= maximum ? extended : fallbackStoryboardScript(duration);
@@ -426,7 +485,9 @@ function normalizeStoryboardSpeechForProvider(value: string, language: string | 
 }
 
 function fallbackStoryboardScript(duration: number) {
-    if (duration <= 6) return "See this product in action from start to finish.";
+    if (duration <= 4) return "See how this detail changes the look.";
+    if (duration <= 6) return "See how this product makes the whole routine feel easier today.";
+    if (duration <= 8) return "Look at this simple detail; it makes the whole result feel polished, natural, and easy.";
     if (duration <= 10) return "Watch how I use this product step by step, showing each action clearly and ending with the final result.";
     return "Watch how I use this product step by step, keeping each action clear, the presentation lively, and the final result natural and easy to follow from start to finish.";
 }
@@ -667,7 +728,9 @@ function storyboardLanguageDirection(explicitLanguage: string | undefined, userD
 }
 
 function speechWordBudget(duration: number) {
+    if (duration <= 4) return "6-9";
     if (duration <= 6) return "10-14";
+    if (duration <= 8) return "14-18";
     if (duration <= 10) return "18-24";
     if (duration <= 15) return "26-34";
     return `${Math.max(18, Math.round(duration * 1.2))}-${Math.max(22, Math.round(duration * 1.5))}`;

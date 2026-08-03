@@ -141,11 +141,11 @@ const VIDEO_STORYBOARD_SYSTEM = `角色
 5. subject 模式默认使用 cinematic-subject：围绕同一主体形成强开场、动作推进和视觉收束，可在 2-4 个相关地点间用干净剪辑切换，不强制商品、购买动作或问题解决。
 6. scene 模式使用 scene-progression：环境和事件可以在同一视觉世界内推进，不得突然跳到无关地点或加入无关人物/商品。
 7. product 模式默认 storyboardStyle=direct-response、locationStrategy=single-location；apparel / subject 默认 locationStrategy=related-location-montage。用户明确要求单一地点时必须尊重。
-8. 4s 输出 2 个 beat；8s 输出 3 个 beat；12s 输出 4 个 beat；15s 输出 5-7 个 beat。用户未说明时长时，默认按 15s 输出 5 个 beat。
-9. 每个 beat 必须按时间顺序推进。同一人物、服装和商品身份始终一致；环境可以按 beats 中明确规划的相关地点变化。相邻 beat 必须在动作、景别、机位或地点上有肉眼可见的推进，不得只做轻微换角度。
+8. 执行 beat 数必须与视频模型可稳定完成的镜头数一致：4s/6s 输出 2 个 beat，8s/10s 输出 3 个 beat，12s/15s 输出 4 个 beat。用户未说明时长时，默认按 15s 输出恰好 4 个 beat。12 宫格只是这些执行 beat 的构图候选，不是 12 个额外动作或 12 个额外地点。
+9. 每个 beat 必须按时间顺序推进。同一人物、服装和商品身份始终一致；环境可以按 beats 中明确规划的相关地点变化。相邻 beat 必须在动作、景别、机位或地点上有肉眼可见的推进，不得只做轻微换角度。description 和 eightElements.action 都必须是动作对象与结束状态完整的英文指令，禁止以 toward、with、holding、hand、and、to 等悬空词结尾。
 10. plannedLocations 必须列出计划实际使用的英文地点。若用户点名多个地点，必须包含每个地点的准确英文语义，并在 beats 中按用户顺序覆盖全部地点；禁止把 beach、poolside、resort lounger、tropical waterfall 等不同地点概括成一个 shoreline 或同一背景。
 11. 电商视频默认需要可听见的口播，只有用户明确要求无声、纯音乐或环境音时才使用 ambient-only。口播必须只说素材可见信息和用户提供的事实，不得编造功效、价格、折扣、认证、销量或品牌文字。
-12. audioPlan.scriptsByDuration 必须分别提供 6s、10s、15s 三份独立口播稿：英文分别为 10-14、18-24、26-34 词，其他语言使用等价口播节奏；不得把长稿机械截断成短稿。只使用简单、易发音的日常词和短从句，不写拗口的复合词、口号或功能清单。audioPlan.script 必须等于用户目标时长对应版本，未指定时长则使用 15s 版本。每份稿都只演绎一次，像真人创作者自然说话：保留口语缩写，第一句是 4-7 词的即时反应或观察，短暂停顿后用第二句连贯说完一个利益点或邀请。禁止写“from the first ... to the final ...”式导演语言、镜头顺序说明、服装几何清单、堆叠功能碎句或逐 beat 新口号。
+12. audioPlan.scriptsByDuration 必须分别提供 4s、6s、8s、10s、15s 五份独立口播稿：英文分别为 6-9、10-14、14-18、18-24、26-34 词，其他语言使用等价口播节奏；不得把长稿机械截断成短稿。只使用简单、易发音的日常词和短从句，不写拗口的复合词、口号或功能清单。audioPlan.script 必须等于用户目标时长对应版本，未指定时长则使用 15s 版本。每份稿都只演绎一次，像真人创作者自然说话：保留口语缩写，第一句是 4-7 词的即时反应或观察，短暂停顿后用后续短句连贯说完一个利益点或邀请。15s 版本应有 2-3 个自然语句或分句，并在约 8 秒处存在句号、逗号或分号等自然续写边界。禁止写“from the first ... to the final ...”式导演语言、镜头顺序说明、服装几何清单、堆叠功能碎句或逐 beat 新口号。
 13. apparel / subject 有可见成年人物且用户未指定纯画外音时，默认 audioPlan.mode=mixed：优先把第一句放在一个稳定的正脸中近景作为自然口播，随后同一声线转为画外音覆盖动作、环境、商品和细节 B-roll；不得让人物在每次剪辑后重新开口。只有用户明确要求全程面对镜头口播时才使用 on-camera。人物开口时保持同一张脸、完整头部和嘴部可见，并自然同步口唇、下颌、呼吸及表情；纯商品特写、局部材质、背身和无脸镜头的 spokenLine 必须为空。
 
 CommerceVideoPlan JSON 要求
@@ -166,7 +166,9 @@ CommerceVideoPlan JSON 要求
     "voice": "One concise consistent adult voice direction matching the visible lead when applicable",
     "script": "Complete script matching the requested duration, or an empty string only for ambient-only",
     "scriptsByDuration": {
+      "4": "Independent natural 4-second script in the target spoken language",
       "6": "Independent natural 6-second script in the target spoken language",
+      "8": "Independent natural 8-second script in the target spoken language",
       "10": "Independent natural 10-second script in the target spoken language",
       "15": "Independent natural 15-second script in the target spoken language"
     }
@@ -642,18 +644,18 @@ const PRODUCT_STORYBOARD_REVIEW_MOMENTS = [
 ] as const;
 
 const LIFESTYLE_STORYBOARD_REVIEW_MOMENTS = [
-    "open on the strongest face, silhouette, garment, or subject motion hook from the assigned beat",
-    "show a dynamic full-body or wider entrance with the same identity and wardrobe",
-    "use a tracking, follow, or lateral camera move that gives the subject clear direction",
-    "move into a precise face, garment, material, hand, or movement detail",
-    "cut cleanly to the next related location explicitly planned by the assigned beat",
-    "show a natural turn, walk, reach, pose change, or environmental interaction already supported by the beat",
-    "use a low, high, rear three-quarter, or side angle while preserving face, anatomy, and wardrobe",
-    "reveal more of the related environment with a wide shot and active foreground or background depth",
-    "capture the next energetic action instant with believable hair, fabric, water, wind, or body motion only when present",
-    "slow briefly into a composed medium portrait or identity-preserving lifestyle moment",
-    "advance into the final related location or strongest payoff composition from the ordered beats",
-    "finish with a confident full-body or subject hero frame that resolves the final beat",
+    "render the assigned beat's exact opening composition without adding an action or location",
+    "show a slightly wider view of the same assigned action only when that framing remains faithful to the beat",
+    "use the beat's specified camera direction without turning a static pose into walking, reaching, or another action",
+    "show a closer face, garment, jewelry, hand, or material detail only when it is already present in the assigned beat",
+    "hold the same assigned scene and action from a complementary angle without advancing to another beat",
+    "show the next instant of the exact assigned action, preserving its object, direction, and end state",
+    "vary camera height or side angle only; preserve the assigned face, anatomy, wardrobe, product, action, and scene",
+    "reveal more environment only when that environment is explicitly named by the assigned beat",
+    "show believable local hair, fabric, water, wind, or body motion only when the assigned beat explicitly contains it",
+    "settle the exact assigned action into a composed identity-preserving frame without inventing a new pose",
+    "render the final assigned beat from its specified scene and framing without importing an earlier or later location",
+    "finish the exact final action and end state already written in the assigned beat; do not invent a generic full-body hero pose",
 ] as const;
 
 const SCENE_STORYBOARD_REVIEW_MOMENTS = [
@@ -694,7 +696,7 @@ function storyboardReviewFrames(plan: CanvasCommerceVideoPlan, totalPanels = 12)
         const beat = beatForStoryboardPanel(beats, index, totalPanels);
         const el = beat.eightElements;
         const detail = [el?.subject, el?.action, el?.scene, el?.lighting, el?.camera, el?.style, el?.constraint].filter(Boolean).join(", ") || beat.description;
-        return `Hidden storyboard instruction: ${moments[index % moments.length]}. Follow beat ${beat.index} (${beat.phase}) in chronological order. ${detail}. Do not add any person, product, package, prop, brand, tool, garment, or action that is absent from the references and this beat.`;
+        return `Hidden storyboard instruction: Follow beat ${beat.index} (${beat.phase}) in chronological order. BINDING BEAT CONTENT: ${detail}. COMPOSITION-ONLY VARIATION: ${moments[index % moments.length]}. The composition note is lower priority and must never add, remove, replace, or advance the beat's action, scene, wardrobe, product, or end state. Do not add any person, product, package, prop, brand, tool, garment, or action that is absent from the references and this beat.`;
     });
 }
 

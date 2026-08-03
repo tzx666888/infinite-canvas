@@ -65,7 +65,9 @@ export type CanvasCommerceVideoPlan = {
         voice?: string;
         script?: string;
         scriptsByDuration?: {
+            "4"?: string;
             "6"?: string;
+            "8"?: string;
             "10"?: string;
             "15"?: string;
         };
@@ -224,6 +226,7 @@ export type CanvasNodeMetadata = {
     storyboardSourceNodeId?: string;
     storyboardRole?: "review-sheet" | "keyframe";
     storyboardBeatIndex?: number;
+    storyboardBeatPosition?: number;
     storyboardReviewIndex?: number;
     storyboardReviewNodeId?: string;
     targetVideoModel?: string;

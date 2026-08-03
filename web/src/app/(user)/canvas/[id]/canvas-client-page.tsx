@@ -37,7 +37,7 @@ import { resolveFusionReferenceRoles } from "@/lib/fusion-reference-roles";
 import { buildIdentityPreservingImageEditPrompt, buildIndependentImageStyleVariantPrompt } from "@/lib/image-reference-prompt";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { buildVideoProductScalePrompt } from "@/lib/video-product-scale";
-import { isGoogleVideoModel, normalizeModelVideoSeconds, selectVideoReferenceImagesWithPriority, videoAspectRatioForSize, videoReferenceMode } from "@/lib/video-model-settings";
+import { isGoogleVideoModel, normalizeModelVideoSeconds, selectVideoReferenceImagesWithPriority, videoAspectRatioForSize } from "@/lib/video-model-settings";
 import { buildStoryboardVideoConstraintPrompt, GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, STORYBOARD_DIRECTED_VIDEO_MARKER, unwrapStoryboardVideoUserDirection } from "@/lib/storyboard-video-constraints";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { BrandMark } from "@/components/brand/brand-mark";
@@ -50,7 +50,6 @@ import {
     compileStoryboardAudioDirection,
     compileStoryboardCleanAnchorVideoPrompt,
     compileVideoBeatPrompt,
-    compileVideoPrompt,
     extractCommerceVideoPlan,
     hasCompleteStoryboardAudioPlan,
     repairStoryboardAudioPlanForDuration,
@@ -3135,7 +3134,7 @@ function InfiniteCanvasPage() {
             const generationContext = await hydrateNodeGenerationContext(buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, ""));
             const referenceImages = mergeReferenceImages(sourceNodeReferenceImages(sourceNode), generationContext.referenceImages);
 
-            const beats = plan.beats;
+            const beats = [...(plan.beats || [])].sort((left, right) => left.index - right.index);
             if (!beats?.length) throw new Error("视频分镜没有可生成的 beat");
             setRunningNodeId(nodeId);
             const controller = startGenerationRequest(nodeId, nodeId, nodeId);
@@ -3346,7 +3345,7 @@ function InfiniteCanvasPage() {
                 storageKey: reviewNode.metadata?.storageKey || (reviewImageUrl.startsWith("image:") ? reviewImageUrl : undefined),
                 url: reviewImageUrl.startsWith("http") ? reviewImageUrl : undefined,
             };
-            const beats = plan.beats;
+            const beats = [...(plan.beats || [])].sort((left, right) => left.index - right.index);
             const reviewPanels = await splitStoryboardReviewSheetNode(reviewNode);
             const hasDedicatedReviewPanels = reviewPanels.length === STORYBOARD_REVIEW_PANEL_COUNT;
             const beatGenerationContexts = beats.map((beat, beatPosition) => {
@@ -3391,7 +3390,8 @@ function InfiniteCanvasPage() {
                     imageBatchExpanded: childIds.length > 0 ? true : undefined,
                     count: beats.length,
                     storyboardRole: "keyframe" as const,
-                    storyboardBeatIndex: 0,
+                    storyboardBeatIndex: rootBeat.index,
+                    storyboardBeatPosition: 0,
                     storyboardPlanId: planId,
                     storyboardSourceNodeId: reviewNode.metadata?.storyboardSourceNodeId,
                     storyboardReviewNodeId: reviewNode.id,
@@ -3421,7 +3421,8 @@ function InfiniteCanvasPage() {
                         status: NODE_STATUS_LOADING,
                         batchRootId: rootId,
                         storyboardRole: "keyframe" as const,
-                        storyboardBeatIndex: index + 1,
+                        storyboardBeatIndex: beat.index,
+                        storyboardBeatPosition: index + 1,
                         storyboardPlanId: planId,
                         storyboardSourceNodeId: reviewNode.metadata?.storyboardSourceNodeId,
                         storyboardReviewNodeId: reviewNode.id,
@@ -3453,11 +3454,10 @@ function InfiniteCanvasPage() {
                         const uploaded = await uploadImage(image.dataUrl);
                         const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageSpec.width, imageSpec.height);
                         setNodes((prev) => {
-                            const root = prev.find((node) => node.id === rootId);
                             return prev.map((node) => {
                                 if (node.id !== targetId && node.id !== rootId) return node;
                                 const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
-                                if (node.id === rootId && (targetId === rootId || !root?.metadata?.primaryImageId))
+                                if (node.id === rootId && targetId === rootId)
                                     return {
                                         ...node,
                                         position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
@@ -3524,9 +3524,24 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            const keyframeNodes = nodesRef.current
-                .filter((node) => node.metadata?.storyboardPlanId === planId && node.metadata?.storyboardRole === "keyframe" && node.metadata?.content)
-                .sort((a, b) => (a.metadata?.storyboardBeatIndex ?? 0) - (b.metadata?.storyboardBeatIndex ?? 0));
+            const keyframeCandidates = nodesRef.current.filter(
+                (node) => node.metadata?.storyboardPlanId === planId && node.metadata?.storyboardRole === "keyframe" && node.metadata?.content && node.metadata?.status !== NODE_STATUS_ERROR,
+            );
+            const latestKeyframe = keyframeCandidates.at(-1);
+            const latestBatchRootId = latestKeyframe?.metadata?.batchRootId || (latestKeyframe?.metadata?.isBatchRoot ? latestKeyframe.id : undefined);
+            const latestReviewNodeId = latestKeyframe?.metadata?.storyboardReviewNodeId;
+            const keyframeNodes = keyframeCandidates
+                .filter((node) => {
+                    const batchRootId = node.metadata?.batchRootId || (node.metadata?.isBatchRoot ? node.id : undefined);
+                    if (latestBatchRootId) return batchRootId === latestBatchRootId;
+                    if (latestReviewNodeId) return node.metadata?.storyboardReviewNodeId === latestReviewNodeId;
+                    return true;
+                })
+                .sort(
+                    (a, b) =>
+                        (a.metadata?.storyboardBeatPosition ?? a.metadata?.storyboardBeatIndex ?? 0) -
+                        (b.metadata?.storyboardBeatPosition ?? b.metadata?.storyboardBeatIndex ?? 0),
+                );
 
             if (!keyframeNodes.length) {
                 message.error("找不到已生成的关键帧图片，请先生成关键帧");
@@ -3547,8 +3562,15 @@ function InfiniteCanvasPage() {
                 referenceMode: "i2v",
             } as const;
 
-            const videoEntries = keyframeNodes.map((kfNode, index) => {
-                const beat = plan.beats![index] || plan.beats![plan.beats!.length - 1];
+            const orderedBeats = [...plan.beats].sort((left, right) => left.index - right.index);
+            const videoEntries = keyframeNodes.flatMap((kfNode, index) => {
+                const explicitPosition = kfNode.metadata?.storyboardBeatPosition;
+                const storedBeatIndex = kfNode.metadata?.storyboardBeatIndex;
+                const beat =
+                    explicitPosition !== undefined
+                        ? orderedBeats.find((candidate) => candidate.index === storedBeatIndex) || orderedBeats[explicitPosition]
+                        : orderedBeats[storedBeatIndex ?? index];
+                if (!beat) return [];
                 const clipPrompt = compileVideoBeatPrompt(plan, beat, videoPromptContext);
                 const videoId = nanoid();
                 const videoNode: CanvasNodeData = {
@@ -3575,7 +3597,7 @@ function InfiniteCanvasPage() {
                         storyboardBeatIndex: beat.index,
                     },
                 };
-                return { kfNode, beat, clipPrompt, videoId, videoNode };
+                return [{ kfNode, beat, clipPrompt, videoId, videoNode }];
             });
 
             const videoIds = videoEntries.map((entry) => entry.videoId);
@@ -4137,14 +4159,6 @@ function InfiniteCanvasPage() {
                             ),
                         );
                     }
-                    if (usesWholeStoryboardSheet && storyboardPlan?.beats?.length) {
-                        videoPromptSource = compileVideoPrompt(storyboardPlan, {
-                            model: "veo",
-                            duration: Number(videoGenerationConfig.videoSeconds),
-                            aspectRatio: videoAspectRatioForSize(videoGenerationConfig.size),
-                            referenceMode: videoReferenceMode(videoGenerationConfig.model, videoReferenceImages.length),
-                        });
-                    }
                     if (usesWholeStoryboardSheet && !storyboardPlan?.beats?.length) throw new Error("分镜规划数据不完整，无法生成整片视频");
                     const videoPrompt =
                         usesWholeStoryboardSheet && storyboardPlan
@@ -4699,14 +4713,6 @@ function InfiniteCanvasPage() {
                                     : item,
                             ),
                         );
-                    }
-                    if (retriesWholeStoryboardSheet && retryStoryboardPlan?.beats?.length) {
-                        retryVideoPromptSource = compileVideoPrompt(retryStoryboardPlan, {
-                            model: "veo",
-                            duration: Number(generationConfig.videoSeconds),
-                            aspectRatio: videoAspectRatioForSize(generationConfig.size),
-                            referenceMode: videoReferenceMode(generationConfig.model, retryVideoImages.length),
-                        });
                     }
                     if (retriesWholeStoryboardSheet && !retryStoryboardPlan?.beats?.length) throw new Error("分镜规划数据不完整，无法重试整片视频");
                     const retryIdentityReferenceCount = retriesWholeStoryboardSheet ? 0 : Math.min(retryIdentityImages.length, retryVideoImages.length);
@@ -6295,21 +6301,39 @@ function storyboardReviewSheetNodes(nodeId: string, nodes: CanvasNodeData[], con
 function storyboardReviewSheetKeyframeAnchorReferences(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const selectedReview = selectedStoryboardReviewSheetNode(nodeId, nodes, connections);
     if (!selectedReview) return [];
+    const firstBeatIndex = [...(selectedReview.metadata?.commerceVideoPlan?.beats || [])].sort((left, right) => left.index - right.index)[0]?.index;
+    const isOpeningKeyframe = (item: CanvasNodeData) => {
+        if (item.metadata?.storyboardBeatPosition !== undefined) return item.metadata.storyboardBeatPosition === 0 && (firstBeatIndex === undefined || item.metadata.storyboardBeatIndex === firstBeatIndex);
+        // Legacy keyframes stored the beat position in storyboardBeatIndex.
+        return item.metadata?.storyboardBeatIndex === 0;
+    };
     const exactCandidates = nodes
-        .filter((item) => item.metadata?.storyboardRole === "keyframe" && item.metadata?.storyboardReviewNodeId === selectedReview.id && item.metadata?.content)
-        .sort((a, b) => (a.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER) - (b.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER));
-    if (exactCandidates.length) return mergeReferenceImages(...exactCandidates.slice(0, 1).map(sourceNodeReferenceImages));
+        .filter(
+            (item) =>
+                item.metadata?.storyboardRole === "keyframe" &&
+                item.metadata?.storyboardReviewNodeId === selectedReview.id &&
+                item.metadata?.content &&
+                item.metadata?.status !== NODE_STATUS_ERROR &&
+                isOpeningKeyframe(item),
+        );
+    if (exactCandidates.length) return mergeReferenceImages(...exactCandidates.slice(-1).map(sourceNodeReferenceImages));
 
     const fallbackCandidates = nodes
         .filter(
             (item) =>
                 item.metadata?.storyboardRole === "keyframe" &&
                 item.metadata?.content &&
+                item.metadata?.status !== NODE_STATUS_ERROR &&
                 item.metadata?.storyboardPlanId === selectedReview.metadata?.storyboardPlanId &&
-                item.metadata?.storyboardReviewIndex === selectedReview.metadata?.storyboardReviewIndex,
+                item.metadata?.storyboardReviewIndex === selectedReview.metadata?.storyboardReviewIndex &&
+                isOpeningKeyframe(item),
         )
-        .sort((a, b) => (a.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER) - (b.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER));
-    return mergeReferenceImages(...fallbackCandidates.slice(0, 1).map(sourceNodeReferenceImages));
+        .sort(
+            (a, b) =>
+                (a.metadata?.storyboardBeatPosition ?? a.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER) -
+                (b.metadata?.storyboardBeatPosition ?? b.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER),
+        );
+    return mergeReferenceImages(...fallbackCandidates.slice(-1).map(sourceNodeReferenceImages));
 }
 
 async function recoverLegacyStoryboardVideoPlan(config: AiConfig, storyboardImages: ReferenceImage[], videoSeconds: string, sourcePrompt: string, legacyPlan?: CanvasCommerceVideoPlan | null) {
@@ -6329,7 +6353,7 @@ async function recoverLegacyStoryboardVideoPlan(config: AiConfig, storyboardImag
             ? `Preserve this saved director direction wherever it agrees with the visible panels: ${limitInlinePrompt(savedDirection, 2200)}`
             : "No saved director direction remains. Infer only the story visibly supported by the ordered panels.",
         legacyPlanText ? `Upgrade this legacy plan without dropping its supported beats or constraints: ${legacyPlanText}` : "Create ordered beats that describe the visible panel story precisely.",
-        "Unless the saved direction explicitly requests another spoken language, use natural English. Supply audioPlan.scriptsByDuration with independent 6, 10, and 15 second scripts of 10-14, 18-24, and 26-34 English words respectively; audioPlan.script must equal the variant for the requested duration.",
+        "Unless the saved direction explicitly requests another spoken language, use natural English. Supply audioPlan.scriptsByDuration with independent 4, 6, 8, 10, and 15 second scripts of 6-9, 10-14, 14-18, 18-24, and 26-34 English words respectively; audioPlan.script must equal the variant for the requested duration. The 15-second script needs a natural sentence or clause boundary near 8 seconds so an official 8-second generation plus continuation can split without repeating words.",
         "Each duration script must sound like one real creator speaking naturally, not a director or catalog: preserve conversational contractions, start with a short 4-7 word reaction or observation, then one connected benefit or invitation after a natural breath. Use simple easy-to-pronounce everyday words and short clauses. Never write 'from the first ... to the final ...', narrate shot order, list garment geometry, stack feature fragments, or mechanically truncate a longer script.",
         "For a visible adult presenter, use mixed delivery: put the short opening sentence in spokenLine on one stable face-visible medium or close beat, then continue the same voice as off-screen narration over walking, profile, product, detail, or other B-roll. Do not create separate slogans for individual shots or keep the presenter talking through every cut.",
     ].join("\n");
