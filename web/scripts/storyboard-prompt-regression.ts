@@ -181,6 +181,7 @@ assert.match(cleanAnchorPrompt, /OPENING FRAME:.*exact first frame of SHOT 1 onl
 assert.match(cleanAnchorPrompt, /Do not lock later framing, camera angle, action, or explicitly planned locations/i);
 assert.match(cleanAnchorPrompt, /That wave surprised me/i, "the duration-matched script must survive structured prompt compilation");
 assert.match(cleanAnchorPrompt, /Spoken script:/i);
+assert.ok(cleanAnchorPrompt.indexOf("AUDIO PLAN:") < cleanAnchorPrompt.indexOf("VISUAL TIMELINE"), "audio and exact dialogue must precede the variable-length shot timeline");
 assert.match(cleanAnchorPrompt, /no repeats, filler, stretched words, speaker changes/i, "creator speech must reject repetition, gibberish, and time stretching");
 assert.match(cleanAnchorPrompt, /lip-syncs the short opening sentence/i);
 assert.match(cleanAnchorPrompt, /same voice continues off-screen/i);
@@ -205,7 +206,16 @@ const jewelryPlan: CanvasCommerceVideoPlan = {
     storyboardMode: "product",
     locationStrategy: "related-location-montage",
     plannedLocations: ["bright apartment window", "minimal jewelry detail setup", "bright apartment window", "soft closing portrait setup"],
-    visualIdentity: "The same adult East Asian woman, long dark wavy hair, light beige blouse, round white pearls, one central purple bead, and small gold spacers.",
+    visualIdentity:
+        "The same adult East Asian woman with long dark wavy hair, soft natural makeup, a light beige sheer puff-sleeve blouse, a short necklace made of round white beads with one central purple bead and small gold-tone spacers, and a matching white-bead bracelet with one purple bead and gold-tone spacers. Preserve her face, hairstyle, body proportions, blouse coverage, jewelry colors, bead arrangement, and delicate scale across every beat.",
+    compliance: {
+        mustNotInclude: [
+            "Do not claim specific gemstone, pearl, or precious-metal composition",
+            "Do not invent prices, discounts, certifications, sales figures, reviews, or brand claims",
+            "Do not add other models, jewelry pieces, packaging, cosmetics, bottles, tools, logos, or purchase scenes",
+            "Do not alter the blouse into a more revealing design or change the jewelry arrangement between shots",
+        ],
+    },
     audioPlan: {
         mode: "mixed",
         language: "English",
@@ -266,10 +276,13 @@ assert.match(jewelryPrompt, /medium three-quarter portrait; gentle lateral glide
 assert.match(jewelryPrompt, /Her hand leaves the hair and comes to rest without covering either jewelry piece/i);
 assert.doesNotMatch(jewelryPrompt, /Action:[^\n]*(?:\btoward|\bhand)\.\s*(?:Scene:|End only)/i, "a compiled shot action must never end on the old dangling fragment");
 assert.ok(jewelryPrompt.length <= 3600, `jewelry storyboard contract must fit the provider prompt budget, received ${jewelryPrompt.length} characters`);
+const jewelryProviderPrompt = `${jewelryPrompt} ${buildCompactVideoProductScalePrompt("handheld")}`.trim();
+assert.ok(jewelryProviderPrompt.length <= 3600, `production-length jewelry prompt plus scale lock must fit without truncation, received ${jewelryProviderPrompt.length} characters`);
 const eightSecondJewelryPrompt = compileStoryboardCleanAnchorVideoPrompt(jewelryPlan, { model: "veo", duration: 8, aspectRatio: "9:16", referenceMode: "i2v" });
 assert.match(eightSecondJewelryPrompt, /\[0:00-0:02\] SHOT 1[\s\S]*\[0:02-0:06\] SHOT 2[\s\S]*\[0:06-0:08\] SHOT 3/i);
 assert.doesNotMatch(eightSecondJewelryPrompt, /SHOT 4/i, "an official 8-second Veo request must contain exactly three executable shots");
 assert.match(eightSecondJewelryPrompt, /ready|polished|matching bracelet/i, "8-second execution must use an 8-second speech variant");
+assert.ok(eightSecondJewelryPrompt.length <= 3600, `8-second production-length jewelry prompt must fit without truncation, received ${eightSecondJewelryPrompt.length} characters`);
 
 const recoveredVerbosePlan: CanvasCommerceVideoPlan = {
     ...apparelPlan,
@@ -447,6 +460,19 @@ const blankLegacyReviewNode: CanvasNodeData = {
 };
 const legacyPlanConnection: CanvasConnection = { id: "plan-review", fromNodeId: legacyPlanNode.id, toNodeId: blankLegacyReviewNode.id };
 assert.equal(resolveStoryboardVideoPlan(blankLegacyReviewNode.id, [legacyPlanNode, blankLegacyReviewNode], [legacyPlanConnection]), apparelPlan, "blank legacy review sheets must recover their structured plan from the graph");
+const staleConnectedPlan = { ...apparelPlan, productCategory: "stale connected plan" };
+const exactSelectedPlan = { ...apparelPlan, productCategory: "exact selected plan" };
+const staleConnectedPlanNode: CanvasNodeData = { ...legacyPlanNode, id: "stale-plan", metadata: { storyboardPlanId: "plan-exact", commerceVideoPlan: staleConnectedPlan } };
+const exactSelectedReviewNode: CanvasNodeData = {
+    ...blankLegacyReviewNode,
+    id: "exact-review",
+    metadata: { ...blankLegacyReviewNode.metadata, storyboardPlanId: "plan-exact", commerceVideoPlan: exactSelectedPlan },
+};
+assert.equal(
+    resolveStoryboardVideoPlan(exactSelectedReviewNode.id, [staleConnectedPlanNode, exactSelectedReviewNode], [{ id: "stale-review", fromNodeId: staleConnectedPlanNode.id, toNodeId: exactSelectedReviewNode.id }]),
+    exactSelectedPlan,
+    "the directly selected review sheet must win over a stale connected plan",
+);
 assert.deepEqual(resolveStoryboardVideoPlan("missing", [], [], `\`\`\`json\n${JSON.stringify(apparelPlan)}\n\`\`\``), apparelPlan, "serialized CommerceVideoPlan text must remain a recovery source");
 const legacyAudioDirection = compileStoryboardAudioDirection(legacyApparelPlan, apparelPlan.directorBrief, 15);
 assert.match(legacyAudioDirection, /generate clear commercial speech/i, "saved 3.0 plans without audioPlan must regain speech");
@@ -652,8 +678,12 @@ const googleVideoAdapterSource = readFileSync(new URL("../src/services/api/video
 const videoPromptCompilerSource = readFileSync(new URL("../src/app/(user)/canvas/utils/video-prompt-compiler.ts", import.meta.url), "utf8");
 const promptPolishSource = readFileSync(new URL("../src/services/api/prompt-polish.ts", import.meta.url), "utf8");
 assert.match(promptPanelSource, /mode !== "video" && storyboardPlan\?\.beats\?\.length/, "a completed video node must resubmit its video request instead of regenerating storyboard review sheets");
-assert.match(canvasClientSource, /storyboardReviewSheetWholeReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "storyboard video generation must detect the selected whole grid before compiling its I2V prompt");
-assert.match(canvasClientSource, /storyboardReviewSheetKeyframeAnchorReferences\(nodeId, nodesRef\.current, connectionsRef\.current\)/, "whole-video generation must prefer the selected review sheet's independent keyframe");
+assert.match(canvasClientSource, /onGenerateFullVideo=\{\(node\) => void handleGenerateNode\(node\.id, "video", node\.metadata\?\.prompt \|\| "", undefined, node\)\}/, "whole-video generation must pass the exact hovered review-sheet snapshot into the request path");
+assert.match(canvasClientSource, /const explicitReviewSnapshot = mode === "video"[\s\S]*isStoryboardReviewSheetNode\(storyboardReviewSnapshot\)/, "the explicit whole-grid action must validate its selected review sheet");
+assert.match(canvasClientSource, /const usesWholeStoryboardSheet = Boolean\(selectedReviewNode\) \|\| storyboardReviewSheetImages\.length > 0 \|\| isStoredWholeStoryboardVideo\(sourceNode\)/, "the selected review-sheet role must force whole-storyboard mode even when graph hydration is stale");
+assert.match(canvasClientSource, /const selectedReviewPlan = selectedReviewNode\?\.metadata\?\.commerceVideoPlan/, "whole-video generation must read the exact selected review sheet's plan before graph fallback");
+assert.match(canvasClientSource, /!videoPrompt\.includes\("STORYBOARD-DIRECTED VIDEO\."\)/, "an explicitly selected review sheet must fail before billing if the compiled storyboard marker is absent");
+assert.match(canvasClientSource, /storyboardReviewSheetKeyframeAnchorReferences\(nodeId, nodesRef\.current, connectionsRef\.current, selectedReviewNode\)/, "whole-video generation must prefer the exact selected review sheet's independent keyframe");
 assert.match(canvasClientSource, /const reviewPanels = await splitStoryboardReviewSheetNode\(reviewNode\)/, "independent keyframes must use cropped storyboard panels instead of the complete grid");
 assert.match(canvasClientSource, /storyboardRepresentativePanelIndex\(beatPosition, beats\.length, reviewPanels\.length\)/, "each beat must receive its own chronological storyboard panel");
 assert.match(canvasClientSource, /references = mergeReferenceImages\(\[panelReference\], sourceReferences\)/, "the selected panel must be the primary composition reference and source images must remain identity references");
@@ -675,7 +705,9 @@ assert.match(canvasClientSource, /storyboardReviewSheetImages\.length > 0 \|\| i
 assert.doesNotMatch(canvasClientSource, /STORYBOARD_VIDEO_OPENING_PANEL_INDEX|storyboardReviewSheetVideoAnchorReferences|composeDataUrlGrid\(\[openingPanel\]/, "whole-video generation must never crop a hard-coded contact-sheet panel into an I2V frame");
 assert.match(canvasClientSource, /VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS/, "clean-anchor generation must have a declared fallback model order");
 assert.match(canvasClientSource, /requestVideoBridgeImageAttempt\(fallbackConfig/, "clean-anchor generation must retry transient primary-model failures with an available fallback");
-assert.match(canvasClientSource, /首帧服务繁忙，正在切换备用模型/, "the UI must disclose clean-anchor fallback instead of silently changing models");
+assert.match(canvasClientSource, /首帧主模型明确不可用，正在切换备用模型/, "the UI must disclose clean-anchor fallback instead of silently changing models");
+assert.match(canvasClientSource, /VIDEO_BRIDGE_PRIMARY_TIMEOUT_MS = 600_000/, "paid clean-anchor generation must wait for the long-running primary response instead of launching a duplicate billed fallback");
+assert.doesNotMatch(canvasClientSource, /return \/timeout\|timed out\|network/, "a timeout must never trigger a second paid clean-anchor request automatically");
 assert.match(canvasClientSource, /const storyboardVideoImages = usesWholeStoryboardSheet \? wholeStoryboardImages : storyboardReferenceFrames/, "whole-video generation must use the model-specific opening anchor while the plan carries the full story");
 assert.match(canvasClientSource, /compileStoryboardCleanAnchorVideoPrompt\(storyboardPlan,[\s\S]*referenceMode: "i2v"/, "whole-grid prompt compilation must describe the clean opening anchor as I2V");
 assert.match(canvasClientSource, /compileStoryboardCleanAnchorVideoPrompt\(retryStoryboardPlan,[\s\S]*referenceMode: "i2v"/, "whole-grid retry must preserve the clean opening anchor I2V contract");
@@ -724,7 +756,11 @@ assert.doesNotMatch(canvasClientSource, /simple beach cover-up|dry top|one separ
 assert.doesNotMatch(canvasClientSource, /wholeStoryboardGrid: true/, "whole-video I2V must not route through the obsolete grid template");
 assert.match(canvasClientSource, /compileVideoBeatPrompt\(plan, beat, videoPromptContext\)/, "Phase 6 must compile a distinct prompt for each beat");
 assert.match(canvasClientSource, /storyboardBeatIndex: rootBeat\.index[\s\S]*storyboardBeatPosition: 0/, "new keyframes must persist both the real beat index and its ordered position");
-assert.match(canvasClientSource, /orderedBeats\.find\(\(candidate\) => candidate\.index === storedBeatIndex\) \|\| orderedBeats\[explicitPosition\]/, "clip generation must map each surviving keyframe back to its own beat instead of shifting after a failed frame");
+assert.match(
+    canvasClientSource,
+    /orderedBeats\.find\(\(candidate\) => candidate\.index === storedBeatIndex\) \|\| orderedBeats\[explicitPosition\]/,
+    "clip generation must map each surviving keyframe back to its own beat instead of shifting after a failed frame",
+);
 assert.match(canvasClientSource, /const latestBatchRootId = latestKeyframe\?\.metadata\?\.batchRootId/, "clip generation must select one coherent latest keyframe batch instead of mixing multiple review candidates");
 assert.match(canvasClientSource, /item\.metadata\.storyboardBeatPosition === 0/, "whole-video generation may use only the true opening keyframe as its I2V anchor");
 assert.match(storyboardKeyframeHandlerSource, /node\.id === rootId && targetId === rootId/, "a later keyframe must never be copied into the opening keyframe node");
@@ -746,7 +782,7 @@ assert.match(videoServiceSource, /Visible speech rule: when a visible presenter 
 assert.doesNotMatch(videoServiceSource, /Use off-screen voiceover by default/, "single-image I2V must not regress to detached narration");
 assert.doesNotMatch(videoServiceSource, /reference_images:\s*referenceImages,\s*\n\s*};/, "video requests must not force every image input into reference_images");
 
-console.log("storyboard prompt regression: passed");
+console.log(`storyboard prompt regression: passed (jewelry ${jewelryPrompt.length} chars; 8s ${eightSecondJewelryPrompt.length} chars)`);
 
 function beat(index: number, phase: string, description: string, scene = "The same referenced environment.") {
     return {

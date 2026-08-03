@@ -64,30 +64,31 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
         audioPlan?.mode === "ambient-only"
             ? ["AUDIO PLAN: natural location sound and restrained music only; no speech, dialogue, narration, singing, captions, or subtitles."]
             : [
-                  `AUDIO PLAN: ${audioPlan?.language || "English"}; ${ensureSentenceEnding(readableText(audioPlan?.voice, compactStoryboardVoice(audioPlan?.voice)))}`,
+                  `AUDIO PLAN: ${audioPlan?.language || "English"}. Voice: ${ensureSentenceEnding(compactStoryboardVoice(audioPlan?.voice))}`,
                   storyboardExecutionAudioMode(audioPlan?.mode),
-                  `Spoken script: "${compactSpeechText(script, 560)}"`,
+                  `Spoken script: "${compactSpeechText(script, 260)}"`,
                   "Say the script exactly once in one connected, natural creator delivery. Keep music below the voice; no repeats, filler, stretched words, speaker changes, captions, or unsupported claims.",
               ];
-    const visualIdentity = readableText(plan.visualIdentity, "").replace(/[.!?]+$/g, "");
+    const visualIdentity = limitBeatWords(readableText(plan.visualIdentity, "").replace(/[.!?]+$/g, ""), 42);
     const modeIdentityDirection =
         mode === "product"
             ? "Preserve the same presenter, wardrobe, product geometry, colors, label, count, and scale in every shot."
             : mode === "apparel"
               ? "Preserve the same adult face, hair, body, garment design, fit, material, and coverage in every shot."
               : "Preserve the same subject, wardrobe, body proportions, and visual world in every shot.";
-    const identityDirection = [visualIdentity ? `CONTINUITY LOCK: ${visualIdentity}.` : "CONTINUITY LOCK:", modeIdentityDirection]
-        .filter(Boolean)
-        .join(" ");
+    const identityDirection = [visualIdentity ? `CONTINUITY LOCK: ${visualIdentity}.` : "CONTINUITY LOCK:", modeIdentityDirection].filter(Boolean).join(" ");
     const forbidden = [...(plan.forbiddenAdditions || []), ...(plan.compliance?.mustNotInclude || [])]
         .map((item) => readableText(item, ""))
         .filter(Boolean)
+        .slice(0, 5)
+        .map((item) => limitBeatWords(item, 9))
         .join(", ");
     const promptLines = [
         STORYBOARD_DIRECTED_VIDEO_MARKER,
         `Create exactly ${duration} seconds in ${context.aspectRatio}. Execute exactly ${Math.max(1, stages.length)} numbered shots in the stated order.`,
         "OPENING FRAME: use the attached independent keyframe as the exact first frame of SHOT 1 only. Lock identity, wardrobe, product design, colors, count, and scale from it. Do not lock later framing, camera angle, action, or explicitly planned locations to the opening composition.",
         identityDirection,
+        ...audioDirection,
         "VISUAL TIMELINE (mandatory; render every shot below and use one direct hard cut between adjacent shots):",
         ...stages,
         "END VISUAL TIMELINE.",
@@ -96,7 +97,6 @@ export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVide
             : "LOCATION RULE: use exactly the scene assigned inside each numbered shot, in timeline order. Never collapse all shots into the opening background or revisit an earlier scene unless that shot explicitly says so.",
         "Do not collapse the sequence into one continuous talking-head shot. Do not add, omit, reorder, merge, or replay a numbered shot.",
         forbidden ? `PROHIBITED ADDITIONS: ${forbidden}.` : "PROHIBITED ADDITIONS: no unplanned furniture, props, actions, entities, products, wardrobe changes, or locations.",
-        ...audioDirection,
         "OUTPUT LOCK: clean full-frame footage only; no storyboard grid, panel borders, labels, captions, watermarks, morphs, duplicate people or products, identity drift, anatomy errors, or unsupported claims.",
     ].filter(Boolean);
     return promptLines.map((line) => normalizeSpaces(line)).join("\n");
@@ -109,22 +109,24 @@ function compileStoryboardExecutionShot(plan: CanvasCommerceVideoPlan, beat: Com
     const action = /^continue only the described action\.?$/i.test(rawAction) ? "" : executionSentence(rawAction);
     const rawDescription = executionSentence(readableText(beat.description, fallbackBeatDescription(beat, plan)));
     const description = action && /(?:visible|ordered) panels?|panel-order explanation|storyboard instruction/i.test(rawDescription) ? action : rawDescription;
-    const scene = executionSentence(readableText(beat.eightElements?.scene, ""));
+    const primaryAction = compactStoryboardExecutionClause(action || description, 20);
+    const scene = compactStoryboardExecutionClause(executionSentence(readableText(beat.eightElements?.scene, "")), 9);
     const rawLighting = executionSentence(readableText(beat.eightElements?.lighting, ""));
-    const lighting = /^(?:consistent )?natural light\.?$/i.test(rawLighting) ? "" : rawLighting;
+    const lighting = /^(?:consistent )?natural light\.?$/i.test(rawLighting) ? "" : compactStoryboardExecutionClause(rawLighting, 7);
     const rawCamera = executionSentence(readableText(beat.eightElements?.camera, ""));
-    const camera = /^(?:stable )?camera continuity\.?$/i.test(rawCamera) ? "" : rawCamera;
-    const rawConstraint = executionSentence(readableText(beat.eightElements?.constraint, ""));
-    const constraint = /^(?:preserve|maintain) (?:the )?exact identity(?: and add no new entities)?\.?$/i.test(rawConstraint) ? "" : rawConstraint;
-    const details = [
-        `Beat: ${description}`,
-        action && normalizeSpaces(action).toLowerCase() !== normalizeSpaces(description).toLowerCase() ? `Action: ${action}` : "",
-        scene ? `Scene: ${scene}` : "",
-        lighting ? `Lighting: ${lighting}` : "",
-        camera ? `Camera detail: ${camera}` : "",
-        constraint ? `Shot constraint: ${constraint}` : "",
-    ].filter(Boolean);
-    return `${range} SHOT ${index + 1} - ${shotType}; ${cameraMove}. ${details.join(" ")} End at this shot's final described state, then hard cut.`;
+    const camera = /^(?:stable )?camera continuity\.?$/i.test(rawCamera) ? "" : compactStoryboardExecutionClause(rawCamera, 7);
+    const details = [`Action: ${primaryAction}`, scene ? `Scene: ${scene}` : "", lighting ? `Lighting: ${lighting}` : "", camera ? `Camera detail: ${camera}` : ""].filter(Boolean);
+    return `${range} SHOT ${index + 1} - ${limitBeatWords(shotType, 6)}; ${limitBeatWords(cameraMove, 6)}. ${details.join(" ")} Hold, then hard cut.`;
+}
+
+function compactStoryboardExecutionClause(value: string, maxWords: number) {
+    return limitBeatWords(
+        value
+            .replace(/[.!?]+$/g, "")
+            .replace(/\s+/g, " ")
+            .trim(),
+        maxWords,
+    );
 }
 
 function executionSentence(value: string) {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
     GENERIC_IMAGE_MAX_EDGE,
@@ -62,5 +63,11 @@ for (const [aspectRatio, sizes] of Object.entries(TOKAXIS_GOOGLE_NATIVE_SIZES)) 
     assert.ok(width * height <= GPT_IMAGE_2_MAX_PIXELS, `${aspectRatio} 总像素不得超过 GPT Image 2 上限`);
     assert.ok(Math.max(width, height) / Math.min(width, height) <= GENERIC_IMAGE_MAX_RATIO, `${aspectRatio} 归一化后宽高比不得超限`);
 }
+
+const imageServiceSource = readFileSync(new URL("../src/services/api/image.ts", import.meta.url), "utf8");
+assert.match(imageServiceSource, /isGptImageModel\(requestModel\) \? \{\} : \{ response_format: "b64_json" \}/, "GPT Image requests must omit the removed response_format field for JSON generation requests");
+assert.match(imageServiceSource, /if \(!isGptImageModel\(requestModel\)\) \{\s*formData\.set\("response_format", "b64_json"\);/, "GPT Image edit requests must omit the removed response_format multipart field");
+assert.match(imageServiceSource, /supportsGptImageInputFidelity\(requestModel\)/, "GPT Image edit requests must gate input_fidelity by model support");
+assert.match(imageServiceSource, /!\/\^gpt-image-2/, "GPT Image 2 requests must omit the unsupported input_fidelity field");
 
 console.log("Google image model contract passed: 3 model names, 14 ratios, native 1K/2K/4K sizes.");

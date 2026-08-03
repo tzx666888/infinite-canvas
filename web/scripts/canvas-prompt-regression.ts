@@ -14,6 +14,7 @@ assert.equal(composePromptWithUpstreamText("A\r\n\r\nB", ["A", "B", "C"]), "A\n\
 
 assert.equal(isContentPolicyErrorMessage("生成的图片可能违反了关于裸露、色情或情色内容的防护限制。"), true);
 assert.equal(isContentPolicyErrorMessage("该提示可能违反了我们的内容政策。"), true);
+assert.equal(isContentPolicyErrorMessage("PUBLIC_ERROR_AUDIO_FILTERED"), true);
 assert.equal(isContentPolicyErrorMessage("upstream worker temporarily unavailable"), false);
 
 const targetReference = [{ id: "image-1" }] as Parameters<typeof buildIdentityPreservingImageEditPrompt>[2];

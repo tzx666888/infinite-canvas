@@ -160,7 +160,7 @@ const STORYBOARD_REVIEW_COLUMNS = 3;
 const STORYBOARD_REVIEW_ROWS = 4;
 const STORYBOARD_REVIEW_PANEL_COUNT = STORYBOARD_REVIEW_COLUMNS * STORYBOARD_REVIEW_ROWS;
 const STORYBOARD_VIDEO_FRAME_CROP = { x: 0.14, y: 0.055, width: 0.82, height: 0.88 };
-const VIDEO_BRIDGE_PRIMARY_TIMEOUT_MS = 120_000;
+const VIDEO_BRIDGE_PRIMARY_TIMEOUT_MS = 600_000;
 const VIDEO_BRIDGE_FALLBACK_TIMEOUT_MS = 90_000;
 const VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS = ["gemini-3.1-flash-image-2k", "gemini-3.1-flash-image-1k", "gpt-image-2", "grok-imagine-image-lite"] as const;
 const STORYBOARD_BRIDGE_MAX_REFERENCES = 8;
@@ -3524,9 +3524,7 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            const keyframeCandidates = nodesRef.current.filter(
-                (node) => node.metadata?.storyboardPlanId === planId && node.metadata?.storyboardRole === "keyframe" && node.metadata?.content && node.metadata?.status !== NODE_STATUS_ERROR,
-            );
+            const keyframeCandidates = nodesRef.current.filter((node) => node.metadata?.storyboardPlanId === planId && node.metadata?.storyboardRole === "keyframe" && node.metadata?.content && node.metadata?.status !== NODE_STATUS_ERROR);
             const latestKeyframe = keyframeCandidates.at(-1);
             const latestBatchRootId = latestKeyframe?.metadata?.batchRootId || (latestKeyframe?.metadata?.isBatchRoot ? latestKeyframe.id : undefined);
             const latestReviewNodeId = latestKeyframe?.metadata?.storyboardReviewNodeId;
@@ -3537,11 +3535,7 @@ function InfiniteCanvasPage() {
                     if (latestReviewNodeId) return node.metadata?.storyboardReviewNodeId === latestReviewNodeId;
                     return true;
                 })
-                .sort(
-                    (a, b) =>
-                        (a.metadata?.storyboardBeatPosition ?? a.metadata?.storyboardBeatIndex ?? 0) -
-                        (b.metadata?.storyboardBeatPosition ?? b.metadata?.storyboardBeatIndex ?? 0),
-                );
+                .sort((a, b) => (a.metadata?.storyboardBeatPosition ?? a.metadata?.storyboardBeatIndex ?? 0) - (b.metadata?.storyboardBeatPosition ?? b.metadata?.storyboardBeatIndex ?? 0));
 
             if (!keyframeNodes.length) {
                 message.error("找不到已生成的关键帧图片，请先生成关键帧");
@@ -3566,10 +3560,7 @@ function InfiniteCanvasPage() {
             const videoEntries = keyframeNodes.flatMap((kfNode, index) => {
                 const explicitPosition = kfNode.metadata?.storyboardBeatPosition;
                 const storedBeatIndex = kfNode.metadata?.storyboardBeatIndex;
-                const beat =
-                    explicitPosition !== undefined
-                        ? orderedBeats.find((candidate) => candidate.index === storedBeatIndex) || orderedBeats[explicitPosition]
-                        : orderedBeats[storedBeatIndex ?? index];
+                const beat = explicitPosition !== undefined ? orderedBeats.find((candidate) => candidate.index === storedBeatIndex) || orderedBeats[explicitPosition] : orderedBeats[storedBeatIndex ?? index];
                 if (!beat) return [];
                 const clipPrompt = compileVideoBeatPrompt(plan, beat, videoPromptContext);
                 const videoId = nanoid();
@@ -3662,11 +3653,12 @@ function InfiniteCanvasPage() {
     );
 
     const handleGenerateNode = useCallback(
-        async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, provenanceOverride?: GenerationProvenance) => {
+        async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, provenanceOverride?: GenerationProvenance, storyboardReviewSnapshot?: CanvasNodeData) => {
             const generationStartedAt = Date.now();
             const generationNodes = nodesRef.current;
             const generationConnections = connectionsRef.current;
-            const sourceNode = generationNodes.find((node) => node.id === nodeId);
+            const explicitReviewSnapshot = mode === "video" && storyboardReviewSnapshot?.id === nodeId && isStoryboardReviewSheetNode(storyboardReviewSnapshot) ? storyboardReviewSnapshot : null;
+            const sourceNode = generationNodes.find((node) => node.id === nodeId) || explicitReviewSnapshot || undefined;
             if (generationRequestsRef.current.has(nodeId) || sourceNode?.metadata?.status === NODE_STATUS_LOADING) {
                 message.info("当前节点正在生成，请稍等完成后再操作");
                 return;
@@ -4099,10 +4091,12 @@ function InfiniteCanvasPage() {
 
                 if (mode === "video") {
                     if (!generationConfig.videoModels.length) throw new Error("当前令牌未开放视频模型");
-                    const storyboardReviewSheetImages = storyboardReviewSheetWholeReferences(nodeId, nodesRef.current, connectionsRef.current);
-                    const usesWholeStoryboardSheet = storyboardReviewSheetImages.length > 0 || isStoredWholeStoryboardVideo(sourceNode);
-                    const storyboardIdentityImages = await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current);
-                    const storyboardKeyframeAnchorImages = usesWholeStoryboardSheet ? storyboardReviewSheetKeyframeAnchorReferences(nodeId, nodesRef.current, connectionsRef.current) : [];
+                    const selectedReviewNode = explicitReviewSnapshot || (sourceNode && isStoryboardReviewSheetNode(sourceNode) ? sourceNode : selectedStoryboardReviewSheetNode(nodeId, nodesRef.current, connectionsRef.current));
+                    const storyboardReviewSheetImages = selectedReviewNode ? sourceNodeReferenceImages(selectedReviewNode) : storyboardReviewSheetWholeReferences(nodeId, nodesRef.current, connectionsRef.current);
+                    const usesWholeStoryboardSheet = Boolean(selectedReviewNode) || storyboardReviewSheetImages.length > 0 || isStoredWholeStoryboardVideo(sourceNode);
+                    if (selectedReviewNode && !storyboardReviewSheetImages.length) throw new Error("所选12宫格图片内容已丢失，请重新生成宫格后再试");
+                    const storyboardIdentityImages = await storyboardReviewSheetIdentityReferences(nodeId, nodesRef.current, connectionsRef.current, selectedReviewNode);
+                    const storyboardKeyframeAnchorImages = usesWholeStoryboardSheet ? storyboardReviewSheetKeyframeAnchorReferences(nodeId, nodesRef.current, connectionsRef.current, selectedReviewNode) : [];
                     const storedStoryboardAnchorImages = usesWholeStoryboardSheet && sourceNode?.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(sourceNode.metadata) : [];
                     const hasReusableStoredStoryboardAnchor =
                         storedStoryboardAnchorImages.length > 0 &&
@@ -4140,14 +4134,15 @@ function InfiniteCanvasPage() {
                     }
                     const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, directProductLock ? 1 : videoReferenceImages.length);
                     const videoIdentityReferenceCount = Math.min(videoIdentityImages.length, videoReferenceImages.length);
-                    let storyboardPlan = resolveStoryboardVideoPlan(nodeId, nodesRef.current, connectionsRef.current, videoPromptSource);
+                    const selectedReviewPlan = selectedReviewNode?.metadata?.commerceVideoPlan;
+                    let storyboardPlan = selectedReviewPlan?.beats?.length ? selectedReviewPlan : resolveStoryboardVideoPlan(selectedReviewNode?.id || nodeId, nodesRef.current, connectionsRef.current, videoPromptSource);
                     if (usesWholeStoryboardSheet && storyboardPlan?.beats?.length) {
                         storyboardPlan = repairStoryboardAudioPlanForDuration(storyboardPlan, Number(videoGenerationConfig.videoSeconds));
                     }
                     if (usesWholeStoryboardSheet && !hasCompleteStoryboardAudioPlan(storyboardPlan, Number(videoGenerationConfig.videoSeconds))) {
                         message.info("正在按当前时长恢复分镜语义与自然口播...");
                         storyboardPlan = await recoverLegacyStoryboardVideoPlan(generationConfig, storyboardReviewSheetImages, videoGenerationConfig.videoSeconds, videoPromptSource, storyboardPlan);
-                        const reviewNodeIds = new Set(storyboardReviewSheetNodes(nodeId, nodesRef.current, connectionsRef.current).map((item) => item.id));
+                        const reviewNodeIds = new Set((selectedReviewNode ? [selectedReviewNode] : storyboardReviewSheetNodes(nodeId, nodesRef.current, connectionsRef.current)).map((item) => item.id));
                         setNodes((prev) =>
                             prev.map((item) =>
                                 reviewNodeIds.has(item.id)
@@ -4177,6 +4172,9 @@ function InfiniteCanvasPage() {
                                   videoAspectRatioForSize(videoGenerationConfig.size),
                                   storyboardPlan || undefined,
                               );
+                    if (explicitReviewSnapshot && !videoPrompt.includes("STORYBOARD-DIRECTED VIDEO.")) {
+                        throw new Error("所选宫格与分镜计划未正确绑定，已中止提交以避免错误扣费");
+                    }
                     if (!videoPrompt && !videoReferenceImages.length && !videoReferenceVideos.length && !videoReferenceAudios.length) {
                         throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
                     }
@@ -4209,6 +4207,8 @@ function InfiniteCanvasPage() {
                             videoReferenceImages: generationImageReferenceUrls(videoReferenceImages),
                             storyboardVideoAnchorMode: wholeStoryboardAnchorMode,
                             commerceVideoPlan: usesWholeStoryboardSheet ? storyboardPlan || undefined : undefined,
+                            storyboardPlanId: selectedReviewNode?.metadata?.storyboardPlanId,
+                            storyboardReviewNodeId: selectedReviewNode?.id,
                             references: generationReferenceUrls({ referenceImages: videoReferenceImages, referenceVideos: videoReferenceVideos, referenceAudios: videoReferenceAudios }),
                         },
                     };
@@ -5315,7 +5315,7 @@ function InfiniteCanvasPage() {
                     onToggleDialog={(node) => setDialogNodeId((current) => (current === node.id ? null : node.id))}
                     onGenerateImage={generateImageFromTextNode}
                     onGenerateStoryboardKeyframes={(node) => void handleGenerateStoryboardKeyframes(node)}
-                    onGenerateFullVideo={(node) => void handleGenerateNode(node.id, "video", node.metadata?.prompt || "")}
+                    onGenerateFullVideo={(node) => void handleGenerateNode(node.id, "video", node.metadata?.prompt || "", undefined, node)}
                     onGenerateVideoClips={(node) => void handleGenerateVideoClips(node)}
                     onUpload={(node) => handleUploadRequest(node.id)}
                     onDownload={downloadNodeImage}
@@ -6298,8 +6298,8 @@ function storyboardReviewSheetNodes(nodeId: string, nodes: CanvasNodeData[], con
     return [...(node && isStoryboardReviewSheetNode(node) ? [node] : []), ...getGenerationResourceNodes(nodeId, nodes, connections).filter(isStoryboardReviewSheetNode)];
 }
 
-function storyboardReviewSheetKeyframeAnchorReferences(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    const selectedReview = selectedStoryboardReviewSheetNode(nodeId, nodes, connections);
+function storyboardReviewSheetKeyframeAnchorReferences(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], selectedReviewSnapshot?: CanvasNodeData | null) {
+    const selectedReview = selectedReviewSnapshot || selectedStoryboardReviewSheetNode(nodeId, nodes, connections);
     if (!selectedReview) return [];
     const firstBeatIndex = [...(selectedReview.metadata?.commerceVideoPlan?.beats || [])].sort((left, right) => left.index - right.index)[0]?.index;
     const isOpeningKeyframe = (item: CanvasNodeData) => {
@@ -6307,15 +6307,9 @@ function storyboardReviewSheetKeyframeAnchorReferences(nodeId: string, nodes: Ca
         // Legacy keyframes stored the beat position in storyboardBeatIndex.
         return item.metadata?.storyboardBeatIndex === 0;
     };
-    const exactCandidates = nodes
-        .filter(
-            (item) =>
-                item.metadata?.storyboardRole === "keyframe" &&
-                item.metadata?.storyboardReviewNodeId === selectedReview.id &&
-                item.metadata?.content &&
-                item.metadata?.status !== NODE_STATUS_ERROR &&
-                isOpeningKeyframe(item),
-        );
+    const exactCandidates = nodes.filter(
+        (item) => item.metadata?.storyboardRole === "keyframe" && item.metadata?.storyboardReviewNodeId === selectedReview.id && item.metadata?.content && item.metadata?.status !== NODE_STATUS_ERROR && isOpeningKeyframe(item),
+    );
     if (exactCandidates.length) return mergeReferenceImages(...exactCandidates.slice(-1).map(sourceNodeReferenceImages));
 
     const fallbackCandidates = nodes
@@ -6328,11 +6322,7 @@ function storyboardReviewSheetKeyframeAnchorReferences(nodeId: string, nodes: Ca
                 item.metadata?.storyboardReviewIndex === selectedReview.metadata?.storyboardReviewIndex &&
                 isOpeningKeyframe(item),
         )
-        .sort(
-            (a, b) =>
-                (a.metadata?.storyboardBeatPosition ?? a.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER) -
-                (b.metadata?.storyboardBeatPosition ?? b.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER),
-        );
+        .sort((a, b) => (a.metadata?.storyboardBeatPosition ?? a.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER) - (b.metadata?.storyboardBeatPosition ?? b.metadata?.storyboardBeatIndex ?? Number.MAX_SAFE_INTEGER));
     return mergeReferenceImages(...fallbackCandidates.slice(-1).map(sourceNodeReferenceImages));
 }
 
@@ -6382,8 +6372,8 @@ async function recoverLegacyStoryboardVideoPlan(config: AiConfig, storyboardImag
     return enriched;
 }
 
-async function storyboardReviewSheetIdentityReferences(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    const reviewSheets = storyboardReviewSheetNodes(nodeId, nodes, connections);
+async function storyboardReviewSheetIdentityReferences(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], selectedReviewSnapshot?: CanvasNodeData | null) {
+    const reviewSheets = selectedReviewSnapshot ? [selectedReviewSnapshot] : storyboardReviewSheetNodes(nodeId, nodes, connections);
     // Review sheets persist the exact full-size source references used to
     // create them. Restore those first: older canvases may not have a usable
     // storyboardSourceNodeId, while the persisted generation metadata is still
@@ -6692,7 +6682,7 @@ async function requestVideoBridgeImage(config: AiConfig, prompt: string, referen
         const fallbackModel = resolveVideoBridgeFallbackModel(config);
         if (!fallbackModel) throw new Error(`高清首帧重建失败：${videoBridgeErrorMessage(error)}`);
 
-        reportStage?.("首帧服务繁忙，正在切换备用模型...");
+        reportStage?.("首帧主模型明确不可用，正在切换备用模型...");
         const fallbackConfig = { ...config, model: fallbackModel, imageModel: fallbackModel };
         try {
             return await requestVideoBridgeImageAttempt(fallbackConfig, prompt, references, VIDEO_BRIDGE_FALLBACK_TIMEOUT_MS, signal);
@@ -6740,7 +6730,11 @@ function resolveVideoBridgeFallbackModel(config: AiConfig) {
 
 function isRetryableVideoBridgeError(error: unknown) {
     const message = videoBridgeErrorMessage(error).toLowerCase();
-    return /timeout|timed out|network|connection|socket|upstream|internal server|502|503|504|超时|繁忙|暂时|连接|中断|上游/.test(message);
+    // A client-side timeout does not prove that a paid upstream generation
+    // stopped. Falling back after a timeout can bill two successful images.
+    // Switch providers only when the primary explicitly rejects the request
+    // before generation because no provider/capacity is available.
+    return /no provider|no available|temporarily unavailable|service unavailable|provider unavailable|503|无可用|暂无可用|服务繁忙|服务暂时不可用/.test(message);
 }
 
 function videoBridgeErrorMessage(error: unknown) {

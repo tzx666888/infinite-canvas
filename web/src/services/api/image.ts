@@ -152,6 +152,14 @@ const CANVAS_IMAGE_JOB_TIMEOUT_MS = 22 * 60 * 1000;
 const CANVAS_IMAGE_JOB_SUBMIT_RECOVERY_ATTEMPTS = 3;
 const CANVAS_IMAGE_JOB_SUBMIT_RECOVERY_DELAY_MS = 750;
 
+function isGptImageModel(model: string) {
+    return /^gpt-image(?:-|$)/i.test(model);
+}
+
+function supportsGptImageInputFidelity(model: string) {
+    return isGptImageModel(model) && !/^gpt-image-2(?:-|$)/i.test(model);
+}
+
 export function supportsResumableImageJobs(config: AiConfig) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     if (requestConfig.apiFormat === "gemini") return false;
@@ -1090,7 +1098,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
         n,
         ...(quality ? { quality } : {}),
         ...(requestSize ? { size: requestSize } : {}),
-        response_format: "b64_json",
+        ...(isGptImageModel(requestModel) ? {} : { response_format: "b64_json" }),
         output_format: IMAGE_OUTPUT_FORMAT,
     };
     if (options?.jobId && supportsResumableImageJobs(requestConfig)) {
@@ -1142,9 +1150,11 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         formData.set("model", requestModel);
         formData.set("prompt", withSystemPrompt(requestConfig, requestPrompt));
         formData.set("n", String(n));
-        formData.set("response_format", "b64_json");
+        if (!isGptImageModel(requestModel)) {
+            formData.set("response_format", "b64_json");
+        }
         formData.set("output_format", IMAGE_OUTPUT_FORMAT);
-        if (/^gpt-image(?:-|$)/i.test(requestModel)) {
+        if (supportsGptImageInputFidelity(requestModel)) {
             formData.set("input_fidelity", "high");
         }
         if (quality) {

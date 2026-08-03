@@ -85,6 +85,8 @@ const settingsRouteSource = readFileSync(new URL("../src/app/api/settings/route.
 const canvasSource = readFileSync(new URL("../src/app/(user)/canvas/[id]/canvas-client-page.tsx", import.meta.url), "utf8");
 const routingSource = readFileSync(new URL("../src/lib/google-video-routing.ts", import.meta.url), "utf8");
 const pickerSource = readFileSync(new URL("../src/components/model-picker.tsx", import.meta.url), "utf8");
+const videoSettingsSource = readFileSync(new URL("../src/components/video-settings-panel.tsx", import.meta.url), "utf8");
+const canvasVideoSettingsSource = readFileSync(new URL("../src/app/(user)/canvas/components/canvas-video-settings-popover.tsx", import.meta.url), "utf8");
 assert.match(serviceSource, /createGoogleFlowVideoTaskRequest/, "video orchestration must delegate Google requests to the Google adapter");
 assert.match(serviceSource, /aiApiUrl\(config, "\/videos"\)/, "Flow video creation must use the async /videos contract");
 assert.doesNotMatch(serviceSource, /aiApiUrl\(config, "\/videos\/generations"\)/, "Google video must not use the legacy Grok endpoint");
@@ -100,5 +102,7 @@ assert.match(settingsRouteSource, /\.\.\.GOOGLE_VIDEO_MODEL_IDS/, "settings fall
 assert.match(canvasSource, /model: "veo"/, "storyboard video prompts must compile for Veo");
 assert.match(routingSource, /resolveGoogleVideoRouteModelId/, "all Google requests must use the deterministic route matrix");
 assert.match(pickerSource, /compactVideoModelPickerOptions/, "the video picker must collapse raw model IDs into capability entries");
+assert.match(videoSettingsSource, /normalizeVideoResolutionValue\(value, model, duration\)/, "video resolution labels must account for duration-specific provider limits");
+assert.match(canvasVideoSettingsSource, /videoResolutionLabel\(config\.vquality, model, config\.videoSeconds\)/, "canvas video controls must display the effective resolution for the selected duration");
 
 console.log("Google video model regression checks passed");

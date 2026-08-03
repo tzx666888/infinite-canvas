@@ -591,6 +591,14 @@ function describeNodeError(errorDetails?: string) {
         return { title: "请求太密集", message: "系统已保留节点和提示词，稍等片刻后点重试即可。", detail };
     }
 
+    if (/public_error_audio_filtered|audio[_ -]?filtered/.test(lower)) {
+        return {
+            title: "音频生成被模型过滤",
+            message: "Veo 的音频安全或处理过滤未通过，不是服务器超时。请检查口播内容后手动重试。",
+            detail,
+        };
+    }
+
     if (isContentPolicyErrorMessage(text) || /no final video url|风控/.test(lower)) {
         return { title: "内容审核未通过", message: "这是模型内容安全限制，不是服务器故障；请调整提示词或参考图后重试。", detail };
     }

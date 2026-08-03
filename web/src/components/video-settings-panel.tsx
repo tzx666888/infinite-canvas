@@ -194,8 +194,8 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
     );
 }
 
-export function videoResolutionLabel(value: string, model = "") {
-    return `${normalizeVideoResolutionValue(value, model)}p`;
+export function videoResolutionLabel(value: string, model = "", duration?: string | number) {
+    return `${normalizeVideoResolutionValue(value, model, duration)}p`;
 }
 
 export function videoSizeLabel(value: string) {
