@@ -41,6 +41,16 @@ export function fixedGoogleVideoResolution(model: string, duration?: string | nu
     return GOOGLE_VIDEO_MODEL_ID_SET.has(normalized) ? "1080" : null;
 }
 
+export function defaultGoogleVideoEntrySettings(model: string) {
+    const mode = googleVideoEntryMode(model);
+    if (!mode) return null;
+    const videoSeconds = mode === "omni" ? "10" : "8";
+    return {
+        videoSeconds,
+        vquality: fixedGoogleVideoResolution(model, videoSeconds) || "720",
+    } as const;
+}
+
 export function normalizeGoogleVideoSeconds(value: string, model: string) {
     const seconds = Math.floor(Number(value) || 6);
     const options = fixedGoogleVideoDurationOptions(model);

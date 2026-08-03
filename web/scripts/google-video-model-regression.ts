@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+    defaultGoogleVideoEntrySettings,
     fixedGoogleVideoDurationOptions,
     fixedGoogleVideoResolution,
     GOOGLE_VIDEO_MODEL_IDS,
@@ -58,6 +59,9 @@ assert.equal(isGoogleVeoOfficialExtendDuration("15", "omni"), false);
 assert.equal(fixedGoogleVideoResolution(r2v), "1080");
 assert.equal(fixedGoogleVideoResolution(t2v, "15"), "720");
 assert.equal(fixedGoogleVideoResolution("omni_portrait"), "720");
+assert.deepEqual(defaultGoogleVideoEntrySettings(t2v), { videoSeconds: "8", vquality: "1080" });
+assert.deepEqual(defaultGoogleVideoEntrySettings(r2v), { videoSeconds: "8", vquality: "1080" });
+assert.deepEqual(defaultGoogleVideoEntrySettings("omni"), { videoSeconds: "10", vquality: "720" });
 
 assert.equal(googleVideoEntryMode(t2v), "veo-auto");
 assert.equal(googleVideoEntryMode(i2v), "veo-auto");

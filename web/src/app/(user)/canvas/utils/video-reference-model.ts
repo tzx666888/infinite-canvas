@@ -1,6 +1,6 @@
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 import { resolveConfiguredGoogleVideoModel } from "@/lib/google-video-routing";
-import { fixedGoogleVideoResolution, googleVideoReferenceImageLimit, isGoogleVideoModel, normalizeGoogleVideoSeconds } from "@/lib/video-providers/google-video";
+import { defaultGoogleVideoEntrySettings, fixedGoogleVideoResolution, googleVideoReferenceImageLimit, isGoogleVideoModel, normalizeGoogleVideoSeconds } from "@/lib/video-providers/google-video";
 import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
 
 export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImageCount: number): AiConfig {
@@ -20,6 +20,11 @@ export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImag
 export function selectReferenceImageVideoModel(config: AiConfig, referenceImageCount: number) {
     const currentModel = config.videoModel || config.model;
     return isGoogleVideoModel(currentModel) ? resolveConfiguredGoogleVideoModel(config, referenceImageCount) : currentModel;
+}
+
+export function canvasVideoModelSelectionPatch(model: string) {
+    const defaults = defaultGoogleVideoEntrySettings(model);
+    return defaults ? { model, seconds: defaults.videoSeconds, vquality: defaults.vquality } : { model };
 }
 
 function googleVideoSize(model: string, requestedSize: string) {

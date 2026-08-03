@@ -32,7 +32,7 @@ import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
-import { selectReferenceImageVideoModel } from "../utils/video-reference-model";
+import { canvasVideoModelSelectionPatch, selectReferenceImageVideoModel } from "../utils/video-reference-model";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasCommerceVideoPlan, type CanvasNodeData, type CanvasPromptSourceKind } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 
@@ -63,7 +63,19 @@ type CanvasNodePromptPanelProps = {
     onImageSettingsOpenChange?: (open: boolean) => void;
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onGenerateProductBreakdown, onGenerateSceneExpansion, onGenerateVideoStoryboard, onStop, mentionReferences = [], onImageSettingsOpenChange }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({
+    node,
+    isRunning,
+    onPromptChange,
+    onConfigChange,
+    onGenerate,
+    onGenerateProductBreakdown,
+    onGenerateSceneExpansion,
+    onGenerateVideoStoryboard,
+    onStop,
+    mentionReferences = [],
+    onImageSettingsOpenChange,
+}: CanvasNodePromptPanelProps) {
     const { message } = App.useApp();
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
@@ -258,7 +270,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                                     </span>
                                 </Button>
                             </Dropdown>
-
                         </>
                     ) : null}
                     {mode === "image" ? (
@@ -281,7 +292,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         </>
                     ) : mode === "video" ? (
                         <>
-                            <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="video" onMissingConfig={() => openConfigDialog(true)} />
+                            <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, canvasVideoModelSelectionPatch(model))} capability="video" onMissingConfig={() => openConfigDialog(true)} />
                             <CanvasVideoSettingsPopover config={config} buttonClassName="!h-10 !max-w-[170px] !justify-start !rounded-full !px-3" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
                         </>
                     ) : mode === "audio" ? (
@@ -422,7 +433,6 @@ function videoConfigPatch(key: keyof AiConfig, value: string) {
     if (key === "videoWatermark") return { watermark: value };
     return { [key]: value };
 }
-
 
 function audioConfigPatch(key: CanvasAudioSettingKey, value: string) {
     if (key === "audioVoice") return { audioVoice: value };

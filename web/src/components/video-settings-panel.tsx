@@ -61,6 +61,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const resolutionOptions = fixedResolution ? [{ value: fixedResolution, label: `${fixedResolution}p` }] : baseResolutionOptions;
     const resolution = normalizeVideoResolutionValue(config.vquality, model, seconds);
     const productScaleMode = normalizeVideoProductScaleMode(config.videoProductScaleMode);
+    const durationGridClass = googleVideo ? (secondOptions.length > 1 ? "grid-cols-2" : "grid-cols-1") : secondOptions.length === 4 ? "grid-cols-4" : "grid-cols-3";
     const updateDimension = (key: "width" | "height", value: number | null) => {
         const next = Math.max(1, Math.floor(value || dimensions[key] || 720));
         onConfigChange("size", `${key === "width" ? next : dimensions.width}x${key === "height" ? next : dimensions.height}`);
@@ -115,10 +116,10 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </div>
                 </SettingGroup>
                 <SettingGroup title="秒数" color={theme.node.muted}>
-                    <div className={`grid gap-2.5 ${secondOptions.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>
+                    <div className={`grid gap-2.5 ${durationGridClass}`}>
                         {secondOptions.map((value) => (
                             <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
-                                {isGoogleVeoOfficialExtendDuration(value, model) ? "15s续写" : `${value}s`}
+                                {googleVideo ? googleVideoDurationOptionLabel(value, model) : `${value}s`}
                             </OptionPill>
                         ))}
                         {fixedSecondOptions ? null : <NumberInput value={seconds} min={1} max={20} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
@@ -208,6 +209,12 @@ export function videoSizeLabel(value: string) {
 export function videoSecondsLabel(value: string, model = "") {
     if (String(value).trim() === "-1") return "智能";
     return `${normalizeModelVideoSeconds(value || "6", model)}s`;
+}
+
+function googleVideoDurationOptionLabel(value: number, model: string) {
+    const resolution = fixedVideoResolution(model, value);
+    const duration = isGoogleVeoOfficialExtendDuration(value, model) ? "15s续写" : `${value}s`;
+    return resolution ? `${duration} · ${resolution}p` : duration;
 }
 
 export function normalizeVideoSizeValue(value: string) {

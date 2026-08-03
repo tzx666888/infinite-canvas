@@ -16,7 +16,15 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { summarizeConfiguredGoogleVideoRoute } from "@/lib/google-video-routing";
-import { googleVideoEntryReferenceImageLimit, googleVideoReferenceImageLimit, googleVideoReferenceMode, isGoogleVideoModel, normalizeGoogleVideoSeconds, supportsGoogleVideoReferenceCount } from "@/lib/video-providers/google-video";
+import {
+    defaultGoogleVideoEntrySettings,
+    googleVideoEntryReferenceImageLimit,
+    googleVideoReferenceImageLimit,
+    googleVideoReferenceMode,
+    isGoogleVideoModel,
+    normalizeGoogleVideoSeconds,
+    supportsGoogleVideoReferenceCount,
+} from "@/lib/video-providers/google-video";
 import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
 import type { VideoWorkbenchMode } from "@/lib/video-workbench-prompt";
 import { resolveReferenceImageVideoConfig } from "@/app/(user)/canvas/utils/video-reference-model";
@@ -668,12 +676,19 @@ export default function VideoPage() {
 function GenerationSettings({ config, model, referenceCount, updateConfig, openConfigDialog }: { config: AiConfig; model: string; referenceCount: number; updateConfig: UpdateAiConfig; openConfigDialog: (shouldPromptContinue?: boolean) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const route = summarizeConfiguredGoogleVideoRoute({ ...config, model, videoModel: model }, referenceCount);
+    const selectVideoModel = (value: string) => {
+        updateConfig("videoModel", value);
+        const defaults = defaultGoogleVideoEntrySettings(value);
+        if (!defaults) return;
+        updateConfig("videoSeconds", defaults.videoSeconds);
+        updateConfig("vquality", defaults.vquality);
+    };
 
     return (
         <>
             <label className="col-span-2 block min-w-0 sm:col-span-1">
                 <span className="mb-1.5 block text-sm font-semibold sm:mb-2 sm:text-base">模型</span>
-                <ModelPicker config={config} value={model} onChange={(value) => updateConfig("videoModel", value)} capability="video" fullWidth onMissingConfig={() => openConfigDialog(false)} />
+                <ModelPicker config={config} value={model} onChange={selectVideoModel} capability="video" fullWidth onMissingConfig={() => openConfigDialog(false)} />
                 {route ? <span className={`mt-1.5 block text-xs ${route.error ? "text-red-500 dark:text-red-300" : "text-stone-500 dark:text-stone-400"}`}>本次：{route.text}</span> : null}
             </label>
             <div className="col-span-2">
