@@ -869,7 +869,7 @@ export function CanvasAssistantPanel({
                         onAddFiles={addImagesToCanvas}
                         left={
                             <>
-                                <CanvasPromptLibrary onSelect={setPrompt} />
+                                <CanvasPromptLibrary context="agent" onSelect={(value) => setPrompt(value)} />
                                 <AgentTextModelPicker config={effectiveConfig} value={effectiveConfig.textModel} onChange={(model) => updateConfig("textModel", model)} />
                             </>
                         }

@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderPlus, Search } from "lucide-react";
+import { Bot, FolderPlus, Search } from "lucide-react";
 import { type UIEvent, useEffect, useState } from "react";
 import { App, Button, Empty, Input, Spin, Tag } from "antd";
 
@@ -21,7 +21,9 @@ export default function PromptsPage() {
     const saveAsset = useSaveAsset();
     const copyText = useCopyText();
     const { query, items: promptItems, tags: promptTags, categories: promptCategoryOptions, total: totalPrompts } = usePromptList({ keyword: titleKeyword, tags: selectedTags, category: selectedCategory });
-    const promptCountLabel = query.isLoading ? "正在加载提示词，按标题、标签与分类快速查找灵感。" : `共 ${totalPrompts} 条提示词，按标题、标签与分类快速查找灵感。`;
+    const tokaxisItems = promptItems.filter((item) => item.origin === "tokaxis");
+    const communityItems = promptItems.filter((item) => item.origin !== "tokaxis");
+    const promptCountLabel = query.isLoading ? "正在加载电商与商业人物提示词。" : `共 ${totalPrompts} 条精选内容，包含 Tokaxis 创作、商品电商与商业人物。`;
 
     useEffect(() => {
         if (query.isError) {
@@ -51,6 +53,8 @@ export default function PromptsPage() {
             }),
         });
     };
+
+    const copyPrompt = (item: Prompt) => copyText(item.prompt, item.action === "agent_workflow" ? "工作流启动指令已复制" : "提示词已复制");
 
     const handleListScroll = (event: UIEvent<HTMLDivElement>) => {
         const target = event.currentTarget;
@@ -112,26 +116,67 @@ export default function PromptsPage() {
                 </div>
 
                 {!query.isLoading ? (
-                    <div>
-                        <div className="mx-auto grid max-w-7xl gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                            {promptItems.map((item) => (
-                                <PromptCard
-                                    key={item.id}
-                                    item={item}
-                                    onOpen={() => setSelectedPrompt(item)}
-                                    onCopy={() => copyText(item.prompt, "提示词已复制")}
-                                    extraAction={
-                                        <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => savePromptAsset(item)}>
-                                            加入我的素材
-                                        </Button>
-                                    }
-                                />
-                            ))}
-                        </div>
+                    <div className="mx-auto max-w-7xl">
+                        {tokaxisItems.length ? (
+                            <section className="mb-10 overflow-hidden rounded-2xl border border-cyan-400/20 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,.11),transparent_35%),linear-gradient(145deg,rgba(8,15,23,.98),rgba(11,18,28,.96))] p-5 shadow-[0_24px_80px_rgba(0,0,0,.16)] sm:p-7">
+                                <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+                                    <div>
+                                        <div className="font-mono text-[10px] font-semibold tracking-[0.24em] text-cyan-300">TOKAXIS / CREATION SYSTEM</div>
+                                        <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">Tokaxis 创作</h2>
+                                        <p className="mt-2 max-w-2xl text-sm leading-6 text-white/55">从商业脚本、人物与产品静帧，到分镜和全视频模型自动适配。工作流会先填入 Agent，由你确认后执行。</p>
+                                    </div>
+                                    <div className="shrink-0 rounded-full border border-white/10 bg-white/[0.045] px-3 py-1.5 font-mono text-[10px] tracking-[0.16em] text-white/50">{tokaxisItems.length} CREATION MODULES</div>
+                                </div>
+                                <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                                    {tokaxisItems.map((item) => (
+                                        <PromptCard
+                                            key={item.id}
+                                            item={item}
+                                            onOpen={() => setSelectedPrompt(item)}
+                                            onCopy={() => copyPrompt(item)}
+                                            actionLabel={item.action === "agent_workflow" ? "复制启动指令" : "复制提示词"}
+                                            actionIcon={item.action === "agent_workflow" ? <Bot className="size-3.5" /> : undefined}
+                                            extraAction={
+                                                item.action !== "agent_workflow" ? (
+                                                    <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => savePromptAsset(item)}>
+                                                        加入我的素材
+                                                    </Button>
+                                                ) : undefined
+                                            }
+                                        />
+                                    ))}
+                                </div>
+                            </section>
+                        ) : null}
+
+                        {communityItems.length ? (
+                            <section>
+                                <div className="mb-5 flex items-end justify-between gap-4">
+                                    <div>
+                                        <div className="text-xs font-semibold tracking-[0.18em] text-stone-400">CURATED COMMERCE</div>
+                                        <h2 className="mt-1 text-xl font-semibold text-stone-950 dark:text-stone-100">电商与商业人物灵感</h2>
+                                    </div>
+                                    <span className="text-xs text-stone-500 dark:text-stone-400">已移除游戏、纯 UI、纯建筑与无商业主体模板</span>
+                                </div>
+                                <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                                    {communityItems.map((item) => (
+                                        <PromptCard
+                                            key={item.id}
+                                            item={item}
+                                            onOpen={() => setSelectedPrompt(item)}
+                                            onCopy={() => copyPrompt(item)}
+                                            extraAction={
+                                                <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => savePromptAsset(item)}>
+                                                    加入我的素材
+                                                </Button>
+                                            }
+                                        />
+                                    ))}
+                                </div>
+                            </section>
+                        ) : null}
                         {promptItems.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有找到匹配的提示词" className="py-16" /> : null}
-                        <div className="mx-auto mt-6 max-w-7xl text-center text-xs text-stone-500 dark:text-stone-400">
-                            {query.isFetchingNextPage ? "加载中..." : query.hasNextPage ? "继续向下滚动加载更多" : promptItems.length > 0 ? "已经到底了" : null}
-                        </div>
+                        <div className="mt-6 text-center text-xs text-stone-500 dark:text-stone-400">{query.isFetchingNextPage ? "加载中..." : query.hasNextPage ? "继续向下滚动加载更多" : promptItems.length > 0 ? "已经到底了" : null}</div>
                     </div>
                 ) : null}
             </main>

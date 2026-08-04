@@ -3,27 +3,21 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { TOKAXIS_PROMPTS, type Prompt, type PromptAction, type PromptIntent, type PromptMedia, type PromptVisual } from "@/lib/tokaxis-prompts";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Prompt = {
-    id: string;
-    title: string;
-    coverUrl: string;
-    prompt: string;
-    tags: string[];
-    category: string;
-    githubUrl: string;
-    preview: string;
-    createdAt: string;
-    updatedAt: string;
-};
+type ExternalPrompt = Omit<Prompt, "origin" | "intent" | "action" | "visual" | "summary" | "media">;
 
 type PromptCategory = {
     category: string;
     githubUrl: string;
-    build: () => Promise<Omit<Prompt, "category" | "githubUrl">[]>;
+    build: () => Promise<Omit<ExternalPrompt, "category" | "githubUrl">[]>;
 };
+
+type ScoredRule = { id: string; score: number; pattern: RegExp };
+type ExternalPromptMetadata = { origin: "community"; intent: PromptIntent; action: "insert_prompt"; visual: PromptVisual; media: PromptMedia };
 
 const gptImage2RawBase = "https://raw.githubusercontent.com/EvoLinkAI/awesome-gpt-image-2-API-and-Prompts/main";
 const awesomeGptImageRawBase = "https://raw.githubusercontent.com/ZeroLu/awesome-gpt-image/main";
@@ -44,12 +38,48 @@ const sourceCategories: PromptCategory[] = [
     { category: "davidwu-gpt-image2-prompts", githubUrl: "https://github.com/davidwuw0811-boop/awesome-gpt-image2-prompts", build: buildDavidWuGptImage2Prompts },
 ];
 
-const curatedTags = ["商品图", "电商海报", "广告创意", "人物肖像", "场景图", "摄影写实", "插画动漫", "界面设计", "文字排版", "建筑空间", "游戏娱乐", "信息图表", "短视频", "品牌包装", "需要参考图"] as const;
-const curatedCategories = ["精选案例", "商品电商", "人像摄影", "设计排版", "场景空间", "视频创意", "游戏娱乐"] as const;
+const curatedTags = ["商品图", "电商海报", "广告创意", "人物肖像", "场景图", "摄影写实", "文字排版", "短视频", "品牌包装", "需要参考图"] as const;
+const curatedCategories = ["Tokaxis 创作", "商品电商", "商业人物"] as const;
 const curatedTagSet = new Set<string>(curatedTags);
 const internalTagPattern = /^(?:@|#)|老板原创|internal|author|source|github|twitter|x\.com|open-design|原创$|other$/i;
 const riskyPromptPattern =
     /特朗普|川普|\btrump\b|奥特曼|ultraman|iphone|apple\s+park|elon\s*musk|马斯克|\bgta\b|grand\s+theft\s+auto|英雄联盟|league\s+of\s+legends|黑神话|悟空|harry\s+potter|disney|marvel|pokemon|pokémon|naruto|one\s+piece|杀手|hitman|塞尔达|zelda|林克|刘亦菲|tiktok|抖音|youtube|openai\s*总部|gpt-6/i;
+const externalWhitelistRules = {
+    product: [
+        { id: "explicit-commerce-product", score: 6, pattern: /电商|商品(?:图|摄影|展示|主图|详情)|产品(?:图|摄影|展示|主图|海报|广告|包装)|\be-?commerce\b|packshot|product[-_ ]?(?:photo|shot|poster|display)/i },
+        {
+            id: "retail-product-or-packaging",
+            score: 4,
+            pattern: /包装|美妆|护肤|化妆品|服装|鞋履|珠宝|手表|食品|饮料|瓶身|箱包|家具|香水|packag(?:e|ing)|cosmetic|skincare|apparel|jewelry|watch|beverage|bottle|handbag|furniture|perfume|sneaker|shoe|consumer goods/i,
+        },
+    ],
+    commerce: [
+        { id: "brand-advertising", score: 4, pattern: /广告|品牌|营销|促销|卖点|主视觉|商业(?:摄影|广告|人像|产品|海报)|advertis|brand(?:ing)?|marketing|campaign|promotion|catalog|retail|hero image|social[-_ ]?(?:media[-_ ]?)?ad/i },
+        { id: "sales-layout", score: 4, pattern: /销售|转化|上新|详情页|商业海报|sale(?:s)?|conversion|launch campaign|product page|storefront|merchandis/i },
+    ],
+    person: [{ id: "adult-portrait-subject", score: 2, pattern: /真人|成年人|人像|肖像|写真|模特|代言人|portrait|headshot|spokesperson|\badult\b|\bmodel\b/i }],
+    commercialPerson: [{ id: "commercial-person-context", score: 4, pattern: /商业人像|职业照|品牌代言|时尚大片|美容广告|fashion editorial|beauty campaign|business headshot|corporate portrait|lifestyle campaign|lookbook|editorial portrait/i }],
+    scene: [{ id: "supporting-commercial-scene", score: 1, pattern: /场景|环境|家居|厨房|商店|摄影棚|scene|environment|lifestyle|kitchen|retail space|studio set|background/i }],
+    layout: [{ id: "supporting-commercial-layout", score: 1, pattern: /海报|横幅|排版|社交媒体|信息图|poster|banner|typography|layout|social post|infographic|comparison chart/i }],
+    video: [{ id: "commercial-motion-format", score: 2, pattern: /短视频|广告片|宣传片|分镜|镜头|运镜|short[-_ ]?video|promo(?:tional)? film|storyboard|shot list|camera move|\breel\b/i }],
+    photography: [{ id: "commercial-image-format", score: 1, pattern: /摄影|写实|棚拍|布光|photo(?:graphy)?|realistic|camera|lighting|studio shot/i }],
+} satisfies Record<string, ScoredRule[]>;
+const externalHardExclusionPatterns = [
+    { id: "game-entertainment", pattern: /游戏|电竞|街机|二次元|动漫|漫画|q\s*版|卡通|video game|gaming|game art|arcade|\brpg\b|\bmoba\b|cosplay|anime|cartoon|comic|chibi|fantasy character|superhero/i },
+    { id: "ui-interface", pattern: /界面|交互设计|移动端\s*ui|ui\s*(?:与|&|\/)?\s*界面|ui\s*\/\s*ux|user interface|dashboard|app (?:screen|homepage|interface)|website design/i },
+    { id: "information-diagram", pattern: /信息图|关系图|教育视觉|数据可视化|流程图|infographic|data visualization|flowchart|relationship (?:map|diagram)|\bdiagram\b|\bchart\b/i },
+    { id: "architecture-only", pattern: /建筑|城市规划|室内设计|architecture|building facade|urban planning|floor plan|interior design/i },
+    { id: "external-video-module", pattern: /视频模板|电影叙事|特效\s*\/\s*奇幻|舞蹈\s*\/\s*动作|video template|storyboard|shot list/i },
+    { id: "generic-lifestyle-snapshot", pattern: /生活切片|街头多人合影|真实路人|documentary street|street snapshot|candid group photo/i },
+    { id: "generic-genre-scene", pattern: /赛博朋克|旅游推广|地标建筑|cyberpunk|travel (?:poster|promotion)|tourism promotion|iconic landmarks/i },
+];
+const externalSupportingOnlyPatterns = [
+    { id: "architecture", pattern: /建筑|城市规划|室内设计|architecture|building facade|urban planning|floor plan|interior design/i },
+    { id: "interface", pattern: /界面|交互设计|ui\s*\/\s*ux|user interface|dashboard|app screen|website design/i },
+    { id: "noncommercial-information", pattern: /信息图|数据可视化|流程图|infographic|data visualization|flowchart|diagram|\bchart\b/i },
+];
+const tokaxisPromptIds = new Set(TOKAXIS_PROMPTS.map((item) => item.id));
+const externalPromptIdPattern = /^(?:gpt-image-2-prompts|awesome-gpt-image|awesome-gpt4o-image-prompts|youmind-gpt-image-2|davidwu-gpt-image2-prompts)-/;
 
 let memoryCache: { items: Prompt[]; fetchedAt: number } | null = null;
 let loadingPrompts: Promise<Prompt[]> | null = null;
@@ -59,16 +89,19 @@ export async function GET(request: NextRequest) {
     const keyword = (params.get("keyword") || "").trim().toLowerCase();
     const tags = params.getAll("tag").filter(Boolean);
     const category = params.get("category") || "";
+    const action = promptAction(params.get("action"));
+    const media = promptMedia(params.get("media"));
     const page = Math.max(1, Number(params.get("page")) || 1);
     const pageSize = Math.max(1, Math.min(100, Number(params.get("pageSize")) || 20));
     const items = await getPrompts();
-    const withoutTagFilter = filterPrompts(items, { keyword, category, tags: [] });
-    const filtered = filterPrompts(items, { keyword, category, tags });
+    const withoutTagFilter = filterPrompts(items, { keyword, category, action, media, tags: [] });
+    const filtered = filterPrompts(items, { keyword, category, action, media, tags });
+    const scopeItems = filterPrompts(items, { keyword: "", category: "", action, media, tags: [] });
 
     return Response.json({
         items: filtered.slice((page - 1) * pageSize, page * pageSize),
         tags: collectTags(withoutTagFilter),
-        categories: collectCategories(items),
+        categories: collectCategories(scopeItems),
         total: filtered.length,
     });
 }
@@ -90,18 +123,16 @@ async function loadPrompts() {
                 const items = await category.build();
                 return { failed: false, items: items.map((item) => ({ ...item, category: category.category, githubUrl: category.githubUrl })) };
             } catch {
-                return { failed: true, items: [] as Prompt[] };
+                return { failed: true, items: [] as ExternalPrompt[] };
             }
         }),
     );
-    const items = sanitizePrompts(settled.flatMap((result) => result.items));
+    const freshItems = sanitizeExternalPrompts(settled.flatMap((result) => result.items));
+    const cachedItems = diskCache?.items.length ? sanitizeExternalPrompts(diskCache.items.filter((item) => !tokaxisPromptIds.has(item.id) && externalPromptIdPattern.test(item.id))) : null;
     const failedCount = settled.filter((result) => result.failed).length;
-    if (diskCache?.items.length && shouldUsePromptDiskCache(items, diskCache.items, failedCount)) {
-        const cachedItems = sanitizePrompts(diskCache.items);
-        memoryCache = { items: cachedItems, fetchedAt: Date.now() };
-        return cachedItems;
-    }
-    if (items.length) await writePromptLibraryCache(items);
+    const useCachedItems = Boolean(cachedItems && shouldUsePromptDiskCache(freshItems, cachedItems, failedCount));
+    const items = composePromptLibrary(useCachedItems ? cachedItems || [] : freshItems);
+    if (!useCachedItems && freshItems.length) await writePromptLibraryCache(items);
     memoryCache = { items, fetchedAt: Date.now() };
     return items;
 }
@@ -131,17 +162,70 @@ function shouldUsePromptDiskCache(items: Prompt[], cachedItems: Prompt[], failed
     return cachedItems.length >= 100 && items.length < cachedItems.length * 0.85;
 }
 
-function filterPrompts(items: Prompt[], options: { keyword: string; category: string; tags: string[] }) {
+function filterPrompts(items: Prompt[], options: { keyword: string; category: string; action: PromptAction | ""; media: PromptMedia | ""; tags: string[] }) {
     return items.filter((item) => {
+        if (options.action && item.action !== options.action) return false;
+        if (options.media && item.media !== options.media) return false;
         if (isActiveOption(options.category) && item.category !== options.category) return false;
         if (options.tags.length && !options.tags.some((tag) => item.tags.includes(tag))) return false;
         if (!options.keyword) return true;
-        return [item.title, item.prompt, item.category, ...item.tags].join(" ").toLowerCase().includes(options.keyword);
+        return [item.title, item.summary, item.prompt, item.category, item.intent, ...item.tags].filter(Boolean).join(" ").toLowerCase().includes(options.keyword);
     });
 }
 
-function sanitizePrompts(items: Prompt[]) {
-    return items.map((item) => sanitizePrompt(item)).filter((item): item is Prompt => Boolean(item));
+function sanitizeExternalPrompts(items: ExternalPrompt[]) {
+    return items.flatMap((item) => {
+        const metadata = classifyExternalPrompt(item);
+        if (!metadata) return [];
+        const sanitized = sanitizePrompt({ ...item, ...metadata });
+        return sanitized ? [{ ...sanitized, category: metadata.intent === "commercial_portrait" ? "商业人物" : "商品电商" }] : [];
+    });
+}
+
+function composePromptLibrary(items: Prompt[]) {
+    return [...TOKAXIS_PROMPTS, ...items.filter((item) => !tokaxisPromptIds.has(item.id))];
+}
+
+function classifyExternalPrompt(item: ExternalPrompt): ExternalPromptMetadata | null {
+    // Cached category/tags may contain classifications produced by older, broader rules.
+    // Only the title and prompt body are authoritative when deciding whether an item is commercial.
+    const sourceText = [item.title, item.prompt].join(" ").toLowerCase();
+    if (externalHardExclusionPatterns.some((rule) => rule.pattern.test(sourceText))) return null;
+
+    const scores = {
+        product: scoreRules(sourceText, externalWhitelistRules.product),
+        commerce: scoreRules(sourceText, externalWhitelistRules.commerce),
+        person: scoreRules(sourceText, externalWhitelistRules.person),
+        commercialPerson: scoreRules(sourceText, externalWhitelistRules.commercialPerson),
+        scene: scoreRules(sourceText, externalWhitelistRules.scene),
+        layout: scoreRules(sourceText, externalWhitelistRules.layout),
+        video: scoreRules(sourceText, externalWhitelistRules.video),
+        photography: scoreRules(sourceText, externalWhitelistRules.photography),
+    };
+    const supportingScore = scores.scene + scores.layout + scores.video + scores.photography;
+    const hasProduct = scores.product >= 6 || (scores.product >= 4 && supportingScore > 0);
+    const hasCommercialPerson = scores.person > 0 && (scores.commercialPerson >= 4 || scores.commerce >= 4);
+    const hasCommerceFormat = scores.commerce >= 4 && (supportingScore > 0 || scores.person > 0);
+    const hasCommercialAnchor = hasProduct || hasCommercialPerson || hasCommerceFormat;
+    if (externalSupportingOnlyPatterns.some((rule) => rule.pattern.test(sourceText)) && !hasProduct && !hasCommercialPerson) return null;
+    if (!hasCommercialAnchor || Object.values(scores).reduce((total, score) => total + score, 0) < 5) return null;
+
+    let intent: PromptIntent = "still_image";
+    let visual: PromptVisual = "image";
+    if (hasCommercialPerson) {
+        intent = "commercial_portrait";
+        visual = "portrait";
+    } else if (hasProduct) {
+        intent = "commerce_product";
+        visual = "product";
+    } else if (scores.scene > 0 || scores.layout > 0) {
+        intent = "commerce_scene_layout";
+    }
+    return { origin: "community", intent, action: "insert_prompt", visual, media: "image" };
+}
+
+function scoreRules(sourceText: string, rules: ScoredRule[]) {
+    return rules.reduce((score, rule) => score + (rule.pattern.test(sourceText) ? rule.score : 0), 0);
 }
 
 function sanitizePrompt(item: Prompt): Prompt | null {
@@ -171,12 +255,7 @@ function sanitizePromptTags(item: Pick<Prompt, "title" | "prompt" | "tags" | "ca
     add("人物肖像", /人物|人像|头像|portrait|character|profile|face|model|写真|自拍/);
     add("场景图", /场景|scene|环境|空间|室内|家居|厨房|城市|landscape|background/);
     add("摄影写实", /摄影|照片|photo|photography|realistic|写实|raw|camera|cinematic/);
-    add("插画动漫", /插画|动漫|anime|illustration|漫画|cartoon|二次元/);
-    add("界面设计", /ui|界面|app|dashboard|landing|web|website|screen/);
     add("文字排版", /文字|排版|typography|font|logo|text|letter|字体/);
-    add("建筑空间", /建筑|architecture|空间|interior|room|house|building/);
-    add("游戏娱乐", /游戏|game|娱乐|sci[-_ ]?fi|fantasy|vfx/);
-    add("信息图表", /信息图|infographic|diagram|chart|map|表格|流程|slide|slides|document/);
     add("短视频", /视频|短视频|short_video|animation|dance|cinematic|story|film/);
     add("品牌包装", /品牌|logo|包装|package|packaging|label|card/);
     add("需要参考图", /需要参考图|reference|ref\b|参考图/);
@@ -186,13 +265,9 @@ function sanitizePromptTags(item: Pick<Prompt, "title" | "prompt" | "tags" | "ca
 }
 
 function categoryFromTags(tags: string[]) {
-    if (tags.some((tag) => tag === "短视频")) return "视频创意";
     if (tags.some((tag) => ["商品图", "电商海报", "广告创意", "品牌包装"].includes(tag))) return "商品电商";
-    if (tags.some((tag) => tag === "人物肖像")) return "人像摄影";
-    if (tags.some((tag) => ["界面设计", "文字排版", "信息图表"].includes(tag))) return "设计排版";
-    if (tags.some((tag) => ["建筑空间", "场景图", "摄影写实"].includes(tag))) return "场景空间";
-    if (tags.some((tag) => tag === "游戏娱乐")) return "游戏娱乐";
-    return "精选案例";
+    if (tags.some((tag) => tag === "人物肖像")) return "商业人物";
+    return "商品电商";
 }
 
 async function buildGptImage2Prompts() {
@@ -375,6 +450,14 @@ function collectCategories(items: Prompt[]) {
 
 function leftPad(value: number) {
     return String(value).padStart(4, "0");
+}
+
+function promptAction(value: string | null): PromptAction | "" {
+    return value === "insert_prompt" || value === "agent_workflow" ? value : "";
+}
+
+function promptMedia(value: string | null): PromptMedia | "" {
+    return value === "text" || value === "image" || value === "video" || value === "mixed" ? value : "";
 }
 
 function isActiveOption(value: string) {

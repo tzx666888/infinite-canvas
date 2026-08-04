@@ -3,16 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 
-import { ALL_PROMPTS_OPTION, fetchPrompts } from "@/services/api/prompts";
+import { ALL_PROMPTS_OPTION, fetchPrompts, type PromptAction, type PromptMedia } from "@/services/api/prompts";
 
 export const PROMPT_PAGE_SIZE = 20;
 const PROMPT_SEARCH_DEBOUNCE_MS = 320;
 
-export function usePromptList({ keyword, tags, category, enabled = true }: { keyword: string; tags: string[]; category: string; enabled?: boolean }) {
+export function usePromptList({ keyword, tags, category, action, media, enabled = true }: { keyword: string; tags: string[]; category: string; action?: PromptAction; media?: PromptMedia; enabled?: boolean }) {
     const debouncedKeyword = useDebouncedValue(keyword.trim(), PROMPT_SEARCH_DEBOUNCE_MS);
     const query = useInfiniteQuery({
-        queryKey: ["prompts", debouncedKeyword, tags, category],
-        queryFn: ({ pageParam }) => fetchPrompts({ keyword: debouncedKeyword, tag: tags, category, page: pageParam, pageSize: PROMPT_PAGE_SIZE }),
+        queryKey: ["prompts", debouncedKeyword, tags, category, action, media],
+        queryFn: ({ pageParam }) => fetchPrompts({ keyword: debouncedKeyword, tag: tags, category, action, media, page: pageParam, pageSize: PROMPT_PAGE_SIZE }),
         initialPageParam: 1,
         getNextPageParam: (lastPage, pages) => (pages.reduce((total, page) => total + page.items.length, 0) < lastPage.total ? pages.length + 1 : undefined),
         enabled,

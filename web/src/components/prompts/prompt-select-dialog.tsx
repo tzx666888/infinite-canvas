@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Search } from "lucide-react";
+import { Bot, Check, Search } from "lucide-react";
 import { type UIEvent, useEffect, useState } from "react";
 import { App, Empty, Input, Modal, Spin, Tag } from "antd";
 
@@ -9,12 +9,16 @@ import { cn } from "@/lib/utils";
 import { PromptCard } from "./prompt-card";
 import { usePromptList } from "./use-prompt-list";
 
-export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boolean; onOpenChange: (open: boolean) => void; onSelect: (prompt: string, item: Prompt) => void }) {
+export type PromptSelectContext = "agent" | "image" | "video" | "batch" | "direct";
+
+export function PromptSelectDialog({ open, onOpenChange, onSelect, context = "direct" }: { open: boolean; onOpenChange: (open: boolean) => void; onSelect: (prompt: string, item: Prompt) => void; context?: PromptSelectContext }) {
     const { message } = App.useApp();
     const [keyword, setKeyword] = useState("");
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
     const [selectedCategory, setSelectedCategory] = useState(ALL_PROMPTS_OPTION);
-    const { query, items, tags: promptTags, categories: promptCategories } = usePromptList({ keyword, tags: selectedTags, category: selectedCategory, enabled: open });
+    const action = context === "agent" ? undefined : "insert_prompt";
+    const media = context === "image" || context === "batch" ? "image" : context === "video" ? "video" : undefined;
+    const { query, items, tags: promptTags, categories: promptCategories } = usePromptList({ keyword, tags: selectedTags, category: selectedCategory, action, media, enabled: open });
     const toggleTag = (tag: string) => {
         if (tag === ALL_PROMPTS_OPTION) return setSelectedTags([]);
         setSelectedTags((items) => (items.includes(tag) ? items.filter((item) => item !== tag) : [...items, tag]));
@@ -22,6 +26,7 @@ export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boo
     const selectPrompt = (item: Prompt) => {
         onSelect(item.prompt, item);
         onOpenChange(false);
+        if (item.action === "agent_workflow") message.success("已填入 Agent，请补充需求后确认发送");
     };
 
     useEffect(() => {
@@ -34,10 +39,10 @@ export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boo
     };
 
     return (
-        <Modal title="提示词库" open={open} onCancel={() => onOpenChange(false)} footer={null} width={1040} centered>
+        <Modal title={context === "agent" ? "Tokaxis 创作与提示词" : context === "video" ? "商业视频提示词" : "电商与商业人物提示词"} open={open} onCancel={() => onOpenChange(false)} footer={null} width={1040} centered>
             <div data-canvas-no-zoom onWheelCapture={(event) => event.stopPropagation()}>
                 <div className="mx-auto max-w-2xl">
-                    <Input size="large" prefix={<Search className="size-4 text-stone-400" />} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="按标题查询" />
+                    <Input size="large" prefix={<Search className="size-4 text-stone-400" />} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索商品、商业人物或 Tokaxis 创作" />
                 </div>
                 <div className="mt-5 grid gap-3">
                     <div className="grid gap-2 sm:grid-cols-[56px_minmax(0,1fr)] sm:items-start">
@@ -72,7 +77,15 @@ export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boo
                     ) : null}
                     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
                         {items.map((item) => (
-                            <PromptCard key={item.id} item={item} onOpen={() => selectPrompt(item)} onCopy={() => selectPrompt(item)} actionLabel="使用此提示词" actionIcon={<Check className="size-3.5" />} actionType="primary" />
+                            <PromptCard
+                                key={item.id}
+                                item={item}
+                                onOpen={() => selectPrompt(item)}
+                                onCopy={() => selectPrompt(item)}
+                                actionLabel={item.action === "agent_workflow" ? "交给 Agent" : "填入提示词"}
+                                actionIcon={item.action === "agent_workflow" ? <Bot className="size-3.5" /> : <Check className="size-3.5" />}
+                                actionType="primary"
+                            />
                         ))}
                     </div>
                     {!query.isLoading && items.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有找到匹配的提示词" className="py-8" /> : null}

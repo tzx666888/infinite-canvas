@@ -31,8 +31,8 @@ export default function IndexPage() {
     const [previewOpen, setPreviewOpen] = useState(false);
 
     useEffect(() => {
-        void fetchPrompts({ pageSize: 12 })
-            .then((data) => setPromptShowcase(data.items))
+        void fetchPrompts({ action: "insert_prompt", media: "image", pageSize: 20 })
+            .then((data) => setPromptShowcase(data.items.filter((item) => item.origin !== "tokaxis" && item.coverUrl).slice(0, 12)))
             .catch((error) => message.error(error instanceof Error ? error.message : "获取提示词失败"));
     }, [message]);
 

@@ -249,7 +249,7 @@ export function CanvasNodePromptPanel({
 
             <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <CanvasPromptLibrary onSelect={(value, selection) => updatePrompt(value, "prompt_library", selection?.id)} />
+                    {mode === "image" || mode === "video" ? <CanvasPromptLibrary context={mode} onSelect={(value, selection) => updatePrompt(value, "prompt_library", selection?.id)} /> : null}
                     {canPolish ? (
                         <>
                             <Dropdown

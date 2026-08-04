@@ -744,7 +744,7 @@ export default function BatchPage() {
                 </section>
             </main>
 
-            <PromptSelectDialog open={promptDialogOpen} onOpenChange={setPromptDialogOpen} onSelect={setPrompt} />
+            <PromptSelectDialog open={promptDialogOpen} onOpenChange={setPromptDialogOpen} context="batch" onSelect={setPrompt} />
         </div>
     );
 }

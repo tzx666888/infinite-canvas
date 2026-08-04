@@ -1,17 +1,8 @@
 import { compactApiParams, serializeApiParams } from "@/services/api/request";
 
-export type Prompt = {
-    id: string;
-    title: string;
-    coverUrl: string;
-    prompt: string;
-    tags: string[];
-    category: string;
-    githubUrl: string;
-    preview: string;
-    createdAt: string;
-    updatedAt: string;
-};
+import type { Prompt, PromptAction, PromptMedia } from "@/lib/tokaxis-prompts";
+
+export type { Prompt, PromptAction, PromptIntent, PromptMedia, PromptOrigin, PromptVisual } from "@/lib/tokaxis-prompts";
 
 export const ALL_PROMPTS_OPTION = "全部";
 
@@ -22,12 +13,30 @@ export type PromptListResponse = {
     total: number;
 };
 
-export async function fetchPrompts({ keyword = "", tag = [], category = ALL_PROMPTS_OPTION, page, pageSize }: { keyword?: string; tag?: string[]; category?: string; page?: number; pageSize?: number } = {}) {
+export async function fetchPrompts({
+    keyword = "",
+    tag = [],
+    category = ALL_PROMPTS_OPTION,
+    action,
+    media,
+    page,
+    pageSize,
+}: {
+    keyword?: string;
+    tag?: string[];
+    category?: string;
+    action?: PromptAction;
+    media?: PromptMedia;
+    page?: number;
+    pageSize?: number;
+} = {}) {
     const params = serializeApiParams(
         compactApiParams({
             ...(keyword ? { keyword } : {}),
             ...(tag.length ? { tag } : {}),
             ...(category !== ALL_PROMPTS_OPTION ? { category } : {}),
+            ...(action ? { action } : {}),
+            ...(media ? { media } : {}),
             ...(page ? { page } : {}),
             ...(pageSize ? { pageSize } : {}),
         }),
