@@ -16,6 +16,7 @@ import {
     TOKAXIS_GOOGLE_NATIVE_SIZES,
     tokaxisGoogleModelForSize,
 } from "../src/lib/tokaxis-google-image.ts";
+import { normalizeImageQualityForModel } from "../src/lib/image-quality.ts";
 
 assert.equal(Object.keys(TOKAXIS_GOOGLE_NATIVE_SIZES).length, 14, "Google 模型必须保留官方 14 种比例");
 assert.deepEqual(TOKAXIS_GOOGLE_IMAGE_SIZES, ["1K", "2K", "4K"]);
@@ -44,6 +45,10 @@ assert.equal(normalizeImageSizeForSelectedModel("tokaxis::gpt-image-2", "4800x35
 assert.equal(normalizeImageSizeForSelectedModel("tokaxis::grok-imagine-image-lite", "4096x4096"), "3840x3840", "其他生图模型不应被 GPT Image 2 上限降级");
 assert.equal(normalizeImageSizeForSelectedModel("tokaxis::gpt-image-2", "1:8"), "auto", "GPT Image 2 不应继承 Google 超宽比");
 assert.equal(normalizeImageSizeForSelectedModel("tokaxis::gpt-image-2", "2048x2048"), "2048x2048", "已合法的尺寸不应改动");
+assert.equal(normalizeImageQualityForModel("standard", "tokaxis::gpt-image-2"), "low", "旧画布的 standard 质量必须映射到 GPT Image 2 支持的 low");
+assert.equal(normalizeImageQualityForModel("hd", "gpt-image-2"), "high", "旧画布的 hd 质量必须映射到 GPT Image 2 支持的 high");
+assert.equal(normalizeImageQualityForModel("standard", "dall-e-3"), "standard", "其他模型仍需保留各自支持的 standard 质量");
+assert.equal(normalizeImageQualityForModel("4K", "gpt-image-2"), "high", "分辨率质量别名必须继续兼容");
 
 for (const [aspectRatio, sizes] of Object.entries(TOKAXIS_GOOGLE_NATIVE_SIZES)) {
     const [ratioWidth, ratioHeight] = aspectRatio.split(":").map(Number);

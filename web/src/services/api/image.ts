@@ -3,6 +3,7 @@ import axios from "axios";
 import { buildApiUrl, isTokaxisProxyBaseUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
+import { normalizeImageQualityForModel } from "@/lib/image-quality";
 import { runImageSubmission } from "@/lib/image-request-concurrency";
 import { buildImageReferencePromptText, buildMaskConstrainedImageEditPrompt } from "@/lib/image-reference-prompt";
 import {
@@ -133,18 +134,6 @@ export class CanvasImageJobError extends Error {
 const IMAGE_PROXY_HEARTBEAT_PATTERN = /^[\s\uFEFF]+|[\s\uFEFF]+$/g;
 const BASE64_IMAGE_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/;
 
-const QUALITY_BASE: Record<string, number> = {
-    low: 1024,
-    medium: 2048,
-    high: 2880,
-    standard: 1024,
-    hd: 2048,
-};
-const QUALITY_ALIASES: Record<string, string> = {
-    "1k": "low",
-    "2k": "medium",
-    "4k": "high",
-};
 const DEFAULT_IMAGE_SHORT_SIDE = 1024;
 const IMAGE_OUTPUT_FORMAT = "png";
 const CANVAS_IMAGE_JOB_POLL_INTERVAL_MS = 1_500;
@@ -302,12 +291,6 @@ function waitForImageJobPoll(delayMs: number, signal?: AbortSignal) {
         }, delayMs);
         signal?.addEventListener("abort", onAbort, { once: true });
     });
-}
-
-function normalizeQuality(quality: string) {
-    const value = quality.trim().toLowerCase();
-    const normalized = QUALITY_ALIASES[value] || value;
-    return QUALITY_BASE[normalized] ? normalized : undefined;
 }
 
 /** Map a ratio to the pixel dimension shown in the UI. Explicit 2K/4K buttons pass dimensions directly. */
@@ -1072,7 +1055,7 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
-    const quality = normalizeQuality(config.quality);
+    const quality = normalizeImageQualityForModel(config.quality, requestConfig.model);
     const tokaxisGoogleImage = isTokaxisGoogleImageModel(requestConfig.model);
     const normalizedSize = normalizeImageSizeForSelectedModel(requestConfig.model, config.size);
     const requestSize = tokaxisGoogleImage ? resolveTokaxisGoogleRequestSize(normalizedSize) : resolveRequestSize(quality, normalizedSize);
@@ -1123,7 +1106,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(mask ? buildMaskConstrainedImageEditPrompt(prompt) : prompt, references);
-    const quality = normalizeQuality(config.quality);
+    const quality = normalizeImageQualityForModel(config.quality, requestConfig.model);
     const tokaxisGoogleImage = isTokaxisGoogleImageModel(requestConfig.model);
     const normalizedSize = normalizeImageSizeForSelectedModel(requestConfig.model, config.size);
     const requestSize = tokaxisGoogleImage ? resolveTokaxisGoogleRequestSize(normalizedSize) : resolveRequestSize(quality, normalizedSize);
