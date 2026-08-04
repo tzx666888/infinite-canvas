@@ -1,15 +1,27 @@
 import axios from "axios";
 
-import { fixedGoogleVideoResolution, googleVideoModelDisplayName, googleVideoReferenceImageLimit, googleVideoReferenceMode, isGoogleVeoOfficialExtendDuration, normalizeGoogleVideoSeconds, supportsGoogleVideoReferenceCount } from "@/lib/video-providers/google-video";
+import { fixedGoogleVideoResolution, googleVideoModelDisplayName, googleVideoReferenceImageLimit, googleVideoReferenceMode, normalizeGoogleVideoSeconds, supportsGoogleVideoReferenceCount } from "@/lib/video-providers/google-video";
 import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
 import { resolveConfiguredGoogleVideoModel } from "@/lib/google-video-routing";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
-import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import {
+    boolConfig,
+    buildSeedancePromptText,
+    isSeedanceFixed720pModel,
+    isSeedanceVideoConfig,
+    normalizeSeedanceDuration,
+    normalizeSeedanceRatio,
+    normalizeSeedanceResolution,
+    seedanceSupportsGeneratedAudio,
+    seedanceSupportsVideoAudioReferences,
+    seedanceVideoReferenceError,
+    SEEDANCE_REFERENCE_LIMITS,
+} from "@/lib/seedance-video";
 import { buildCompactVideoProductScalePrompt, buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
-import { buildApiUrl, modelOptionName, requiresClientApiKey, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, isTokaxisProxyBaseUrl, modelOptionName, requiresClientApiKey, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { createGoogleFlowVideoTaskRequest, pollGoogleFlowVideoTaskRequest } from "@/services/api/video/google-flow-adapter";
@@ -116,9 +128,6 @@ async function createFlowVideoTask(config: AiConfig, model: string, prompt: stri
     }
     const requestReferences = references;
     const seconds = normalizeGoogleVideoSeconds(config.videoSeconds, modelName);
-    if (isGoogleVeoOfficialExtendDuration(seconds, modelName) && requestReferences.length > 1) {
-        throw new Error("Veo 15 秒官方续写只支持 1 张首帧；请移除尾帧后重试");
-    }
     if (!prompt.trim() && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
     const referenceMode = googleVideoReferenceMode(modelName, requestReferences.length);
     const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode).trim());
@@ -326,20 +335,53 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
 }
 
 async function createSeedanceTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: VideoRequestOptions): Promise<VideoGenerationTask> {
+    const modelName = modelOptionName(model);
+    assertSeedanceReferenceCounts(references, videoReferences, audioReferences);
+    if (!seedanceSupportsVideoAudioReferences(modelName) && (videoReferences.length || audioReferences.length)) {
+        throw new Error(`${modelName} 只支持文字和参考图，不支持参考视频或参考音频`);
+    }
     if (audioReferences.length && !references.length && !videoReferences.length) {
         throw new Error("Seedance 参考音频不能单独使用，请同时添加参考图或参考视频");
     }
     assertSeedanceVideoReferences(videoReferences);
     assertSeedanceAudioReferences(audioReferences);
+    const promptText = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
+    if (!promptText && (!isSeedanceFixed720pModel(modelName) || !references.length)) throw new Error("请输入视频提示词，或连接参考图片/视频/音频");
+
+    if (isTokaxisProxyBaseUrl(config.baseUrl)) {
+        const [images, videos, audios] = await Promise.all([
+            Promise.all(references.map((image) => resolveSeedanceImageUrl(config, image))),
+            Promise.all(videoReferences.map(resolveSeedanceVideoUrl)),
+            Promise.all(audioReferences.map(resolveSeedanceAudioUrl)),
+        ]);
+        const ratio = normalizeSeedanceRatio(config.size, modelName);
+        const payload: Record<string, unknown> = {
+            model: modelName,
+            prompt: promptText,
+            ...(images.length ? { images } : {}),
+            ...(videos.length ? { videos } : {}),
+            ...(audios.length ? { audios } : {}),
+            duration: normalizeSeedanceDuration(config.videoSeconds, modelName),
+            resolution: normalizeSeedanceResolution(config.vquality, modelName),
+            ...(ratio === "adaptive" ? {} : { aspect_ratio: ratio }),
+            generate_audio: seedanceSupportsGeneratedAudio(modelName) && boolConfig(config.videoGenerateAudio, true),
+            watermark: boolConfig(config.videoWatermark, false),
+        };
+        try {
+            return await createSeedanceVideoTaskRequest({ endpoint: seedanceApiUrl(config), headers: aiHeaders(config, "application/json"), model, payload, options });
+        } catch (error) {
+            throw new Error(readAxiosError(error, "Seedance 任务创建失败"));
+        }
+    }
+
     const content = await buildSeedanceContent(config, prompt, references, videoReferences, audioReferences);
-    if (!content.length) throw new Error("请输入视频提示词，或连接参考图片/视频/音频");
     const payload = {
-        model: modelOptionName(model),
+        model: modelName,
         content,
-        ratio: normalizeSeedanceRatio(config.size),
-        resolution: normalizeSeedanceResolution(config.vquality, modelOptionName(model)),
-        duration: normalizeSeedanceDuration(config.videoSeconds),
-        generate_audio: boolConfig(config.videoGenerateAudio, true),
+        ratio: normalizeSeedanceRatio(config.size, modelName),
+        resolution: normalizeSeedanceResolution(config.vquality, modelName),
+        duration: normalizeSeedanceDuration(config.videoSeconds, modelName),
+        generate_audio: seedanceSupportsGeneratedAudio(modelName) && boolConfig(config.videoGenerateAudio, true),
         watermark: boolConfig(config.videoWatermark, false),
     };
 
@@ -352,7 +394,12 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
 
 async function pollSeedanceTask(config: AiConfig, task: VideoGenerationTask, options?: VideoRequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        return await pollSeedanceVideoTaskRequest({ endpoint: seedanceApiUrl(config, task.id), headers: aiHeaders(config), options });
+        return await pollSeedanceVideoTaskRequest({
+            endpoint: seedanceApiUrl(config, task.id),
+            ...(isTokaxisProxyBaseUrl(config.baseUrl) ? { contentEndpoint: aiApiUrl(config, `/videos/${encodeURIComponent(task.id)}/content`) } : {}),
+            headers: aiHeaders(config),
+            options,
+        });
     } catch (error) {
         throw new Error(readAxiosError(error, "Seedance 任务查询失败"));
     }
@@ -370,6 +417,12 @@ function assertSeedanceVideoReferences(videoReferences: ReferenceVideo[]) {
     if (total > 15000) throw new Error("Seedance 参考视频总时长不能超过 15 秒");
 }
 
+function assertSeedanceReferenceCounts(references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {
+    if (references.length > SEEDANCE_REFERENCE_LIMITS.images) throw new Error(`Seedance 最多支持 ${SEEDANCE_REFERENCE_LIMITS.images} 张参考图`);
+    if (videoReferences.length > SEEDANCE_REFERENCE_LIMITS.videos) throw new Error(`Seedance 最多支持 ${SEEDANCE_REFERENCE_LIMITS.videos} 个参考视频`);
+    if (audioReferences.length > SEEDANCE_REFERENCE_LIMITS.audios) throw new Error(`Seedance 最多支持 ${SEEDANCE_REFERENCE_LIMITS.audios} 个参考音频`);
+}
+
 function assertSeedanceAudioReferences(audioReferences: ReferenceAudio[]) {
     let total = 0;
     for (const audio of audioReferences) {
@@ -381,6 +434,7 @@ function assertSeedanceAudioReferences(audioReferences: ReferenceAudio[]) {
 }
 
 function seedanceApiUrl(config: AiConfig, taskId?: string) {
+    if (isTokaxisProxyBaseUrl(config.baseUrl)) return buildApiUrl(config.baseUrl, `/videos/generations${taskId ? `/${encodeURIComponent(taskId)}` : ""}`);
     return buildApiUrl(config.baseUrl, `/contents/generations/tasks${taskId ? `/${encodeURIComponent(taskId)}` : ""}`);
 }
 
@@ -388,13 +442,13 @@ async function buildSeedanceContent(config: AiConfig, prompt: string, references
     const content: Array<Record<string, unknown>> = [];
     const text = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
     if (text) content.push({ type: "text", text });
-    for (const image of references.slice(0, SEEDANCE_REFERENCE_LIMITS.images)) {
+    for (const image of references) {
         content.push({ type: "image_url", image_url: { url: await resolveSeedanceImageUrl(config, image) }, role: "reference_image" });
     }
-    for (const video of videoReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.videos)) {
+    for (const video of videoReferences) {
         content.push({ type: "video_url", video_url: { url: await resolveSeedanceVideoUrl(video) }, role: "reference_video" });
     }
-    for (const audio of audioReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.audios)) {
+    for (const audio of audioReferences) {
         content.push({ type: "audio_url", audio_url: { url: await resolveSeedanceAudioUrl(audio) }, role: "reference_audio" });
     }
     return content;
@@ -493,14 +547,14 @@ function normalizeVideoProviderError(message: string, fallback: string) {
     if (lower.includes("not_found") || lower.includes("generation_not_found") || lower.includes("not found")) {
         return "视频上游没有找到生成结果，通常是模型参数或参考图不受支持，请换用干净关键帧/其他视频模型后重试";
     }
+    if ((lower.includes("duration") || text.includes("时长")) && (lower.includes("limit") || lower.includes("unsupported") || lower.includes("maximum") || lower.includes("only support") || text.includes("只支持"))) {
+        return "当前视频时长不受模型支持：Veo 固定 8 秒，Omni 固定 10 秒，Seedance 固定 Fast 720p 仅支持 5/10/15 秒，其他 Seedance 支持 5–15 秒整数时长";
+    }
     if (lower.includes("bad request") || lower.includes("invalid") || lower.includes("unsupported")) {
         return "视频参数或参考图不被当前模型支持，请检查模型、时长、尺寸和参考图后重试";
     }
     if (lower.includes("reference") && (lower.includes("too many") || lower.includes("limit") || lower.includes("maximum"))) {
         return "参考图数量超过当前视频模型限制，请减少参考图后重试";
-    }
-    if (lower.includes("duration") && (lower.includes("limit") || lower.includes("unsupported") || lower.includes("maximum"))) {
-        return "当前视频时长不受模型支持：Veo 智能生成支持原生 4、6、8 秒及 15 秒官方续写（8+7 秒），多参考固定 8 秒，Omni 固定 10 秒";
     }
     return text || fallback;
 }

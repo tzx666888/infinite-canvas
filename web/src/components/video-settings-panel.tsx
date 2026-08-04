@@ -7,18 +7,21 @@ import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import {
     boolConfig,
     isSeedanceFastModel,
+    isSeedanceFixed720pModel,
     isSeedanceVideoConfig,
     normalizeSeedanceDuration,
     normalizeSeedanceRatio,
     normalizeSeedanceResolution,
-    seedanceDurationOptions,
+    seedanceDurationOptionsForModel,
     seedancePixelLabel,
     seedanceRatioOptions,
-    seedanceResolutionOptions,
+    seedanceRatioOptionsForModel,
+    seedanceResolutionOptionsForModel,
+    seedanceSupportsGeneratedAudio,
 } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { normalizeVideoProductScaleMode, videoProductScaleOptions } from "@/lib/video-product-scale";
-import { fixedVideoDurationOptions, fixedVideoResolution, isGoogleVeoOfficialExtendDuration, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
+import { fixedVideoDurationOptions, fixedVideoResolution, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const baseResolutionOptions = [
@@ -133,9 +136,13 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
 function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
     const model = modelOptionName(config.videoModel || config.model);
     const resolution = normalizeSeedanceResolution(config.vquality, model);
-    const ratio = normalizeSeedanceRatio(config.size);
-    const duration = normalizeSeedanceDuration(config.videoSeconds);
-    const generateAudio = boolConfig(config.videoGenerateAudio, true);
+    const ratio = normalizeSeedanceRatio(config.size, model);
+    const duration = normalizeSeedanceDuration(config.videoSeconds, model);
+    const durationOptions = seedanceDurationOptionsForModel(model);
+    const resolutionOptions = seedanceResolutionOptionsForModel(model);
+    const ratioOptions = seedanceRatioOptionsForModel(model);
+    const supportsGeneratedAudio = seedanceSupportsGeneratedAudio(model);
+    const generateAudio = supportsGeneratedAudio && boolConfig(config.videoGenerateAudio, true);
     const watermark = boolConfig(config.videoWatermark, false);
 
     return (
@@ -144,20 +151,17 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
                 <SettingGroup title="分辨率" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
-                        {seedanceResolutionOptions.map((item) => {
-                            const disabled = item.value === "1080p" && isSeedanceFastModel(model);
-                            return (
-                                <OptionPill key={item.value} selected={resolution === item.value} disabled={disabled} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
-                                    {item.label}
-                                </OptionPill>
-                            );
-                        })}
+                        {resolutionOptions.map((item) => (
+                            <OptionPill key={item.value} selected={resolution === item.value} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
+                                {item.label}
+                            </OptionPill>
+                        ))}
                     </div>
-                    {isSeedanceFastModel(model) ? <div className="text-[11px] leading-4 opacity-55">fast 模型不支持 1080p，会自动使用 720p。</div> : null}
+                    {isSeedanceFixed720pModel(model) ? <div className="text-[11px] leading-4 opacity-55">该型号固定输出 720p。</div> : isSeedanceFastModel(model) ? <div className="text-[11px] leading-4 opacity-55">Fast 型号最高支持 720p。</div> : null}
                 </SettingGroup>
                 <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
-                        {seedanceRatioOptions.map((item) => (
+                        {ratioOptions.map((item) => (
                             <button
                                 key={item.value}
                                 type="button"
@@ -168,24 +172,28 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                             >
                                 <SizePreview width={ratioPreview(item.value).width} height={ratioPreview(item.value).height} color={theme.node.text} />
                                 <span>{item.label}</span>
-                                <span className="text-[10px] leading-none opacity-55">{item.value === "adaptive" ? "adaptive" : seedancePixelLabel(resolution, item.value)}</span>
+                                <span className="text-[10px] leading-none opacity-55">{item.value === "adaptive" ? "adaptive" : seedancePixelLabel(resolution, item.value, model)}</span>
                             </button>
                         ))}
                     </div>
                 </SettingGroup>
                 <SettingGroup title="时长" color={theme.node.muted}>
-                    <div className="grid grid-cols-4 gap-2.5">
-                        {seedanceDurationOptions.map((value) => (
+                    <div className={`grid gap-2.5 ${durationOptions.length === 3 ? "grid-cols-3" : "grid-cols-4"}`}>
+                        {durationOptions.map((value) => (
                             <OptionPill key={value} selected={duration === value} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
-                                {value === -1 ? "智能" : `${value}s`}
+                                {value}s
                             </OptionPill>
                         ))}
                     </div>
-                    <NumberInput value={String(duration)} min={-1} max={15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />
+                    {isSeedanceFixed720pModel(model) ? <div className="text-[11px] leading-4 opacity-55">该路由仅支持 5、10 或 15 秒。</div> : <NumberInput value={String(duration)} min={5} max={15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
                 </SettingGroup>
                 <SettingGroup title="输出" color={theme.node.muted}>
                     <div className="grid gap-2 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke }}>
-                        <SwitchRow label="生成声音" checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
+                        {supportsGeneratedAudio ? (
+                            <SwitchRow label="生成声音" checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
+                        ) : (
+                            <div className="px-1 py-0.5 text-xs leading-5 opacity-60">该型号不支持生成声音，将输出无声视频。</div>
+                        )}
                         <SwitchRow label="添加水印" checked={watermark} theme={theme} onChange={(checked) => onConfigChange("videoWatermark", String(checked))} />
                     </div>
                 </SettingGroup>
@@ -207,14 +215,12 @@ export function videoSizeLabel(value: string) {
 }
 
 export function videoSecondsLabel(value: string, model = "") {
-    if (String(value).trim() === "-1") return "智能";
     return `${normalizeModelVideoSeconds(value || "6", model)}s`;
 }
 
 function googleVideoDurationOptionLabel(value: number, model: string) {
     const resolution = fixedVideoResolution(model, value);
-    const duration = isGoogleVeoOfficialExtendDuration(value, model) ? "15s续写" : `${value}s`;
-    return resolution ? `${duration} · ${resolution}p` : duration;
+    return resolution ? `${value}s · ${resolution}p` : `${value}s`;
 }
 
 export function normalizeVideoSizeValue(value: string) {

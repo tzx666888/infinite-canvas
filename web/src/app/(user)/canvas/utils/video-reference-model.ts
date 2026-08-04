@@ -1,19 +1,29 @@
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 import { resolveConfiguredGoogleVideoModel } from "@/lib/google-video-routing";
-import { defaultGoogleVideoEntrySettings, fixedGoogleVideoResolution, googleVideoReferenceImageLimit, isGoogleVideoModel, normalizeGoogleVideoSeconds } from "@/lib/video-providers/google-video";
+import { defaultGoogleVideoEntrySettings, fixedGoogleVideoResolution, isGoogleVideoModel, normalizeGoogleVideoSeconds } from "@/lib/video-providers/google-video";
+import { isSeedanceVideoModel, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceSupportsGeneratedAudio } from "@/lib/seedance-video";
 import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
 
 export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImageCount: number): AiConfig {
     const model = selectReferenceImageVideoModel(config, referenceImageCount);
     const nextConfig = model && (model !== config.model || model !== config.videoModel) ? { ...config, model, videoModel: model } : config;
-    const effectiveReferenceCount = Math.min(referenceImageCount, Math.max(0, googleVideoReferenceImageLimit(model || nextConfig.model)));
-    if (!isGoogleVideoModel(model || nextConfig.model)) return nextConfig;
-    const videoSeconds = normalizeGoogleVideoSeconds(nextConfig.videoSeconds, model || nextConfig.model);
+    const modelName = model || nextConfig.model;
+    if (isSeedanceVideoModel(modelName)) {
+        return {
+            ...nextConfig,
+            videoSeconds: String(normalizeSeedanceDuration(nextConfig.videoSeconds, modelName)),
+            vquality: normalizeSeedanceResolution(nextConfig.vquality, modelName),
+            size: normalizeSeedanceRatio(nextConfig.size, modelName),
+            videoGenerateAudio: String(seedanceSupportsGeneratedAudio(modelName) && nextConfig.videoGenerateAudio !== "false"),
+        };
+    }
+    if (!isGoogleVideoModel(modelName)) return nextConfig;
+    const videoSeconds = normalizeGoogleVideoSeconds(nextConfig.videoSeconds, modelName);
     return {
         ...nextConfig,
         videoSeconds,
-        vquality: fixedGoogleVideoResolution(model || nextConfig.model, videoSeconds) || nextConfig.vquality,
-        size: googleVideoSize(model || nextConfig.model, nextConfig.size),
+        vquality: fixedGoogleVideoResolution(modelName, videoSeconds) || nextConfig.vquality,
+        size: googleVideoSize(modelName, nextConfig.size),
     };
 }
 
@@ -24,7 +34,16 @@ export function selectReferenceImageVideoModel(config: AiConfig, referenceImageC
 
 export function canvasVideoModelSelectionPatch(model: string) {
     const defaults = defaultGoogleVideoEntrySettings(model);
-    return defaults ? { model, seconds: defaults.videoSeconds, vquality: defaults.vquality } : { model };
+    if (defaults) return { model, seconds: defaults.videoSeconds, vquality: defaults.vquality };
+    if (isSeedanceVideoModel(model)) {
+        return {
+            model,
+            seconds: String(normalizeSeedanceDuration("8", model)),
+            vquality: normalizeSeedanceResolution("720p", model),
+            generateAudio: String(seedanceSupportsGeneratedAudio(model)),
+        };
+    }
+    return { model };
 }
 
 function googleVideoSize(model: string, requestedSize: string) {

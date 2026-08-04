@@ -14,7 +14,7 @@ const FORWARDED_PATHS = [
     /^v1\/chat\/completions$/,
     /^v1\/images\/(?:generations|edits)$/,
     /^v1\/audio\/speech$/,
-    /^v1\/videos\/generations$/,
+    /^v1\/videos\/generations(?:\/[^/]+)?$/,
     /^v1\/videos(?:\/[^/]+(?:\/content)?)?$/,
     /^v1\/contents\/generations\/tasks(?:\/[^/]+)?$/,
     /^v1\/models$/,
@@ -37,6 +37,7 @@ const STRIPPED_REQUEST_HEADERS = [
 ];
 const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "content-length", "transfer-encoding", "x-oneapi-request-id", "x-oneapi-node", "x-oneapi-version"];
 const GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE = "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
+const TOKAXIS_SEEDANCE_VIDEO_MODELS = new Set(["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast"]);
 const legacyGrokVideoTaskIds = new Set<string>();
 
 type RouteContext = {
@@ -76,7 +77,8 @@ async function proxyTokaxis(request: NextRequest, context: RouteContext) {
     headers.set("Accept-Encoding", "identity");
 
     if (request.method === "POST" && path === "v1/videos/generations") {
-        return proxyLegacyGrokVideoGeneration(request, authorization);
+        const model = await videoGenerationRequestModel(request);
+        if (!isTokaxisSeedanceVideoModel(model)) return proxyLegacyGrokVideoGeneration(request, authorization);
     }
     const legacyVideoTaskId = request.method === "GET" ? /^v1\/videos\/([^/]+)$/.exec(path)?.[1] : undefined;
     if (legacyVideoTaskId && (legacyGrokVideoTaskIds.has(legacyVideoTaskId) || legacyVideoTaskId.startsWith("task_"))) {
@@ -116,6 +118,19 @@ async function proxyTokaxis(request: NextRequest, context: RouteContext) {
         statusText: upstreamResponse.statusText,
         headers: responseHeaders,
     });
+}
+
+async function videoGenerationRequestModel(request: NextRequest) {
+    try {
+        const payload = (await request.clone().json()) as { model?: unknown };
+        return typeof payload?.model === "string" ? payload.model : "";
+    } catch {
+        return "";
+    }
+}
+
+function isTokaxisSeedanceVideoModel(model: string) {
+    return TOKAXIS_SEEDANCE_VIDEO_MODELS.has(model.trim().toLowerCase().split("::").at(-1) || "");
 }
 
 async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorization: string) {

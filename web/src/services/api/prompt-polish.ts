@@ -141,11 +141,11 @@ const VIDEO_STORYBOARD_SYSTEM = `角色
 5. subject 模式默认使用 cinematic-subject：围绕同一主体形成强开场、动作推进和视觉收束，可在 2-4 个相关地点间用干净剪辑切换，不强制商品、购买动作或问题解决。
 6. scene 模式使用 scene-progression：环境和事件可以在同一视觉世界内推进，不得突然跳到无关地点或加入无关人物/商品。
 7. product 模式默认 storyboardStyle=direct-response、locationStrategy=single-location；apparel / subject 默认 locationStrategy=related-location-montage。用户明确要求单一地点时必须尊重。
-8. 执行 beat 数必须与视频模型可稳定完成的镜头数一致：4s/6s 输出 2 个 beat，8s/10s 输出 3 个 beat，12s/15s 输出 4 个 beat。用户未说明时长时，默认按 15s 输出恰好 4 个 beat。12 宫格只是这些执行 beat 的构图候选，不是 12 个额外动作或 12 个额外地点。
+8. 执行 beat 数必须与视频模型可稳定完成的镜头数一致：4s/6s 输出 2 个 beat，8s/10s 输出 3 个 beat，12s/15s 输出 4 个 beat。用户未说明时长时，默认按 8s 输出恰好 3 个 beat。12 宫格只是这些执行 beat 的构图候选，不是 12 个额外动作或 12 个额外地点。
 9. 每个 beat 必须按时间顺序推进。同一人物、服装和商品身份始终一致；环境可以按 beats 中明确规划的相关地点变化。相邻 beat 必须在动作、景别、机位或地点上有肉眼可见的推进，不得只做轻微换角度。description 和 eightElements.action 都必须是动作对象与结束状态完整的英文指令，禁止以 toward、with、holding、hand、and、to 等悬空词结尾。
 10. plannedLocations 必须列出计划实际使用的英文地点。若用户点名多个地点，必须包含每个地点的准确英文语义，并在 beats 中按用户顺序覆盖全部地点；禁止把 beach、poolside、resort lounger、tropical waterfall 等不同地点概括成一个 shoreline 或同一背景。
 11. 电商视频默认需要可听见的口播，只有用户明确要求无声、纯音乐或环境音时才使用 ambient-only。口播必须只说素材可见信息和用户提供的事实，不得编造功效、价格、折扣、认证、销量或品牌文字。
-12. audioPlan.scriptsByDuration 必须分别提供 4s、6s、8s、10s、15s 五份独立口播稿：英文分别为 6-9、10-14、14-18、18-24、26-34 词，其他语言使用等价口播节奏；不得把长稿机械截断成短稿。只使用简单、易发音的日常词和短从句，不写拗口的复合词、口号或功能清单。audioPlan.script 必须等于用户目标时长对应版本，未指定时长则使用 15s 版本。每份稿都只演绎一次，像真人创作者自然说话：保留口语缩写，第一句是 4-7 词的即时反应或观察，短暂停顿后用后续短句连贯说完一个利益点或邀请。15s 版本应有 2-3 个自然语句或分句，并在约 8 秒处存在句号、逗号或分号等自然续写边界。禁止写“from the first ... to the final ...”式导演语言、镜头顺序说明、服装几何清单、堆叠功能碎句或逐 beat 新口号。
+12. audioPlan.scriptsByDuration 必须分别提供 4s、6s、8s、10s、15s 五份独立口播稿：英文分别为 6-9、10-14、14-18、18-24、26-34 词，其他语言使用等价口播节奏；不得把长稿机械截断成短稿。只使用简单、易发音的日常词和短从句，不写拗口的复合词、口号或功能清单。audioPlan.script 必须等于用户目标时长对应版本，未指定时长则使用 8s 版本。每份稿都只演绎一次，像真人创作者自然说话：保留口语缩写，第一句是 4-7 词的即时反应或观察，短暂停顿后用后续短句连贯说完一个利益点或邀请。禁止写“from the first ... to the final ...”式导演语言、镜头顺序说明、服装几何清单、堆叠功能碎句或逐 beat 新口号。
 13. apparel / subject 有可见成年人物且用户未指定纯画外音时，默认 audioPlan.mode=mixed：优先把第一句放在一个稳定的正脸中近景作为自然口播，随后同一声线转为画外音覆盖动作、环境、商品和细节 B-roll；不得让人物在每次剪辑后重新开口。只有用户明确要求全程面对镜头口播时才使用 on-camera。人物开口时保持同一张脸、完整头部和嘴部可见，并自然同步口唇、下颌、呼吸及表情；纯商品特写、局部材质、背身和无脸镜头的 spokenLine 必须为空。
 
 CommerceVideoPlan JSON 要求
@@ -367,9 +367,6 @@ export async function optimizeVideoWorkbenchPrompt(config: AiConfig, context: Vi
         `Creation mode: ${context.mode === "commerce" ? "real-person ecommerce creator video" : "free creative video"}.`,
         `Target video model: ${context.model}.`,
         `Target duration: ${context.duration} seconds; aspect ratio: ${context.aspectRatio}; reference mode: ${context.referenceMode}.`,
-        context.duration === 15
-            ? "This uses official Veo Extend: an 8-second base clip followed by a 7-second continuation. Plan one continuous 15-second action and one continuous spoken thought: the base clip must not finish the story or CTA, and the continuation must resume without restarting or repeating."
-            : "",
         `Use exactly ${shotCount} readable story stages joined by clean edits.`,
         context.mode === "commerce" && !silent
             ? `The Spoken script must fit the duration: ${minimumWords}-${maximumWords} words for a space-delimited language, or an equivalent natural speaking length for Chinese/Japanese/Korean. It must sound spontaneous, warm, and conversational.`

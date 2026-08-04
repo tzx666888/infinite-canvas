@@ -771,7 +771,11 @@ assert.match(hoverToolbarSource, /label: "生成整片"/, "review sheets must ex
 assert.match(hoverToolbarSource, /label: "生成分段"/, "plan nodes must distinguish clip generation from full-video generation");
 assert.match(configStoreSource, /textModel: "tokaxis::gpt-5\.6-sol"/, "built-in text optimization model must default to GPT-5.6 Sol");
 assert.match(configStoreSource, /shouldMigrateTokaxisDefaults \? defaultConfig\.textModel/, "existing persisted defaults must migrate to GPT-5.6 Sol");
-assert.match(configStoreSource, /shouldMigrateTextModel \? \["gpt-5\.6-sol", \.\.\.Object\.values\(TOKAXIS_GOOGLE_IMAGE_MODELS\)\]/, "legacy channel model lists must receive GPT-5.6 Sol during migration");
+assert.match(
+    configStoreSource,
+    /shouldMigrateModels \? \["gpt-5\.6-sol", \.\.\.Object\.values\(TOKAXIS_GOOGLE_IMAGE_MODELS\), \.\.\.TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS\]/,
+    "legacy channel model lists must receive GPT-5.6 Sol, Google image sizes, and Seedance video models during migration",
+);
 assert.doesNotMatch(promptPanelSource, /tokaxis::gpt-5\.5/, "prompt polish UI must not retain a GPT-5.5 fallback");
 assert.match(videoServiceSource, /const requestReferences = references;/, "Google video requests must preserve the routed reference-image set");
 assert.match(videoServiceSource, /requestReferences\.map\(async \(image, index\)/, "each routed Google video reference must be converted into an upload file");

@@ -6334,7 +6334,7 @@ async function recoverLegacyStoryboardVideoPlan(config: AiConfig, storyboardImag
 
     const unwrappedPrompt = unwrapStoryboardVideoUserDirection(sourcePrompt);
     const savedDirection = normalizeVideoGenerationPrompt(unwrappedPrompt || (sourcePrompt.includes(STORYBOARD_DIRECTED_VIDEO_MARKER) ? "" : sourcePrompt));
-    const duration = Math.max(1, Math.floor(Number(videoSeconds) || 15));
+    const duration = Math.max(1, Math.floor(Number(videoSeconds) || 8));
     const legacyPlanText = legacyPlan?.beats?.length ? limitInlinePrompt(JSON.stringify(legacyPlan), 7000) : "";
     const recoveryBrief = [
         `Recover one complete ${duration}-second CommerceVideoPlan from the attached complete storyboard contact sheet.`,
@@ -6343,7 +6343,7 @@ async function recoverLegacyStoryboardVideoPlan(config: AiConfig, storyboardImag
             ? `Preserve this saved director direction wherever it agrees with the visible panels: ${limitInlinePrompt(savedDirection, 2200)}`
             : "No saved director direction remains. Infer only the story visibly supported by the ordered panels.",
         legacyPlanText ? `Upgrade this legacy plan without dropping its supported beats or constraints: ${legacyPlanText}` : "Create ordered beats that describe the visible panel story precisely.",
-        "Unless the saved direction explicitly requests another spoken language, use natural English. Supply audioPlan.scriptsByDuration with independent 4, 6, 8, 10, and 15 second scripts of 6-9, 10-14, 14-18, 18-24, and 26-34 English words respectively; audioPlan.script must equal the variant for the requested duration. The 15-second script needs a natural sentence or clause boundary near 8 seconds so an official 8-second generation plus continuation can split without repeating words.",
+        "Unless the saved direction explicitly requests another spoken language, use natural English. Supply audioPlan.scriptsByDuration with independent 4, 6, 8, 10, and 15 second scripts of 6-9, 10-14, 14-18, 18-24, and 26-34 English words respectively; audioPlan.script must equal the variant for the requested duration.",
         "Each duration script must sound like one real creator speaking naturally, not a director or catalog: preserve conversational contractions, start with a short 4-7 word reaction or observation, then one connected benefit or invitation after a natural breath. Use simple easy-to-pronounce everyday words and short clauses. Never write 'from the first ... to the final ...', narrate shot order, list garment geometry, stack feature fragments, or mechanically truncate a longer script.",
         "For a visible adult presenter, use mixed delivery: put the short opening sentence in spokenLine on one stable face-visible medium or close beat, then continue the same voice as off-screen narration over walking, profile, product, detail, or other B-roll. Do not create separate slogans for individual shots or keep the presenter talking through every cut.",
     ].join("\n");
@@ -6441,7 +6441,7 @@ async function cropStoryboardVideoFrame(dataUrl: string) {
 function buildStoryboardReviewSheetVideoPrompt(
     prompt: string,
     storyboardReferenceCount: number,
-    videoSeconds = "15",
+    videoSeconds = "8",
     attachedReferenceCount = storyboardReferenceCount,
     identityReferenceCount = 0,
     aspectRatio: "9:16" | "16:9" | "1:1" = "9:16",
@@ -6462,14 +6462,14 @@ function buildStoryboardReviewSheetVideoPrompt(
     });
 }
 
-function compactStoryboardVideoPrompt(prompt: string, duration = 15, maxChars = 900) {
+function compactStoryboardVideoPrompt(prompt: string, duration = 8, maxChars = 900) {
     const normalized = prompt.replace(/\s+/g, " ").trim();
     if (!normalized) return `Create a ${duration}-second reference-led video using only the supplied subject, scene, and ordered actions.`;
     return limitInlinePrompt(normalized, maxChars);
 }
 
 function normalizeStoryboardVideoSeconds(value: string, referenceCount: number) {
-    return Math.max(1, Math.floor(Number(value) || 15));
+    return Math.max(1, Math.floor(Number(value) || 8));
 }
 
 function normalizeVideoGenerationPrompt(prompt: string) {

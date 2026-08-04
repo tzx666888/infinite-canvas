@@ -47,7 +47,7 @@ export function compileVideoBeatPrompt(plan: CanvasCommerceVideoPlan, beat: Comm
 }
 
 export function compileStoryboardCleanAnchorVideoPrompt(plan: CanvasCommerceVideoPlan, context: VideoPromptContext): string {
-    const duration = Math.max(1, Math.floor(context.duration || 15));
+    const duration = Math.max(1, Math.floor(context.duration || 8));
     const mode = resolveStoryboardMode(plan);
     const beats = selectBeatsForDuration(plan.beats, duration) || [];
     const stageRanges = storyboardExecutionRanges(beats.length || 1, duration);
@@ -153,7 +153,7 @@ function storyboardExecutionAudioMode(mode: "voiceover" | "on-camera" | "mixed" 
     return "DELIVERY: the same presenter lip-syncs the short opening sentence in the first face-visible shot, then the same voice continues off-screen over B-roll. Never animate a hidden or mismatched mouth as speaking.";
 }
 
-export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | undefined, sourcePrompt = "", duration = 15): string {
+export function compileStoryboardAudioDirection(plan: CanvasCommerceVideoPlan | undefined, sourcePrompt = "", duration = 8): string {
     const audioPlan = plan?.audioPlan;
     const userDirection = [sourcePrompt, plan?.directorBrief || ""].join(" ");
     if (audioPlan?.mode === "ambient-only" || requestsAmbientOnly(userDirection)) {

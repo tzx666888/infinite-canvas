@@ -20,6 +20,7 @@ import {
     selectGrokReferenceVideoImagesWithPriority,
     supportsGrokVideoReferenceCount,
 } from "@/lib/video-providers/grok-video";
+import { fixedSeedanceVideoResolution, isSeedanceVideoModel, normalizeSeedanceDuration, seedanceDurationOptionsForModel, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 
 export type { VideoAspectRatio, VideoReferenceMode } from "@/lib/video-providers/shared";
 export { normalizeVideoModelId, videoAspectRatioForSize } from "@/lib/video-providers/shared";
@@ -56,31 +57,36 @@ export {
 } from "@/lib/video-providers/grok-video";
 
 export function fixedVideoDurationOptions(model: string): readonly number[] | null {
+    if (isSeedanceVideoModel(model)) return seedanceDurationOptionsForModel(model);
     return fixedGoogleVideoDurationOptions(model) || fixedGrokVideoDurationOptions(model);
 }
 
 export function isCanvasVideoModel(model: string) {
-    return isGoogleVideoModel(model) || isGrokVideoModel(model);
+    return isGoogleVideoModel(model) || isGrokVideoModel(model) || isSeedanceVideoModel(model);
 }
 
 export function fixedVideoResolution(model: string, duration?: string | number): "720" | "1080" | null {
-    return fixedGoogleVideoResolution(model, duration) || fixedGrokVideoResolution(model);
+    return fixedGoogleVideoResolution(model, duration) || fixedGrokVideoResolution(model) || fixedSeedanceVideoResolution(model);
 }
 
 export function videoReferenceMode(model: string, referenceCount: number) {
+    if (isSeedanceVideoModel(model)) return referenceCount > 1 ? "r2v" : referenceCount === 1 ? "i2v" : "t2v";
     return isGoogleVideoModel(model) ? googleVideoReferenceMode(model, referenceCount) : grokVideoReferenceMode(model, referenceCount);
 }
 
 export function videoReferenceImageLimit(model: string) {
+    if (isSeedanceVideoModel(model)) return SEEDANCE_REFERENCE_LIMITS.images;
     return isGoogleVideoModel(model) ? googleVideoReferenceImageLimit(model) : grokVideoReferenceImageLimit(model);
 }
 
 export function supportsVideoReferenceCount(model: string, referenceImageCount: number) {
+    if (isSeedanceVideoModel(model)) return referenceImageCount >= 0 && referenceImageCount <= SEEDANCE_REFERENCE_LIMITS.images;
     return isGoogleVideoModel(model) ? supportsGoogleVideoReferenceCount(model, referenceImageCount) : supportsGrokVideoReferenceCount(model, referenceImageCount);
 }
 
 export function normalizeModelVideoSeconds(value: string, model: string) {
     if (isGoogleVideoModel(model)) return normalizeGoogleVideoSeconds(value, model);
+    if (isSeedanceVideoModel(model)) return String(normalizeSeedanceDuration(value, model));
     const seconds = Math.floor(Number(value) || 6);
     const options = fixedVideoDurationOptions(model);
     if (!options) return String(Math.max(1, Math.min(20, seconds)));
@@ -95,9 +101,11 @@ export function normalizeReferenceVideoSeconds(value: string, model: string, ref
 }
 
 export function selectVideoReferenceImages<T>(items: T[], model: string) {
+    if (isSeedanceVideoModel(model)) return items.slice(0, SEEDANCE_REFERENCE_LIMITS.images);
     return isGoogleVideoModel(model) ? selectGoogleVideoReferenceImages(items, model) : selectGrokReferenceVideoImages(items, model);
 }
 
 export function selectVideoReferenceImagesWithPriority<T>(priorityItems: T[], timelineItems: T[], model: string) {
+    if (isSeedanceVideoModel(model)) return [...priorityItems, ...timelineItems].slice(0, SEEDANCE_REFERENCE_LIMITS.images);
     return isGoogleVideoModel(model) ? selectGoogleVideoReferenceImagesWithPriority(priorityItems, timelineItems, model) : selectGrokReferenceVideoImagesWithPriority(priorityItems, timelineItems, model);
 }

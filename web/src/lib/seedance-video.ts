@@ -1,4 +1,4 @@
-import { modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import type { AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -10,6 +10,11 @@ export const SEEDANCE_REFERENCE_LIMITS = {
     videoMaxBytes: 50 * 1024 * 1024,
     audioMaxBytes: 15 * 1024 * 1024,
 };
+
+export const TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS = ["Seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast"] as const;
+
+const TOKAXIS_SEEDANCE_VIDEO_MODEL_ID_SET = new Set(TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()));
+const TOKAXIS_SEEDANCE_FIXED_720P_MODEL = "seedance 2.0-fast-720p";
 
 export const seedanceResolutionOptions = [
     { value: "480p", label: "480p" },
@@ -27,7 +32,8 @@ export const seedanceRatioOptions = [
     { value: "adaptive", label: "自适应" },
 ] as const;
 
-export const seedanceDurationOptions = [-1, 4, 5, 6, 8, 10, 12, 15] as const;
+export const seedanceDurationOptions = [5, 6, 8, 10, 12, 15] as const;
+export const seedanceFixed720pDurationOptions = [5, 10, 15] as const;
 
 const seedancePixels = {
     "480p": {
@@ -57,18 +63,47 @@ const seedancePixels = {
 } as const;
 
 export function isSeedanceVideoConfig(config: AiConfig | Pick<AiConfig, "model" | "videoModel" | "baseUrl">) {
-    const requestConfig = "channels" in config ? resolveModelRequestConfig(config, config.model || config.videoModel) : config;
-    return isSeedanceVideoModel(modelOptionName(requestConfig.model || requestConfig.videoModel)) || isArkPlanBaseUrl(requestConfig.baseUrl);
+    return isSeedanceVideoModel(rawModelName(config.videoModel || config.model)) || isArkPlanBaseUrl(config.baseUrl);
 }
 
 export function isSeedanceVideoModel(model: string) {
-    const value = model.toLowerCase();
+    const value = rawModelName(model).toLowerCase();
     return value.includes("seedance") || value.includes("doubao-seedance");
 }
 
+export function isTokaxisSeedanceVideoModel(model: string) {
+    return TOKAXIS_SEEDANCE_VIDEO_MODEL_ID_SET.has(rawModelName(model).toLowerCase());
+}
+
+export function isSeedanceFixed720pModel(model: string) {
+    return rawModelName(model).toLowerCase() === TOKAXIS_SEEDANCE_FIXED_720P_MODEL;
+}
+
 export function isSeedanceFastModel(model: string) {
-    const value = model.toLowerCase();
+    const value = rawModelName(model).toLowerCase();
     return isSeedanceVideoModel(value) && value.includes("fast");
+}
+
+export function seedanceSupportsGeneratedAudio(model: string) {
+    return !isSeedanceFixed720pModel(model);
+}
+
+export function seedanceSupportsVideoAudioReferences(model: string) {
+    return !isSeedanceFixed720pModel(model);
+}
+
+export function seedanceResolutionOptionsForModel(model: string) {
+    if (isSeedanceFixed720pModel(model)) return seedanceResolutionOptions.filter((item) => item.value === "720p");
+    if (isSeedanceFastModel(model)) return seedanceResolutionOptions.filter((item) => item.value !== "1080p");
+    return seedanceResolutionOptions;
+}
+
+export function seedanceRatioOptionsForModel(model: string) {
+    return isSeedanceFixed720pModel(model) ? seedanceRatioOptions.filter((item) => item.value !== "21:9") : seedanceRatioOptions;
+}
+
+export function fixedSeedanceVideoResolution(model: string): "720" | null {
+    return isSeedanceFixed720pModel(model) ? "720" : null;
 }
 
 export function isArkPlanBaseUrl(baseUrl: string) {
@@ -77,6 +112,7 @@ export function isArkPlanBaseUrl(baseUrl: string) {
 
 export function normalizeSeedanceResolution(value: string, model = "") {
     const normalized = normalizeResolutionToken(value);
+    if (isSeedanceFixed720pModel(model)) return "720p";
     if (isSeedanceFastModel(model) && normalized === "1080p") return "720p";
     return seedanceResolutionOptions.some((item) => item.value === normalized) ? normalized : "720p";
 }
@@ -88,15 +124,20 @@ export function normalizeResolutionToken(value: string) {
     return `${resolution}p`;
 }
 
-export function normalizeSeedanceDuration(value: string) {
-    if (String(value).trim() === "-1") return -1;
-    const seconds = Math.floor(Number(value) || 5);
-    return Math.max(4, Math.min(15, seconds));
+export function seedanceDurationOptionsForModel(model: string): readonly number[] {
+    return isSeedanceFixed720pModel(model) ? seedanceFixed720pDurationOptions : seedanceDurationOptions;
 }
 
-export function normalizeSeedanceRatio(value: string) {
+export function normalizeSeedanceDuration(value: string, model = "") {
+    const seconds = Math.floor(Number(value) || 5);
+    const clamped = Math.max(5, Math.min(15, seconds));
+    if (!isSeedanceFixed720pModel(model)) return clamped;
+    return seedanceFixed720pDurationOptions.reduce((best, candidate) => (Math.abs(candidate - clamped) < Math.abs(best - clamped) ? candidate : best));
+}
+
+export function normalizeSeedanceRatio(value: string, model = "") {
     if (!value || value === "auto" || value === "adaptive") return "adaptive";
-    if (seedanceRatioOptions.some((item) => item.value === value)) return value;
+    if (seedanceRatioOptionsForModel(model).some((item) => item.value === value)) return value;
     const match = value.match(/^(\d+)x(\d+)$/);
     if (!match) return "adaptive";
     const width = Number(match[1]);
@@ -111,12 +152,13 @@ export function normalizeSeedanceRatio(value: string) {
         ["9:16", 9 / 16],
         ["21:9", 21 / 9],
     ] as const;
-    return options.reduce((best, item) => (Math.abs(item[1] - ratio) < Math.abs(best[1] - ratio) ? item : best), options[0])[0];
+    const normalized = options.reduce((best, item) => (Math.abs(item[1] - ratio) < Math.abs(best[1] - ratio) ? item : best), options[0])[0];
+    return isSeedanceFixed720pModel(model) && normalized === "21:9" ? "adaptive" : normalized;
 }
 
-export function seedancePixelLabel(resolution: string, ratio: string) {
-    const normalizedResolution = normalizeSeedanceResolution(resolution) as keyof typeof seedancePixels;
-    const normalizedRatio = normalizeSeedanceRatio(ratio) as keyof (typeof seedancePixels)[typeof normalizedResolution] | "adaptive";
+export function seedancePixelLabel(resolution: string, ratio: string, model = "") {
+    const normalizedResolution = normalizeSeedanceResolution(resolution, model) as keyof typeof seedancePixels;
+    const normalizedRatio = normalizeSeedanceRatio(ratio, model) as keyof (typeof seedancePixels)[typeof normalizedResolution] | "adaptive";
     if (normalizedRatio === "adaptive") return "自动匹配";
     return seedancePixels[normalizedResolution][normalizedRatio] || "";
 }
@@ -134,11 +176,7 @@ export function seedanceReferenceLabel(kind: "image" | "video" | "audio", index:
 }
 
 export function buildSeedancePromptText(prompt: string, images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[]) {
-    const labels = [
-        ...images.map((_, index) => seedanceReferenceLabel("image", index)),
-        ...videos.map((_, index) => seedanceReferenceLabel("video", index)),
-        ...audios.map((_, index) => seedanceReferenceLabel("audio", index)),
-    ];
+    const labels = [...images.map((_, index) => seedanceReferenceLabel("image", index)), ...videos.map((_, index) => seedanceReferenceLabel("video", index)), ...audios.map((_, index) => seedanceReferenceLabel("audio", index))];
     const text = prompt.trim();
     if (!labels.length) return text;
     return `参考素材编号：${labels.join("、")}。请按这些编号理解提示词中的图片、视频和音频引用。\n\n${text}`;
@@ -167,3 +205,7 @@ export function seedanceVideoReferenceError(videos: ReferenceVideo[]) {
 }
 
 export const seedanceVideoReferenceHint = "参考视频需为 mp4/mov，H.264/H.265，FPS 24-60；含真人人脸素材请使用火山授权 asset:// 素材。";
+
+function rawModelName(value: string) {
+    return value.trim().split("::").at(-1) || "";
+}

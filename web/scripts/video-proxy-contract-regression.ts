@@ -1,16 +1,20 @@
 import assert from "node:assert/strict";
 
-import { NextRequest } from "next/server";
+import { NextRequest } from "next/server.js";
 
-import { POST } from "../src/app/api/tokaxis/[...path]/route";
+import { GET, POST } from "../src/app/api/tokaxis/[...path]/route.ts";
 
 const capturedBodies: Array<Record<string, unknown>> = [];
+const capturedUrls: string[] = [];
 const originalFetch = globalThis.fetch;
 let stubStatus = 200;
 let stubThrows = false;
 
-globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
-    capturedBodies.push(JSON.parse(String(init?.body || "{}")) as Record<string, unknown>);
+globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    capturedUrls.push(input instanceof Request ? input.url : String(input));
+    const rawBody = init?.body;
+    const bodyText = typeof rawBody === "string" ? rawBody : rawBody instanceof ArrayBuffer ? new TextDecoder().decode(rawBody) : ArrayBuffer.isView(rawBody) ? new TextDecoder().decode(rawBody) : "{}";
+    capturedBodies.push(JSON.parse(bodyText || "{}") as Record<string, unknown>);
     if (stubThrows) throw new Error("simulated connection loss after submission");
     const responseBody = stubStatus >= 400 ? { error: { message: "simulated upstream failure" } } : { id: `task_contract_${capturedBodies.length}`, status: "pending" };
     return new Response(JSON.stringify(responseBody), {
@@ -95,6 +99,28 @@ try {
     assert.equal("reference_images" in t2v, false);
     assert.equal("images" in t2v, false);
     assert.equal(t2v.duration, 15);
+
+    const seedancePayload = {
+        model: "Seedance 2.0-fast-720p",
+        prompt: "Keep the same presenter and necklace while she naturally raises her wrist.",
+        images: [image.url],
+        duration: 8,
+        resolution: "720p",
+        aspect_ratio: "9:16",
+        generate_audio: false,
+    };
+    const seedanceResponse = await create(seedancePayload);
+    assert.equal(seedanceResponse.status, 200);
+    assert.deepEqual(capturedBodies.at(-1), seedancePayload, "Seedance JSON must pass through without Grok wire-format rewriting");
+    assert.match(capturedUrls.at(-1) || "", /\/v1\/videos\/generations$/, "Seedance creation must use the plural async route");
+
+    const seedancePollRequest = new NextRequest("http://localhost/api/tokaxis/v1/videos/generations/task_seedance_contract", {
+        method: "GET",
+        headers: { Authorization: "Bearer contract-test" },
+    });
+    const seedancePollResponse = await GET(seedancePollRequest, { params: { path: ["v1", "videos", "generations", "task_seedance_contract"] } });
+    assert.equal(seedancePollResponse.status, 200, "Seedance task polling path must be forwarded");
+    assert.match(capturedUrls.at(-1) || "", /\/v1\/videos\/generations\/task_seedance_contract$/, "Seedance polling must keep its task route");
 
     const requestCountBeforeConflict = capturedBodies.length;
     const conflictResponse = await create({

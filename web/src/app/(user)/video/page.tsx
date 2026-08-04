@@ -14,7 +14,18 @@ import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeVa
 import { useSaveAsset } from "@/hooks/use-save-asset";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
-import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import {
+    boolConfig,
+    isSeedanceVideoConfig,
+    normalizeSeedanceDuration,
+    normalizeSeedanceRatio,
+    normalizeSeedanceResolution,
+    seedanceReferenceLabel,
+    seedanceSupportsGeneratedAudio,
+    seedanceVideoReferenceError,
+    seedanceVideoReferenceHint,
+    SEEDANCE_REFERENCE_LIMITS,
+} from "@/lib/seedance-video";
 import { summarizeConfiguredGoogleVideoRoute } from "@/lib/google-video-routing";
 import {
     defaultGoogleVideoEntrySettings,
@@ -1023,15 +1034,15 @@ function buildLog({
 }
 
 function buildVideoConfig(config: AiConfig, model: string): AiConfig {
-    const seedance = isSeedanceVideoConfig({ ...config, model });
+    const seedance = isSeedanceVideoConfig({ ...config, model, videoModel: model });
     return {
         ...config,
         model,
         videoModel: model,
-        size: seedance ? normalizeSeedanceRatio(config.size) : normalizeVideoSize(config.size),
-        videoSeconds: normalizeVideoSeconds(config.videoSeconds),
-        vquality: normalizeResolution(config.vquality),
-        videoGenerateAudio: String(boolConfig(config.videoGenerateAudio, true)),
+        size: seedance ? normalizeSeedanceRatio(config.size, model) : normalizeVideoSize(config.size),
+        videoSeconds: seedance ? String(normalizeSeedanceDuration(config.videoSeconds, model)) : normalizeVideoSeconds(config.videoSeconds),
+        vquality: seedance ? normalizeSeedanceResolution(config.vquality, model) : normalizeResolution(config.vquality),
+        videoGenerateAudio: String(seedance ? seedanceSupportsGeneratedAudio(model) && boolConfig(config.videoGenerateAudio, true) : boolConfig(config.videoGenerateAudio, true)),
         videoWatermark: String(boolConfig(config.videoWatermark, false)),
     };
 }

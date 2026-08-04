@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-    "version": "3.0.49",
+    "version": "3.0.50",
     "private": true,
     "type": "module",
     "scripts": {
@@ -12,6 +12,8 @@
         "test:storyboard-prompts": "bun run scripts/storyboard-prompt-regression.ts",
         "test:grok-video": "node --experimental-strip-types scripts/grok-video-model-regression.ts",
         "test:google-video": "node --experimental-strip-types scripts/google-video-model-regression.ts",
+        "test:seedance-video": "node --experimental-strip-types scripts/seedance-video-model-regression.ts",
+        "test:video-proxy": "node --experimental-strip-types scripts/video-proxy-contract-regression.ts",
         "test:video-providers": "node --experimental-strip-types scripts/video-provider-isolation-regression.ts",
         "test:video-workbench": "node --experimental-strip-types scripts/video-workbench-prompt-regression.ts",
         "test:google-image": "node --experimental-strip-types scripts/google-image-model-regression.ts",
