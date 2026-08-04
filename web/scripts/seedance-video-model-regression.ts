@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+    buildTokaxisSeedanceVideoPayload,
     isSeedanceFixed720pModel,
     isSeedanceVideoModel,
     isTokaxisSeedanceVideoModel,
@@ -56,6 +57,56 @@ assert.equal(normalizeSeedanceDuration("12", fixed), 10);
 assert.equal(normalizeSeedanceDuration("16", fixed), 15);
 assert.equal(normalizeSeedanceDuration("8", standard), 8);
 
+assert.deepEqual(
+    buildTokaxisSeedanceVideoPayload({
+        model: fixed,
+        prompt: "move",
+        images: ["https://example.test/a.png"],
+        videos: ["https://example.test/a.mp4"],
+        audios: ["https://example.test/a.mp3"],
+        duration: "8",
+        resolution: "1080p",
+        ratio: "9:16",
+        generateAudio: false,
+        watermark: false,
+    }),
+    {
+        model: fixed,
+        prompt: "move",
+        images: ["https://example.test/a.png"],
+        duration: 10,
+        resolution: "720p",
+        aspect_ratio: "9:16",
+    },
+    "the fixed model payload must omit unsupported references and audio fields entirely",
+);
+assert.deepEqual(
+    buildTokaxisSeedanceVideoPayload({
+        model: standard,
+        prompt: "move",
+        images: ["image"],
+        videos: ["video"],
+        audios: ["audio"],
+        duration: "8",
+        resolution: "1080p",
+        ratio: "adaptive",
+        generateAudio: false,
+        watermark: true,
+    }),
+    {
+        model: standard,
+        prompt: "move",
+        images: ["image"],
+        videos: ["video"],
+        audios: ["audio"],
+        duration: 8,
+        resolution: "1080p",
+        generate_audio: false,
+        watermark: true,
+    },
+    "the standard model payload must keep only its supported controls",
+);
+
 assert.deepEqual(parseSeedanceVideoTaskState({ id: "task-1", status: "queued" }), { status: "pending" });
 assert.deepEqual(parseSeedanceVideoTaskState({ id: "task-1", status: "completed", video: { url: "https://example.test/video.mp4" } }), {
     status: "completed",
@@ -76,7 +127,7 @@ const configSource = readFileSync(new URL("../src/stores/use-config-store.ts", i
 const settingsRouteSource = readFileSync(new URL("../src/app/api/settings/route.ts", import.meta.url), "utf8");
 
 assert.match(serviceSource, /\/videos\/generations/, "TokAxis Seedance must use the plural async route");
-assert.match(serviceSource, /generate_audio: seedanceSupportsGeneratedAudio/, "unsupported generated audio must be disabled before submission");
+assert.match(serviceSource, /buildTokaxisSeedanceVideoPayload/, "TokAxis Seedance requests must use the model-specific payload builder");
 assert.match(proxySource, /isTokaxisSeedanceVideoModel/, "the proxy must isolate Seedance from the legacy Grok rewrite");
 assert.match(proxySource, /videos\\\/generations\(\?:\\\/\[\^\/\]\+\)\?/, "the proxy must allow Seedance polling paths");
 assert.match(configSource, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/, "the client model registry must expose all Seedance models");

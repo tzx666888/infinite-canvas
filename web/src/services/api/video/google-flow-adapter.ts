@@ -29,6 +29,15 @@ export async function createGoogleFlowVideoTaskRequest(input: {
     files: File[];
     options?: VideoRequestOptions;
 }): Promise<VideoGenerationTask> {
+    const body = buildGoogleFlowVideoRequestBody(input);
+
+    const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(input.endpoint, body, { headers: input.headers, signal: input.options?.signal })).data);
+    const taskId = created.id || created.request_id;
+    if (!taskId) throw new Error("视频接口没有返回任务 ID");
+    return { id: taskId, provider: "google-flow", model: input.taskModel };
+}
+
+export function buildGoogleFlowVideoRequestBody(input: { model: string; prompt: string; seconds: string; size: string; resolution: string; files: File[] }) {
     const body = new FormData();
     body.append("model", input.model);
     body.append("prompt", input.prompt);
@@ -37,11 +46,7 @@ export async function createGoogleFlowVideoTaskRequest(input: {
     body.append("resolution_name", input.resolution);
     body.append("preset", "normal");
     input.files.forEach((file) => body.append("input_reference", file));
-
-    const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(input.endpoint, body, { headers: input.headers, signal: input.options?.signal })).data);
-    const taskId = created.id || created.request_id;
-    if (!taskId) throw new Error("视频接口没有返回任务 ID");
-    return { id: taskId, provider: "openai", model: input.taskModel };
+    return body;
 }
 
 export async function pollGoogleFlowVideoTaskRequest(input: { endpoint: string; contentEndpoint: string; headers: Record<string, string>; options?: VideoRequestOptions }): Promise<VideoGenerationTaskState> {

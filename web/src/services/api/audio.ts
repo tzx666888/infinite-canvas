@@ -1,8 +1,8 @@
 import axios from "axios";
 
-import { audioMimeType, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
+import { audioMimeType, buildAudioSpeechRequest, normalizeAudioFormatValue } from "@/lib/audio-generation";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
-import { buildApiUrl, requiresClientApiKey, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, modelMatchesCapability, requiresClientApiKey, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
 type RequestOptions = { signal?: AbortSignal };
 
@@ -23,21 +23,17 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
     const model = requestConfig.model.trim();
     assertAudioConfig(requestConfig, model);
     const format = normalizeAudioFormatValue(config.audioFormat);
-    const instructions = config.audioInstructions.trim();
+    const body = buildAudioSpeechRequest({
+        model,
+        input: prompt,
+        voice: config.audioVoice,
+        format,
+        speed: config.audioSpeed,
+        instructions: config.audioInstructions,
+    });
 
     try {
-        const response = await axios.post<Blob>(
-            aiApiUrl(requestConfig, "/audio/speech"),
-            {
-                model,
-                input: prompt,
-                voice: normalizeAudioVoiceValue(config.audioVoice),
-                response_format: format,
-                speed: Number(normalizeAudioSpeedValue(config.audioSpeed)),
-                ...(instructions ? { instructions } : {}),
-            },
-            { headers: aiHeaders(requestConfig), responseType: "blob", signal: options?.signal },
-        );
+        const response = await axios.post<Blob>(aiApiUrl(requestConfig, "/audio/speech"), body, { headers: aiHeaders(requestConfig), responseType: "blob", signal: options?.signal });
         await assertAudioBlob(response.data);
         return response.data.type.startsWith("audio/") ? response.data : new Blob([response.data], { type: audioMimeType(format) });
     } catch (error) {
@@ -52,6 +48,7 @@ export async function storeGeneratedAudio(blob: Blob, format = "mp3"): Promise<U
 
 function assertAudioConfig(config: AiConfig, model: string) {
     if (!model) throw new Error("请先配置音频模型");
+    if (!modelMatchesCapability(model, "audio")) throw new Error(`当前模型 ${model} 不是音频模型，已阻止串参请求`);
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
     if (requiresClientApiKey(config.baseUrl) && !config.apiKey.trim()) throw new Error("请先配置 API Key");
     if (config.apiFormat === "gemini") throw new Error("Gemini 调用格式暂不支持音频生成，请使用 OpenAI 格式渠道");

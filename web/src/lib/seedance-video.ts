@@ -13,6 +13,19 @@ export const SEEDANCE_REFERENCE_LIMITS = {
 
 export const TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS = ["Seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast"] as const;
 
+export type TokaxisSeedanceVideoPayloadInput = {
+    model: string;
+    prompt: string;
+    images?: string[];
+    videos?: string[];
+    audios?: string[];
+    duration: string;
+    resolution: string;
+    ratio: string;
+    generateAudio: boolean;
+    watermark: boolean;
+};
+
 const TOKAXIS_SEEDANCE_VIDEO_MODEL_ID_SET = new Set(TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()));
 const TOKAXIS_SEEDANCE_FIXED_720P_MODEL = "seedance 2.0-fast-720p";
 
@@ -90,6 +103,30 @@ export function seedanceSupportsGeneratedAudio(model: string) {
 
 export function seedanceSupportsVideoAudioReferences(model: string) {
     return !isSeedanceFixed720pModel(model);
+}
+
+export function buildTokaxisSeedanceVideoPayload(input: TokaxisSeedanceVideoPayloadInput): Record<string, unknown> {
+    const model = rawModelName(input.model);
+    if (!isTokaxisSeedanceVideoModel(model)) throw new Error(`Unsupported TokAxis Seedance model: ${model || "(empty)"}`);
+
+    const fixed720p = isSeedanceFixed720pModel(model);
+    const ratio = normalizeSeedanceRatio(input.ratio, model);
+    const payload: Record<string, unknown> = {
+        model,
+        prompt: input.prompt,
+        ...(input.images?.length ? { images: [...input.images] } : {}),
+        duration: normalizeSeedanceDuration(input.duration, model),
+        resolution: normalizeSeedanceResolution(input.resolution, model),
+        ...(ratio === "adaptive" ? {} : { aspect_ratio: ratio }),
+    };
+
+    if (!fixed720p) {
+        if (input.videos?.length) payload.videos = [...input.videos];
+        if (input.audios?.length) payload.audios = [...input.audios];
+        payload.generate_audio = input.generateAudio;
+    }
+    if (input.watermark) payload.watermark = true;
+    return payload;
 }
 
 export function seedanceResolutionOptionsForModel(model: string) {

@@ -38,6 +38,7 @@ const STRIPPED_REQUEST_HEADERS = [
 const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "content-length", "transfer-encoding", "x-oneapi-request-id", "x-oneapi-node", "x-oneapi-version"];
 const GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE = "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
 const TOKAXIS_SEEDANCE_VIDEO_MODELS = new Set(["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast"]);
+const TOKAXIS_LEGACY_GROK_VIDEO_MODELS = new Set(["grok-imagine-video-1.5-fast", "grok-imagine-video-1.5-preview", "grok-imagine-video-1.5-1080p"]);
 const legacyGrokVideoTaskIds = new Set<string>();
 
 type RouteContext = {
@@ -78,10 +79,13 @@ async function proxyTokaxis(request: NextRequest, context: RouteContext) {
 
     if (request.method === "POST" && path === "v1/videos/generations") {
         const model = await videoGenerationRequestModel(request);
-        if (!isTokaxisSeedanceVideoModel(model)) return proxyLegacyGrokVideoGeneration(request, authorization);
+        if (!isTokaxisSeedanceVideoModel(model)) {
+            if (isTokaxisLegacyGrokVideoModel(model)) return proxyLegacyGrokVideoGeneration(request, authorization);
+            return Response.json({ error: { code: "unsupported_video_model", message: `视频模型 ${model || "(空)"} 不支持 /v1/videos/generations，已阻止跨厂商路由` } }, { status: 400 });
+        }
     }
     const legacyVideoTaskId = request.method === "GET" ? /^v1\/videos\/([^/]+)$/.exec(path)?.[1] : undefined;
-    if (legacyVideoTaskId && (legacyGrokVideoTaskIds.has(legacyVideoTaskId) || legacyVideoTaskId.startsWith("task_"))) {
+    if (legacyVideoTaskId && legacyGrokVideoTaskIds.has(legacyVideoTaskId)) {
         return proxyLegacyGrokVideoPoll(upstreamUrl, authorization, legacyVideoTaskId);
     }
 
@@ -131,6 +135,10 @@ async function videoGenerationRequestModel(request: NextRequest) {
 
 function isTokaxisSeedanceVideoModel(model: string) {
     return TOKAXIS_SEEDANCE_VIDEO_MODELS.has(model.trim().toLowerCase().split("::").at(-1) || "");
+}
+
+function isTokaxisLegacyGrokVideoModel(model: string) {
+    return TOKAXIS_LEGACY_GROK_VIDEO_MODELS.has(model.trim().toLowerCase().split("::").at(-1) || "");
 }
 
 async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorization: string) {

@@ -104,10 +104,9 @@ try {
         model: "Seedance 2.0-fast-720p",
         prompt: "Keep the same presenter and necklace while she naturally raises her wrist.",
         images: [image.url],
-        duration: 8,
+        duration: 10,
         resolution: "720p",
         aspect_ratio: "9:16",
-        generate_audio: false,
     };
     const seedanceResponse = await create(seedancePayload);
     assert.equal(seedanceResponse.status, 200);
@@ -121,6 +120,19 @@ try {
     const seedancePollResponse = await GET(seedancePollRequest, { params: { path: ["v1", "videos", "generations", "task_seedance_contract"] } });
     assert.equal(seedancePollResponse.status, 200, "Seedance task polling path must be forwarded");
     assert.match(capturedUrls.at(-1) || "", /\/v1\/videos\/generations\/task_seedance_contract$/, "Seedance polling must keep its task route");
+
+    const requestCountBeforeUnknownModel = capturedBodies.length;
+    const unknownModelResponse = await create({ model: "unknown-video-model", prompt: "must not cross-route" });
+    assert.equal(unknownModelResponse.status, 400, "unknown generation models must be rejected instead of rewritten as Grok");
+    assert.equal(capturedBodies.length, requestCountBeforeUnknownModel, "unknown models must fail before an upstream request");
+
+    const ordinaryTaskRequest = new NextRequest("http://localhost/api/tokaxis/v1/videos/task_google_contract", {
+        method: "GET",
+        headers: { Authorization: "Bearer contract-test" },
+    });
+    const ordinaryTaskResponse = await GET(ordinaryTaskRequest, { params: { path: ["v1", "videos", "task_google_contract"] } });
+    assert.equal(ordinaryTaskResponse.status, 200);
+    assert.match(capturedUrls.at(-1) || "", /\/v1\/videos\/task_google_contract$/, "generic task IDs must use the normal video polling route");
 
     const requestCountBeforeConflict = capturedBodies.length;
     const conflictResponse = await create({

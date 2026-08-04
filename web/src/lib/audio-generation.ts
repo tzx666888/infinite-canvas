@@ -23,6 +23,37 @@ export const audioFormatOptions = [
     { value: "pcm", label: "PCM" },
 ];
 
+export type AudioSpeechRequestInput = {
+    model: string;
+    input: string;
+    voice: string;
+    format: string;
+    speed: string;
+    instructions?: string;
+};
+
+export function audioModelName(value: string) {
+    return value.trim().split("::").at(-1)?.toLowerCase() || "";
+}
+
+export function audioSupportsInstructions(model: string) {
+    const value = audioModelName(model);
+    return value.startsWith("gpt-4o-") && value.includes("tts");
+}
+
+export function buildAudioSpeechRequest(input: AudioSpeechRequestInput): Record<string, unknown> {
+    const model = audioModelName(input.model);
+    const instructions = input.instructions?.trim() || "";
+    return {
+        model,
+        input: input.input,
+        voice: normalizeAudioVoiceValue(input.voice),
+        response_format: normalizeAudioFormatValue(input.format),
+        speed: Number(normalizeAudioSpeedValue(input.speed)),
+        ...(instructions && audioSupportsInstructions(model) ? { instructions } : {}),
+    };
+}
+
 export function normalizeAudioVoiceValue(value: string) {
     return audioVoiceOptions.some((item) => item.value === value) ? value : "alloy";
 }

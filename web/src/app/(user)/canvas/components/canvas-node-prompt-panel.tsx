@@ -404,6 +404,8 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         model: resolvedModel,
         imageModel: mode === "image" ? resolvedModel : globalConfig.imageModel,
         videoModel: mode === "video" ? resolvedModel : globalConfig.videoModel,
+        textModel: mode === "text" ? resolvedModel : globalConfig.textModel,
+        audioModel: mode === "audio" ? resolvedModel : globalConfig.audioModel,
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
         size: node.metadata?.size || globalConfig.size || defaultConfig.size,
         videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,

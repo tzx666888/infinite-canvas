@@ -162,7 +162,7 @@ const STORYBOARD_REVIEW_PANEL_COUNT = STORYBOARD_REVIEW_COLUMNS * STORYBOARD_REV
 const STORYBOARD_VIDEO_FRAME_CROP = { x: 0.14, y: 0.055, width: 0.82, height: 0.88 };
 const VIDEO_BRIDGE_PRIMARY_TIMEOUT_MS = 600_000;
 const VIDEO_BRIDGE_FALLBACK_TIMEOUT_MS = 90_000;
-const VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS = ["gemini-3.1-flash-image-2k", "gemini-3.1-flash-image-1k", "gpt-image-2", "grok-imagine-image-lite"] as const;
+const VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS = ["gemini-3.1-flash-image-2k", "gemini-3.1-flash-image-1k", "gpt-image-2"] as const;
 const STORYBOARD_BRIDGE_MAX_REFERENCES = 8;
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
 const CONNECTION_NODE_HIT_PADDING = 32;
@@ -5990,6 +5990,8 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
         model: resolvedModel,
         imageModel: mode === "image" ? resolvedModel : config.imageModel,
         videoModel: mode === "video" ? resolvedModel : config.videoModel,
+        textModel: mode === "text" ? resolvedModel : config.textModel,
+        audioModel: mode === "audio" ? resolvedModel : config.audioModel,
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
         size: node?.metadata?.size || config.size || defaultConfig.size,
         videoSeconds: resolvedVideoSeconds,

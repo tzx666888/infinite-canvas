@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v3.0.53 - 2026-08-04
+
++ [修复] 按固定 Seedance、通用 Seedance、Veo/Omni、Google 生图、GPT Image 2 与 TTS 分别重建请求白名单，不再携带其他模型的残留参数。
++ [修复] `Seedance 2.0-fast-720p` 完全移除不支持的 `generate_audio`、视频参考与音频参考字段；中转站 AIYM 适配器改为解析后重建上游 JSON，丢弃别名和未知字段。
++ [修复] `tts-1` 不再发送仅 GPT-4o TTS 支持的 `instructions`；Google 生图不再发送 GPT 图像质量参数。
++ [安全] 未知 `/v1/videos/generations` 模型立即返回真实错误，不再隐式改写为 Grok；移除令牌实际不可用的 Grok 生图兜底。
++ [测试] 新增跨模型参数污染回归，并通过 TypeScript、Next 生产构建与 NewAPI 任务适配器 Go 测试。
+
 ## v3.0.52 - 2026-08-04
 
 + [修复] GPT Image 2 自动兼容旧画布保存的 `standard` / `hd` 质量值，提交前分别归一为 `low` / `high`，避免上游以参数不合法拒绝生成。

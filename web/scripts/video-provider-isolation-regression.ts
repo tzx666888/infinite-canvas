@@ -18,6 +18,7 @@ assert.match(serviceSource, /createGoogleFlowVideoTaskRequest/, "the public vide
 assert.match(serviceSource, /createSeedanceVideoTaskRequest/, "the public video service must delegate Seedance transport");
 assert.doesNotMatch(serviceSource, /new FormData\(\)/, "the public video service must not implement Google multipart transport");
 assert.match(googleAdapterSource, /new FormData\(\)/, "Google multipart transport must live in its adapter");
+assert.match(googleAdapterSource, /provider: "google-flow"/, "Google tasks must carry an explicit provider identity");
 assert.match(googleAdapterSource, /input_reference/, "Google reference uploads must stay in the Google adapter");
 assert.doesNotMatch(googleAdapterSource, /Seedance|contents\/generations/, "Google transport must not contain Seedance protocol details");
 assert.match(seedanceAdapterSource, /provider: "seedance"/, "Seedance task semantics must live in the Seedance adapter");

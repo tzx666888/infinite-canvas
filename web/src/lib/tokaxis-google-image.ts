@@ -35,6 +35,16 @@ export const TOKAXIS_GOOGLE_NATIVE_SIZES = {
 
 export type TokaxisGoogleAspectRatio = keyof typeof TOKAXIS_GOOGLE_NATIVE_SIZES;
 
+export function buildTokaxisGoogleImageChatRequest(input: { model: string; messages: unknown[]; imageConfig: ReturnType<typeof resolveTokaxisGoogleImageConfig> }) {
+    if (!isTokaxisGoogleImageModel(input.model)) throw new Error(`Unsupported TokAxis Google image model: ${input.model || "(empty)"}`);
+    return {
+        model: input.model,
+        messages: input.messages,
+        stream: false,
+        image_config: input.imageConfig,
+    };
+}
+
 export function tokaxisGoogleModelName(value: string) {
     return value.trim().split("::").at(-1)?.toLowerCase() || "";
 }

@@ -8,6 +8,7 @@ import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/fil
 import { imageToDataUrl } from "@/services/image-storage";
 import {
     boolConfig,
+    buildTokaxisSeedanceVideoPayload,
     buildSeedancePromptText,
     isSeedanceFixed720pModel,
     isSeedanceVideoConfig,
@@ -355,18 +356,18 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
             Promise.all(audioReferences.map(resolveSeedanceAudioUrl)),
         ]);
         const ratio = normalizeSeedanceRatio(config.size, modelName);
-        const payload: Record<string, unknown> = {
+        const payload = buildTokaxisSeedanceVideoPayload({
             model: modelName,
             prompt: promptText,
-            ...(images.length ? { images } : {}),
-            ...(videos.length ? { videos } : {}),
-            ...(audios.length ? { audios } : {}),
-            duration: normalizeSeedanceDuration(config.videoSeconds, modelName),
-            resolution: normalizeSeedanceResolution(config.vquality, modelName),
-            ...(ratio === "adaptive" ? {} : { aspect_ratio: ratio }),
-            generate_audio: seedanceSupportsGeneratedAudio(modelName) && boolConfig(config.videoGenerateAudio, true),
+            images,
+            videos,
+            audios,
+            duration: config.videoSeconds,
+            resolution: config.vquality,
+            ratio,
+            generateAudio: boolConfig(config.videoGenerateAudio, true),
             watermark: boolConfig(config.videoWatermark, false),
-        };
+        });
         try {
             return await createSeedanceVideoTaskRequest({ endpoint: seedanceApiUrl(config), headers: aiHeaders(config, "application/json"), model, payload, options });
         } catch (error) {
@@ -375,14 +376,16 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
     }
 
     const content = await buildSeedanceContent(config, prompt, references, videoReferences, audioReferences);
+    const supportsGeneratedAudio = seedanceSupportsGeneratedAudio(modelName);
+    const watermark = boolConfig(config.videoWatermark, false);
     const payload = {
         model: modelName,
         content,
         ratio: normalizeSeedanceRatio(config.size, modelName),
         resolution: normalizeSeedanceResolution(config.vquality, modelName),
         duration: normalizeSeedanceDuration(config.videoSeconds, modelName),
-        generate_audio: seedanceSupportsGeneratedAudio(modelName) && boolConfig(config.videoGenerateAudio, true),
-        watermark: boolConfig(config.videoWatermark, false),
+        ...(supportsGeneratedAudio ? { generate_audio: boolConfig(config.videoGenerateAudio, true) } : {}),
+        ...(watermark ? { watermark: true } : {}),
     };
 
     try {

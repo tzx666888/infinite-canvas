@@ -7,6 +7,7 @@ import { normalizeImageQualityForModel } from "@/lib/image-quality";
 import { runImageSubmission } from "@/lib/image-request-concurrency";
 import { buildImageReferencePromptText, buildMaskConstrainedImageEditPrompt } from "@/lib/image-reference-prompt";
 import {
+    buildTokaxisGoogleImageChatRequest,
     GENERIC_IMAGE_MAX_EDGE,
     GENERIC_IMAGE_MAX_PIXELS,
     GENERIC_IMAGE_MAX_RATIO,
@@ -571,14 +572,7 @@ async function requestTokaxisGoogleChatImages(config: AiConfig, prompt: string, 
                 })),
             )),
         ];
-        return {
-            model: requestModel,
-            messages: [{ role: "user", content }],
-            temperature: 0.2,
-            stream: false,
-            image_config: imageConfig,
-            ...(quality ? { quality } : {}),
-        };
+        return buildTokaxisGoogleImageChatRequest({ model: requestModel, messages: [{ role: "user", content }], imageConfig });
     };
     if (options?.jobId && supportsResumableImageJobs(config)) {
         return requestCanvasImageJob(config, "chat-completions", buildBody, options);

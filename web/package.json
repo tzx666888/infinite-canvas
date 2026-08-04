@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-    "version": "3.0.52",
+    "version": "3.0.53",
     "private": true,
     "type": "module",
     "scripts": {
@@ -15,6 +15,7 @@
         "test:seedance-video": "node --experimental-strip-types scripts/seedance-video-model-regression.ts",
         "test:video-proxy": "node --experimental-strip-types scripts/video-proxy-contract-regression.ts",
         "test:video-providers": "node --experimental-strip-types scripts/video-provider-isolation-regression.ts",
+        "test:model-isolation": "node --experimental-strip-types scripts/model-parameter-isolation-regression.ts",
         "test:video-workbench": "node --experimental-strip-types scripts/video-workbench-prompt-regression.ts",
         "test:google-image": "node --experimental-strip-types scripts/google-image-model-regression.ts",
         "test:image-concurrency": "node --experimental-strip-types scripts/image-concurrency-regression.ts",

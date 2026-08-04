@@ -3,9 +3,9 @@
 import { type ReactNode } from "react";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
-import { audioFormatOptions, audioSpeedLabel, audioVoiceOptions, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
+import { audioFormatOptions, audioSpeedLabel, audioSupportsInstructions, audioVoiceOptions, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import type { AiConfig } from "@/stores/use-config-store";
+import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const speedOptions = ["0.75", "1", "1.25", "1.5"];
 
@@ -23,6 +23,7 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const voice = normalizeAudioVoiceValue(config.audioVoice);
     const format = normalizeAudioFormatValue(config.audioFormat);
     const speed = normalizeAudioSpeedValue(config.audioSpeed);
+    const supportsInstructions = audioSupportsInstructions(modelOptionName(config.audioModel || config.model));
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -68,14 +69,20 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     />
                 </SettingGroup>
                 <SettingGroup title="声音指令" color={theme.node.muted}>
-                    <textarea
-                        value={config.audioInstructions || ""}
-                        placeholder="例如：自然、温暖、适合旁白。"
-                        className="thin-scrollbar h-20 w-full resize-none rounded-xl border bg-transparent px-3 py-2 text-sm leading-5 outline-none"
-                        style={{ borderColor: theme.node.stroke, color: theme.node.text }}
-                        onChange={(event) => onConfigChange("audioInstructions", event.target.value)}
-                        onMouseDown={(event) => event.stopPropagation()}
-                    />
+                    {supportsInstructions ? (
+                        <textarea
+                            value={config.audioInstructions || ""}
+                            placeholder="例如：自然、温暖、适合旁白。"
+                            className="thin-scrollbar h-20 w-full resize-none rounded-xl border bg-transparent px-3 py-2 text-sm leading-5 outline-none"
+                            style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                            onChange={(event) => onConfigChange("audioInstructions", event.target.value)}
+                            onMouseDown={(event) => event.stopPropagation()}
+                        />
+                    ) : (
+                        <div className="rounded-xl border px-3 py-2 text-xs leading-5 opacity-60" style={{ borderColor: theme.node.stroke }}>
+                            当前模型不支持声音指令，请求时不会携带该参数。
+                        </div>
+                    )}
                 </SettingGroup>
             </div>
         </ImageSettingsTheme>
