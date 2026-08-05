@@ -29,7 +29,7 @@ import { prepareToolArguments, ToolArgumentValidationError } from "../utils/canv
 
 export const CANVAS_AGENT_PANEL_MOTION_MS = 500;
 const PANEL_MOTION_SECONDS = CANVAS_AGENT_PANEL_MOTION_MS / 1000;
-const ONLINE_AGENT_MAX_STEPS = 8;
+const ONLINE_AGENT_MAX_STEPS = 12;
 const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用户在画布上创建电商产品素材。
 
 你可以执行以下画布操作：
@@ -40,7 +40,7 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 - delete_connections：删除连线
 - select_nodes：选择节点
 - set_viewport：调整画布视图
-- run_generation：触发节点生成图片/文本/音频，不触发视频生成
+- run_generation：触发节点生成图片/文本/音频/视频
 
 电商通用知识：
 - 先判断用户要商品展示、生活方式、教程还是明确带货；只有明确带货时才按 Hook→Pain→Demo→CTA 组织，不得给普通视频强加事故、痛点或夸张反应。
@@ -70,7 +70,6 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 输出规则：
 - 面向用户的解释和规划说明默认用中文；图片提示词默认中文；视频生成与视频反推提示词只用英文。
 - 需要读取画布时调用 canvas_get_state 或 canvas_get_selection。
-- 需要生成内容时直接调用 canvas_generate_text、canvas_generate_image、canvas_generate_audio 或 canvas_create_generation_flow；Agent 只负责视频分镜和视频提示词，不直接触发视频模型。真正生成视频由用户在视频节点或分镜链路的生成按钮上执行。
 - 审阅分镜图（review-sheet）只能作为用户审阅和关键帧生成方向参考；视频参考只能使用干净关键帧。
 - 视频分镜 beat 描述必须用英文，中文只用于客户阅读说明。
 - 需要精确批量操作时调用 canvas_apply_ops。
@@ -81,6 +80,7 @@ const POSITION_SCHEMA = { type: "object", properties: { x: { type: "number" }, y
 const VIEWPORT_SCHEMA = { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, k: { type: "number" } }, required: ["x", "y", "k"], additionalProperties: false };
 const NODE_TYPE_SCHEMA = { type: "string", enum: ["image", "text", "config", "video", "audio"] };
 const GENERATION_MODE_SCHEMA = { type: "string", enum: ["text", "image", "audio"] };
+const RUN_GENERATION_MODE_SCHEMA = { type: "string", enum: ["text", "image", "audio", "video"] };
 const GENERATION_OPTION_PROPERTIES = {
     model: { type: "string" },
     size: { type: "string" },
@@ -115,7 +115,7 @@ const CANVAS_OP_SCHEMA = {
         toNodeId: { type: "string" },
         viewport: VIEWPORT_SCHEMA,
         nodeId: { type: "string" },
-        mode: GENERATION_MODE_SCHEMA,
+        mode: RUN_GENERATION_MODE_SCHEMA,
         prompt: { type: "string" },
     },
     required: ["type"],
@@ -229,7 +229,7 @@ const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = [
     ),
     toolDefinition("canvas_select_nodes", "设置当前选中节点。", { ids: { type: "array", items: { type: "string" } } }, ["ids"]),
     toolDefinition("canvas_set_viewport", "调整画布视口。", { viewport: VIEWPORT_SCHEMA }, ["viewport"]),
-    toolDefinition("canvas_run_generation", "触发指定节点生成，通常用于配置节点或文本/图片/音频节点；Agent 不直接触发视频模型。", { nodeId: { type: "string" }, mode: GENERATION_MODE_SCHEMA, prompt: { type: "string" } }, ["nodeId"]),
+    toolDefinition("canvas_run_generation", "触发指定节点生成图片、文本、音频或视频。", { nodeId: { type: "string" }, mode: RUN_GENERATION_MODE_SCHEMA, prompt: { type: "string" } }, ["nodeId"]),
 ];
 const ONLINE_AGENT_TOOL_SCHEMAS = new Map(ONLINE_AGENT_TOOLS.map((tool) => [tool.function.name, tool.function.parameters]));
 type OnlineAgentTab = "setup" | "chat" | "history" | "log";
@@ -514,8 +514,7 @@ export function CanvasAssistantPanel({
             rememberAssistantText(assistantId, result.content || streamed);
             addOnlineLog("模型工具回复", result);
             if (result.toolCalls.length) {
-                const writableCalls = result.toolCalls.filter(isWritableToolCall);
-                if (confirmTools && writableCalls.length) {
+                if (shouldConfirmOnlineToolCalls(confirmTools, result.toolCalls)) {
                     upsertMessage(sessionId, { id: assistantId, role: "assistant", text: result.content || streamed || "准备执行工具，等待确认。" });
                     rememberAssistantText(assistantId, result.content || streamed || "准备执行工具，等待确认。");
                     const toolMessageId = nanoid();
@@ -574,8 +573,7 @@ export function CanvasAssistantPanel({
         rememberAssistantText(assistantId, next.content || streamed);
         addOnlineLog(`Agent Tool Loop ${step + 1} 回复`, next);
         if (next.toolCalls.length) {
-            const writableCalls = next.toolCalls.filter(isWritableToolCall);
-            if (confirmTools && writableCalls.length) {
+            if (shouldConfirmOnlineToolCalls(confirmTools, next.toolCalls)) {
                 upsertMessage(sessionId, { id: assistantId, role: "assistant", text: next.content || streamed || "准备执行工具，等待确认。" });
                 rememberAssistantText(assistantId, next.content || streamed || "准备执行工具，等待确认。");
                 const toolMessageId = nanoid();
@@ -1282,7 +1280,7 @@ function onlineToolToOps(name: string, input: Record<string, unknown>, snapshot:
         return requireRecordArray(input.connections, "connections").map((connection) => ({ type: "connect_nodes", fromNodeId: requireString(connection.fromNodeId, "fromNodeId"), toNodeId: requireString(connection.toNodeId, "toNodeId") }));
     if (name === "canvas_select_nodes") return [{ type: "select_nodes", ids: requireStringArray(input.ids, "ids") }];
     if (name === "canvas_set_viewport") return [{ type: "set_viewport", viewport: requireViewport(input.viewport) }];
-    if (name === "canvas_run_generation") return [runGenerationOp(requireString(input.nodeId, "nodeId"), generationMode(input.mode), stringOptional(input.prompt))];
+    if (name === "canvas_run_generation") return [runGenerationOp(requireString(input.nodeId, "nodeId"), runGenerationMode(input.mode), stringOptional(input.prompt))];
     throw new Error(`不支持的工具：${name}`);
 }
 
@@ -1350,12 +1348,27 @@ function configNodeOp(id: string, input: Record<string, unknown>, x: number, y: 
     };
 }
 
-function runGenerationOp(nodeId: string, mode: "text" | "image" | "audio", prompt?: string): CanvasAgentOp {
+function runGenerationOp(nodeId: string, mode: "text" | "image" | "audio" | "video", prompt?: string): CanvasAgentOp {
     return { type: "run_generation", nodeId, mode, prompt };
 }
 
 function isWritableToolCall(call: ResponseToolCall) {
     return !ONLINE_READ_TOOLS.has(call.function.name);
+}
+
+function shouldConfirmOnlineToolCalls(confirmTools: boolean, calls: ResponseToolCall[]) {
+    return (confirmTools && calls.some(isWritableToolCall)) || calls.some(isVideoGenerationToolCall);
+}
+
+function isVideoGenerationToolCall(call: ResponseToolCall) {
+    try {
+        const input = prepareToolArguments(call.function.arguments, ONLINE_AGENT_TOOL_SCHEMAS.get(call.function.name)).args;
+        if (call.function.name === "canvas_run_generation") return input.mode === "video";
+        if (call.function.name !== "canvas_apply_ops" || !Array.isArray(input.ops)) return false;
+        return input.ops.some((value) => objectDetail(value).type === "run_generation" && objectDetail(value).mode === "video");
+    } catch {
+        return false;
+    }
 }
 
 function toolCallsFromDetail(detail: Record<string, unknown>): ResponseToolCall[] {
@@ -1495,7 +1508,7 @@ function toCanvasAgentOp(value: unknown): CanvasAgentOp {
     if (type === "connect_nodes") return { type, id: stringOptional(item.id), fromNodeId: requireString(item.fromNodeId, "fromNodeId"), toNodeId: requireString(item.toNodeId, "toNodeId") };
     if (type === "set_viewport") return { type, viewport: requireViewport(item.viewport) };
     if (type === "select_nodes") return { type, ids: requireStringArray(item.ids, "ids") };
-    if (type === "run_generation") return { type, nodeId: requireString(item.nodeId, "nodeId"), mode: generationMode(item.mode), prompt: stringOptional(item.prompt) };
+    if (type === "run_generation") return { type, nodeId: requireString(item.nodeId, "nodeId"), mode: runGenerationMode(item.mode), prompt: stringOptional(item.prompt) };
     throw new Error("不支持的画布操作类型");
 }
 
@@ -1552,9 +1565,14 @@ function generationMode(value: unknown): "text" | "image" | "audio" {
     return value === "text" || value === "audio" ? value : "image";
 }
 
-function generationTitle(mode: "text" | "image" | "audio") {
+function runGenerationMode(value: unknown): "text" | "image" | "audio" | "video" {
+    return value === "text" || value === "audio" || value === "video" ? value : "image";
+}
+
+function generationTitle(mode: "text" | "image" | "audio" | "video") {
     if (mode === "text") return "文本生成";
     if (mode === "audio") return "音频生成";
+    if (mode === "video") return "视频生成";
     return "图片生成";
 }
 
