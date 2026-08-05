@@ -19,10 +19,25 @@ export type AgentVideoMarketConfig = {
     corpus: string;
 };
 
+export type AgentVideoModelOption = {
+    id: string;
+    label: string;
+    durationSeconds: 8 | 10 | 15;
+    resolution: "720p" | "1080p";
+    hasAudio: boolean;
+    recommendation: string;
+};
+
 export const AGENT_VIDEO_PRODUCT_CONSISTENCY_TAIL = "保持垫图主体高度一致，无变形，符合真实物理引擎（Subject Consistency, No morphing, Realistic physics）。";
 export const AGENT_VIDEO_REFERENCE_ONLY_RULE = "只使用用户参考图中的产品主体，不使用参考图中的原场景、背景、人物或其他元素。";
 export const AGENT_VIDEO_CREATOR_FIRST_LINE = "图一是我的带货达人，图二是我的产品。";
 export const AGENT_VIDEO_SHOT_PREFIX = "【转场手法：XXX】【ASMR音效：XXX】";
+export const AGENT_VIDEO_MODEL_OPTIONS = [
+    { id: "omni_portrait", label: "Omni 竖屏视频", durationSeconds: 10, resolution: "720p", hasAudio: true, recommendation: "最稳（推荐）" },
+    { id: "veo_3_1_i2v_s_fast_portrait_fl", label: "Veo 3.1 首尾帧 · 竖屏", durationSeconds: 8, resolution: "1080p", hasAudio: true, recommendation: "画质最好" },
+    { id: "Seedance 2.0-fast-720p", label: "Seedance 2.0 Fast 720p", durationSeconds: 15, resolution: "720p", hasAudio: false, recommendation: "镜头最完整" },
+] as const satisfies readonly AgentVideoModelOption[];
+export const AGENT_VIDEO_DEFAULT_MODEL_ID = AGENT_VIDEO_MODEL_OPTIONS[0].id;
 
 /**
  * 鑫哥 2026-08-04 原始语料归档。内容逐字来自原会话，不在运行时改写。
@@ -1519,7 +1534,7 @@ ${AGENT_VIDEO_PRODUCT_CONSISTENCY_TAIL}`;
 const CREATOR_SOP = `两张参考图：图一是成年带货达人，图二是产品。一次输出一段可直接生成完整视频的 [Video Prompt] 正文。
 ${AGENT_VIDEO_CREATOR_FIRST_LINE}
 同一成年达人、同一产品、同一天与连续生活状态贯穿全片；至少进入 3 个与产品实际用途匹配的当地生活场景。
-15 秒版固定 5 镜：0-3 / 3-6 / 6-9 / 9-12 / 12-15 秒。每镜以【转场手法：XXX】【ASMR音效：XXX】开头，口播为 2–8 词的当地语言，并用 ... 自然停顿。
+15 秒版固定 5 镜：0-3 / 3-6 / 6-9 / 9-12 / 12-15 秒。每镜依次以【时长：X-Y秒】【转场手法：XXX】【ASMR音效：XXX】开头，口播为 2–8 词的当地语言，并用 ... 自然停顿。
 图一只锁定达人的可见身份特征；图二只锁定产品的可见外观、材质、结构和比例。两图的原背景与其他元素都不沿用。正文使用下列完整格式明确其作用域：
 图二产品参考图约束：${AGENT_VIDEO_REFERENCE_ONLY_RULE}
 最后一镜同时呈现使用结果、达人满意感和自然口语 CTA。正文不超过 2000 字符，以下句结尾：

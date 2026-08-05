@@ -64,6 +64,7 @@ import { ActiveConnectionPath, ConnectionPath } from "../components/canvas-conne
 import { CanvasConfigComposer } from "../components/canvas-config-composer";
 import { CanvasConfigNodePanel } from "../components/canvas-config-node-panel";
 import { CANVAS_AGENT_PANEL_MOTION_MS, CanvasAssistantPanel } from "../components/canvas-assistant-panel";
+import type { GenerateAgentVideoOptions, GenerateAgentVideoResult } from "../components/canvas-video-options-card";
 import { CanvasNodeContextMenu } from "../components/canvas-context-menu";
 import { CanvasNodeAngleDialog, type CanvasImageAngleParams } from "../components/canvas-node-angle-dialog";
 import { CanvasNodeCropDialog, type CanvasImageCropRect } from "../components/canvas-node-crop-dialog";
@@ -95,7 +96,9 @@ import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } fro
 import { buildCanvasResourceReferences, buildInputMentionReferences, buildNodeMentionReferences, getGenerationResourceNodes } from "../utils/canvas-resource-references";
 import { composePromptWithUpstreamText } from "../utils/prompt-composition";
 import { selectLeafFailureIds } from "../utils/retry-selection";
-import { resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
+import { canvasVideoModelSelectionPatch, resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
+import { AGENT_VIDEO_MARKETS, AGENT_VIDEO_MODEL_OPTIONS, AGENT_VIDEO_PRESETS } from "../utils/agent-video-presets";
+import { compileAgentVideoPrompt } from "../utils/agent-video-sop";
 import type { CanvasAgentMode } from "../components/canvas-agent-chat-ui";
 import {
     CanvasNodeType,
@@ -4475,6 +4478,174 @@ function InfiniteCanvasPage() {
         },
         [beginImageRequest, confirmFusionPlacementPlan, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, projectId, startGenerationRequest],
     );
+
+    const handleGenerateVideoFromReference = useCallback(
+        async (imageNodeIds: string[], options: GenerateAgentVideoOptions): Promise<GenerateAgentVideoResult> => {
+            let creatorNodeId = options.creatorNodeId;
+            try {
+                const preset = AGENT_VIDEO_PRESETS[options.presetId];
+                const market = AGENT_VIDEO_MARKETS[options.market];
+                const modelSpec = AGENT_VIDEO_MODEL_OPTIONS.find((item) => item.id.toLowerCase() === modelOptionName(options.model).toLowerCase());
+                const productNodeIds = Array.from(new Set(imageNodeIds));
+                if (productNodeIds.length !== 1) return { ok: false, error: "请选择一张产品参考图后再生成。", errorKind: "invalid_args" };
+                if (!preset || !market?.enabled) return { ok: false, error: "当前剧情或市场尚未开放。", errorKind: "invalid_args" };
+                if (!modelSpec || !effectiveConfig.videoModels.includes(options.model)) return { ok: false, error: "当前令牌未开放所选视频模型，请重新选择。", errorKind: "invalid_args" };
+
+                const productNode = nodesRef.current.find((node) => node.id === productNodeIds[0] && node.type === CanvasNodeType.Image && node.metadata?.content);
+                if (!productNode) return { ok: false, error: "产品参考图已不存在或内容已丢失，请重新选择。", errorKind: "missing_node_id" };
+
+                let creatorNode: CanvasNodeData | undefined;
+                if (preset.id === "creator" && creatorNodeId) {
+                    if (creatorNodeId === productNode.id) return { ok: false, error: "达人参考图不能与产品参考图相同。", errorKind: "invalid_args" };
+                    creatorNode = nodesRef.current.find((node) => node.id === creatorNodeId && node.type === CanvasNodeType.Image && node.metadata?.content);
+                    if (!creatorNode) return { ok: false, error: "达人参考图已不存在或内容已丢失，请重新选择。", errorKind: "missing_node_id" };
+                }
+                if (preset.id === "creator" && !creatorNode && !options.creatorFile) return { ok: false, error: "请上传或选择达人参考图。", errorKind: "invalid_args" };
+                if (options.creatorFile && !options.creatorFile.type.startsWith("image/")) return { ok: false, error: "达人参考图必须是图片文件。", errorKind: "invalid_args" };
+
+                options.onStage?.("reading");
+                const productDataPromise = imageToDataUrl(productNode.metadata || {});
+                let creatorFileUrl = "";
+                const creatorDataPromise =
+                    preset.id !== "creator"
+                        ? Promise.resolve("")
+                        : creatorNode
+                          ? imageToDataUrl(creatorNode.metadata || {})
+                          : (() => {
+                                creatorFileUrl = URL.createObjectURL(options.creatorFile!);
+                                return imageToDataUrl({ url: creatorFileUrl });
+                            })();
+                let productDataUrl = "";
+                let creatorDataUrl = "";
+                try {
+                    [productDataUrl, creatorDataUrl] = await Promise.all([productDataPromise, creatorDataPromise]);
+                } catch {
+                    return { ok: false, creatorNodeId, error: "参考图读取失败，请重新选择图片后重试。", errorKind: "invalid_args" };
+                } finally {
+                    if (creatorFileUrl) URL.revokeObjectURL(creatorFileUrl);
+                }
+                if (!productDataUrl || (preset.id === "creator" && !creatorDataUrl)) return { ok: false, creatorNodeId, error: "参考图读取失败，请重新选择图片后重试。", errorKind: "invalid_args" };
+
+                const selectionPatch = canvasVideoModelSelectionPatch(options.model);
+                const requestedConfig = {
+                    ...effectiveConfig,
+                    model: options.model,
+                    videoModel: options.model,
+                    size: options.size,
+                    videoSeconds: String(modelSpec.durationSeconds),
+                    vquality: selectionPatch.vquality || modelSpec.resolution,
+                    videoGenerateAudio: String(modelSpec.hasAudio),
+                };
+                const referenceImages =
+                    preset.id === "creator"
+                        ? [
+                              { dataUrl: creatorDataUrl, label: "图一达人", name: creatorNode?.title || options.creatorFile?.name || "达人参考图" },
+                              { dataUrl: productDataUrl, label: "图二产品", name: productNode.title || "产品参考图" },
+                          ]
+                        : [{ dataUrl: productDataUrl, label: "产品参考图", name: productNode.title || "产品参考图" }];
+                options.onStage?.("compiling");
+                const compiled = await compileAgentVideoPrompt({
+                    config: requestedConfig,
+                    preset,
+                    market: options.market,
+                    model: options.model,
+                    size: options.size,
+                    referenceImages,
+                    userIntent: options.userIntent.trim() || "基于所选产品参考图生成真实带货视频",
+                });
+                if (compiled.warnings.length) console.debug("[canvas-agent-video] prompt validation warnings", compiled.warnings);
+
+                let uploadedCreator: UploadedImage | undefined;
+                if (preset.id === "creator" && !creatorNode && options.creatorFile) {
+                    try {
+                        uploadedCreator = await uploadImage(options.creatorFile);
+                    } catch {
+                        return { ok: false, error: "达人参考图保存失败，请重新上传后重试。", errorKind: "exec_failed" };
+                    }
+                    creatorNodeId = `image-${nanoid()}`;
+                }
+
+                const orderedReferenceNodeIds = preset.id === "creator" ? [creatorNodeId!, productNode.id] : [productNode.id];
+                const videoId = `video-${nanoid()}`;
+                const videoSpec = nodeSizeFromRatio(requestedConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
+                const ops: CanvasAgentOp[] = [];
+                if (uploadedCreator && options.creatorFile) {
+                    const creatorSize = fitNodeSize(uploadedCreator.width, uploadedCreator.height);
+                    ops.push({
+                        type: "add_node",
+                        id: creatorNodeId,
+                        nodeType: CanvasNodeType.Image,
+                        title: options.creatorFile.name,
+                        position: { x: productNode.position.x, y: productNode.position.y - creatorSize.height - 48 },
+                        width: creatorSize.width,
+                        height: creatorSize.height,
+                        metadata: imageMetadata(uploadedCreator),
+                    });
+                }
+                ops.push({
+                    type: "add_node",
+                    id: videoId,
+                    nodeType: CanvasNodeType.Video,
+                    title: `${preset.label} · ${market.label}`,
+                    position: { x: productNode.position.x + productNode.width + 96, y: productNode.position.y },
+                    width: videoSpec.width,
+                    height: videoSpec.height,
+                    metadata: {
+                        prompt: compiled.prompt,
+                        promptSourceKind: "agent_generated",
+                        promptTemplateId: `video-sop:${preset.id}:${options.market}`,
+                        generationMode: "video",
+                        status: NODE_STATUS_IDLE,
+                        model: options.model,
+                        size: requestedConfig.size,
+                        seconds: requestedConfig.videoSeconds,
+                        vquality: requestedConfig.vquality,
+                        generateAudio: requestedConfig.videoGenerateAudio,
+                        watermark: requestedConfig.videoWatermark,
+                        productScaleMode: requestedConfig.videoProductScaleMode,
+                        inputOrder: orderedReferenceNodeIds,
+                    },
+                });
+                orderedReferenceNodeIds.forEach((fromNodeId) => ops.push({ type: "connect_nodes", fromNodeId, toNodeId: videoId }));
+                ops.push({ type: "select_nodes", ids: [videoId] });
+                applyAgentOps(ops);
+
+                options.onStage?.("generating");
+                await handleGenerateNode(videoId, "video", compiled.prompt, { sourceKind: "agent_generated", templateId: `video-sop:${preset.id}:${options.market}` });
+                let videoNode = nodesRef.current.find((node) => node.id === videoId);
+                for (let attempt = 0; attempt < 20 && !videoNode?.metadata?.content && !videoNode?.metadata?.errorDetails; attempt += 1) {
+                    await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+                    videoNode = nodesRef.current.find((node) => node.id === videoId);
+                }
+                const errorDetails = videoNode?.metadata?.errorDetails?.trim() || "";
+                if (videoNode?.metadata?.status === NODE_STATUS_SUCCESS && videoNode.metadata.content) return { ok: true, videoNodeId: videoId, creatorNodeId };
+                if (errorDetails) {
+                    const policyFailure = isContentPolicyErrorMessage(errorDetails) || /unsafe|content.?policy|copyright|infring|肖像|portrait.+protect|侵权|审核|安全过滤/iu.test(errorDetails);
+                    const retryModelId = modelOptionName(options.model).toLowerCase() === "omni_portrait" ? "veo_3_1_i2v_s_fast_portrait_fl" : "omni_portrait";
+                    return {
+                        ok: false,
+                        videoNodeId: videoId,
+                        creatorNodeId,
+                        error: policyFailure ? "当前模型因内容安全或肖像保护未能完成生成，你可以换一个模型后手动重试。" : "视频生成失败，请检查失败节点详情后重试。",
+                        errorKind: policyFailure ? "content_policy" : generationTelemetryErrorKind(errorDetails),
+                        retryModelId: policyFailure ? retryModelId : undefined,
+                    };
+                }
+                return { ok: false, videoNodeId: videoId, creatorNodeId, error: "视频生成未启动，请检查当前模型权限后重试。", errorKind: "exec_failed" };
+            } catch (error) {
+                const raw = error instanceof Error ? error.message : "视频生成失败";
+                const compilerFailure = /SOP|编译|提示词|镜头|口播|时间窗|2400/u.test(raw);
+                return {
+                    ok: false,
+                    creatorNodeId,
+                    error: compilerFailure ? "视频镜头编排未通过校验，请重试一次。" : "视频准备失败，请检查模型配置和参考图后重试。",
+                    errorKind: generationTelemetryErrorKind(raw),
+                };
+            }
+        },
+        [applyAgentOps, effectiveConfig, handleGenerateNode],
+    );
+
     useEffect(() => {
         generateNodeRef.current = handleGenerateNode;
     }, [handleGenerateNode]);
@@ -5452,6 +5623,7 @@ function InfiniteCanvasPage() {
                     canUndoOps={Boolean(agentUndoSnapshot)}
                     onUndoOps={undoAgentOps}
                     onPasteImage={pasteAssistantImage}
+                    onGenerateVideoFromReference={handleGenerateVideoFromReference}
                     agentMode={agentMode}
                     onAgentModeChange={setAgentMode}
                     closing={assistantClosing}

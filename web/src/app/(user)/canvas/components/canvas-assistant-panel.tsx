@@ -20,6 +20,7 @@ import { DiaTextReveal } from "@/components/ui/dia-text-reveal";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { CanvasPromptLibrary } from "./canvas-prompt-library";
 import { AgentChatComposer, AgentChatMessage, AgentModeSwitch, AgentPanelTabs, AgentWorkingMessage, type CanvasAgentChatMessage, type CanvasAgentMode } from "./canvas-agent-chat-ui";
+import type { GenerateAgentVideoOptions, GenerateAgentVideoResult } from "./canvas-video-options-card";
 import { CanvasLocalAgentPanel } from "./canvas-local-agent-panel";
 import { NODE_DEFAULT_SIZE } from "../constants";
 import { CanvasNodeType, type CanvasAssistantMessage, type CanvasAssistantReference, type CanvasAssistantSession, type CanvasNodeData } from "../types";
@@ -54,8 +55,8 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 1. 优化提示词：按图片或视频模式优化。图片输出中文，明确主体、构图、光线、材质、比例、数量/版式、身份与尺度约束；视频输出英文单段，保持动作连续、参考图身份和物理真实。
 2. 产品拆解：读取选中产品信息或图片，提炼产品名称、外观描述、包装描述、配件清单、场景关键词、色调关键词、禁止元素，创建中文文本节点并连线到源节点。
 3. 场景扩展：读取产品信息，生成多个不同使用场景的中文提示词，为每个场景创建图片节点并自动排版，可按用户要求触发生成。
-4. 视频分镜：按当前模型时长规划 CommerceVideoPlan；Veo 固定 8 秒，Omni 固定 10 秒，Seedance 固定 Fast 720p 仅支持 5/10/15 秒，其他 Seedance 支持 5–15 秒。商品展示、生活方式、教程和带货使用各自合适结构。JSON 视觉字段用英文，说明用中文。点击生成后创建固定 3×4 的 12 格候选图，用户选一张再生成干净关键帧。
-5. 视频生成提示词：输出当前视频模型可执行的 90-180 词英文指令。Veo 固定 8 秒原生 1080p；多参考支持 1-3 图且固定 8 秒；Omni 支持纯文字或 1-3 张参考图，固定 10 秒；Seedance 按所选型号限制分辨率、声音与参考素材。不得擅自换模式、时长或宣称不支持的能力。
+4. 视频分镜：用户明确要分镜时才按当前模型时长规划 CommerceVideoPlan；Veo 固定 8 秒，Omni 固定 10 秒，Seedance 固定 Fast 720p 仅支持 5/10/15 秒，其他 Seedance 支持 5–15 秒。商品展示、生活方式、教程和带货使用各自合适结构。JSON 视觉字段用英文，说明用中文。点击生成后创建固定 3×4 的 12 格候选图，用户选一张再生成干净关键帧。
+5. 视频生成提示词：用户明确要分镜或写视频提示词时，才输出当前视频模型可执行的 90-180 词英文指令。Veo 固定 8 秒原生 1080p；多参考支持 1-3 图且固定 8 秒；Omni 支持纯文字或 1-3 张参考图，固定 10 秒；Seedance 按所选型号限制分辨率、声音与参考素材。不得擅自换模式、时长或宣称不支持的能力。
 6. 一键流水线：按优化提示词、产品拆解、场景扩展、可选视频分镜的顺序自动创建节点、连线、排版。
 7. 视频反推：读取用户已有视频素材节点，分析关键帧，反推英文视频提示词，仅创建文本节点输出，不创建视频生成配置。
 8. 批量排版：按节点类型分组，图片、文本、音频和已有视频素材分区网格排列，并调整视图让节点可见。
@@ -68,7 +69,8 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 15. 智能配色：分析产品主色调，推荐背景色、点缀色、整体色调方向，并更新提示词。
 
 输出规则：
-- 面向用户的解释和规划说明默认用中文；图片提示词默认中文；视频生成与视频反推提示词只用英文。
+- 面向用户的解释和规划说明默认用中文；图片提示词默认中文；视频反推提示词只用英文；带货视频提示词由 SOP 编译器产出中文正文与当地语言口播，Agent 不自己写视频提示词。
+- 用户要求用画布上已有图片生成带货视频时，只能调用 canvas_request_video_options 弹出选择卡片，禁止创建分镜文本节点、禁止回填视频提示词、禁止创建生成配置节点。用户明确要求“做分镜”“出 12 宫格”“写视频提示词”时才走原来的分镜链路。
 - 需要读取画布时调用 canvas_get_state 或 canvas_get_selection。
 - 审阅分镜图（review-sheet）只能作为用户审阅和关键帧生成方向参考；视频参考只能使用干净关键帧。
 - 视频分镜 beat 描述必须用英文，中文只用于客户阅读说明。
@@ -205,6 +207,12 @@ const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = [
     generationToolDefinition("canvas_generate_text", "创建通用文本生成流程并立即触发生成。", "text"),
     generationToolDefinition("canvas_generate_image", "创建通用图片生成流程并立即触发生成。", "image"),
     generationToolDefinition("canvas_generate_audio", "创建通用音频生成流程并立即触发生成。", "audio"),
+    toolDefinition(
+        "canvas_request_video_options",
+        "用户要求用画布上已有的图片生成带货视频时调用。只弹出剧情/市场/模型/尺寸选择卡片，不创建任何节点、不输出提示词、不做分镜。",
+        { imageNodeIds: { type: "array", items: { type: "string" } }, userIntent: { type: "string" } },
+        ["imageNodeIds"],
+    ),
     toolDefinition("canvas_update_node", "更新节点基础字段或 metadata。", { id: { type: "string" }, patch: JSON_RECORD_SCHEMA, metadata: JSON_RECORD_SCHEMA }, ["id"]),
     toolDefinition("canvas_update_node_text", "更新文本节点内容和标题。", { id: { type: "string" }, text: { type: "string" }, title: { type: "string" } }, ["id", "text"]),
     toolDefinition(
@@ -263,6 +271,7 @@ type CanvasAssistantPanelProps = {
     canUndoOps: boolean;
     onUndoOps: () => CanvasAgentSnapshot | null;
     onPasteImage: (file: File) => void;
+    onGenerateVideoFromReference: (imageNodeIds: string[], options: GenerateAgentVideoOptions) => Promise<GenerateAgentVideoResult>;
     agentMode: CanvasAgentMode;
     onAgentModeChange: (mode: CanvasAgentMode) => void;
     closing: boolean;
@@ -281,6 +290,7 @@ export function CanvasAssistantPanel({
     canUndoOps,
     onUndoOps,
     onPasteImage,
+    onGenerateVideoFromReference,
     agentMode,
     onAgentModeChange,
     closing,
@@ -548,8 +558,12 @@ export function CanvasAssistantPanel({
             role: "tool",
             title: "工具自动执行完成",
             text: toolResults.map((item) => toolResultText(item.result)).join("\n"),
-            detail: { status: "completed", step, toolCalls: result.toolCalls, results: toolResults },
+            detail: completedToolDetail(step, result.toolCalls, toolResults),
         });
+        if (successfulVideoOptionsResult(toolResults)) {
+            finishAgentTurn(assistantId);
+            return;
+        }
         await continueOnlineToolLoopAfterResults(sessionId, assistantId, messages, result.toolCalls, toolResults, step);
     };
 
@@ -617,6 +631,20 @@ export function CanvasAssistantPanel({
                 const ids = new Set(current.selectedNodeIds || []);
                 return { ok: true, message: `当前选中 ${ids.size} 个节点。`, data: { nodes: compactSnapshot({ ...current, nodes: current.nodes.filter((node) => ids.has(node.id)) }).nodes } };
             }
+            if (name === "canvas_request_video_options") {
+                const imageNodeIds = requireStringArray(args.imageNodeIds, "imageNodeIds");
+                if (!imageNodeIds.length) return { ok: false, message: "imageNodeIds 不能为空，请从当前画布 JSON 选择真实的图片节点 id 后重试。", errorKind: "invalid_args" };
+                if (new Set(imageNodeIds).size !== imageNodeIds.length) return { ok: false, message: "imageNodeIds 包含重复节点 id，请去重后重试。", errorKind: "invalid_args" };
+                if (imageNodeIds.length !== 1) return { ok: false, message: "带货视频卡片一次只接收一张产品参考图；达人图请在卡片中另行选择或上传。", errorKind: "invalid_args" };
+                const nodeById = new Map(current.nodes.map((node) => [node.id, node]));
+                const missingIds = imageNodeIds.filter((id) => !nodeById.has(id));
+                if (missingIds.length) return { ok: false, message: `没有找到图片节点：${missingIds.join("、")}。请使用当前画布 JSON 中真实存在的 image 节点 id 重试。`, errorKind: "missing_node_id" };
+                const nonImageIds = imageNodeIds.filter((id) => nodeById.get(id)?.type !== CanvasNodeType.Image);
+                if (nonImageIds.length) return { ok: false, message: `节点不是图片类型：${nonImageIds.join("、")}。请改用含图片内容的 image 节点 id 重试。`, errorKind: "invalid_args" };
+                const emptyImageIds = imageNodeIds.filter((id) => !nodeById.get(id)?.metadata?.content?.trim());
+                if (emptyImageIds.length) return { ok: false, message: `图片节点没有可用图片内容：${emptyImageIds.join("、")}。请选择已有图片内容的节点重试。`, errorKind: "invalid_args" };
+                return { ok: true, message: "已打开带货视频选项，请选择后生成。", data: { kind: "video-options", imageNodeIds, userIntent: stringOptional(args.userIntent).trim() || "用所选图片生成带货视频" } };
+            }
             const ops = markAgentPromptOps(onlineToolToOps(name, args, current, effectiveConfig));
             const result = executeOps(ops);
             return { ok: result.changed, message: result.changed ? summarizeCanvasAgentOps(ops) || "画布操作已执行。" : result.noopReason, data: result };
@@ -648,6 +676,20 @@ export function CanvasAssistantPanel({
     };
 
     const executeOnlineToolCalls = (toolCalls: ResponseToolCall[], assistantId: string) => {
+        const videoOptionsCalls = toolCalls.filter((toolCall) => toolCall.function.name === "canvas_request_video_options");
+        if (videoOptionsCalls.length && toolCalls.length !== 1) {
+            const results = toolCalls.map((toolCall): OnlineExecutedToolCall => ({
+                toolCallId: toolCall.id,
+                name: toolCall.function.name,
+                result: {
+                    ok: false,
+                    message: "canvas_request_video_options 必须单独调用，不能与创建、更新或生成类工具同批执行。请只保留该工具后重试。",
+                    errorKind: toolCall.function.name === "canvas_request_video_options" ? "invalid_args" : "skipped_after_failure",
+                },
+            }));
+            recordToolResults(assistantId, results);
+            return results;
+        }
         const results: OnlineExecutedToolCall[] = [];
         let stopped = false;
         toolCalls.forEach((toolCall) => {
@@ -692,7 +734,11 @@ export function CanvasAssistantPanel({
             setIsRunning(true);
             const results = executeOnlineToolCalls(toolCalls, assistantId);
             addOnlineLog("工具执行结果", results);
-            upsertMessage(session.id, { id: messageId, role: "tool", title: "工具执行完成", text: results.map((item) => toolResultText(item.result)).join("\n"), detail: { ...detail, results, status: "completed" } });
+            upsertMessage(session.id, { id: messageId, role: "tool", title: "工具执行完成", text: results.map((item) => toolResultText(item.result)).join("\n"), detail: completedToolDetail(pendingContext?.step || Number(detail.step) || 1, toolCalls, results) });
+            if (successfulVideoOptionsResult(results)) {
+                finishAgentTurn(assistantId);
+                return;
+            }
             await continueOnlineToolLoopAfterResults(session.id, assistantId, previousMessages, toolCalls, results, pendingContext?.step || Number(detail.step) || 1);
         } catch (error) {
             addOnlineLog("工具续跑失败", error instanceof Error ? error.message : error);
@@ -822,7 +868,15 @@ export function CanvasAssistantPanel({
                         <>
                             {messages.map((message) => (
                                 <div key={message.id} className="space-y-2">
-                                    <AgentChatMessage item={assistantMessageToChatMessage(message)} theme={theme} user={user} onRejectTool={rejectOnlineTool} onApproveTool={approveOnlineTool} />
+                                    <AgentChatMessage
+                                        item={assistantMessageToChatMessage(message)}
+                                        theme={theme}
+                                        user={user}
+                                        nodes={nodes}
+                                        onGenerateVideoFromReference={onGenerateVideoFromReference}
+                                        onRejectTool={rejectOnlineTool}
+                                        onApproveTool={approveOnlineTool}
+                                    />
                                     {message.references?.length ? <MessageReferences message={message} /> : null}
                                 </div>
                             ))}
@@ -1191,6 +1245,17 @@ function objectDetail(value: unknown) {
     return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
+function successfulVideoOptionsResult(results: OnlineExecutedToolCall[]) {
+    return results.find((item) => item.name === "canvas_request_video_options" && item.result.ok && objectDetail(item.result.data).kind === "video-options");
+}
+
+function completedToolDetail(step: number, toolCalls: ResponseToolCall[], results: OnlineExecutedToolCall[]) {
+    const videoOptions = successfulVideoOptionsResult(results);
+    return videoOptions?.result.ok
+        ? { ...objectDetail(videoOptions.result.data), status: "completed", step, toolCalls, results }
+        : { status: "completed", step, toolCalls, results };
+}
+
 function stringifyLog(value: unknown) {
     return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
@@ -1403,6 +1468,7 @@ function toolCallLabel(name: string) {
     if (name === "canvas_generate_text") return "生成文本";
     if (name === "canvas_generate_image") return "生成图片";
     if (name === "canvas_generate_audio") return "生成音频";
+    if (name === "canvas_request_video_options") return "选择带货视频参数";
     if (name === "canvas_update_node") return "更新节点";
     if (name === "canvas_update_node_text") return "更新文本";
     if (name === "canvas_move_nodes") return "移动节点";

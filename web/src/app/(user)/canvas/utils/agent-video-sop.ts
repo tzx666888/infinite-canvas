@@ -25,8 +25,25 @@ export type PromptValidationContext = {
     durationSeconds: number;
 };
 
+export type AgentVideoPromptWarning = {
+    code: "prompt_length_outside_target";
+    actualLength: number;
+    targetMin?: number;
+    targetMax: number;
+};
+
+export type AgentVideoPromptValidationResult = {
+    errors: string[];
+    warnings: AgentVideoPromptWarning[];
+};
+
+export type CompiledAgentVideoPrompt = {
+    prompt: string;
+    warnings: AgentVideoPromptWarning[];
+};
+
 const CREATOR_TIME_RANGES = ["0-3", "3-6", "6-9", "9-12", "12-15"] as const;
-const SHOT_MARKER_RE = /【转场手法：[^】]+】【ASMR音效：[^】]+】/g;
+const SHOT_MARKER_RE = /(?:【时长：([^】]+)】)?【转场手法：[^】]+】【ASMR音效：[^】]+】/g;
 const TIME_LABEL_RE = /【时长：[^】]+】|\d+\s*[-–—~至]\s*\d+\s*(?:秒|s|sec(?:onds?)?)|\d+\s*秒|(?:0|00):[0-5]\d/iu;
 const VOICE_RE = /(?:口播|配音)\s*[：:]\s*[“"]([^”"\n]+)[”"]/gu;
 const CJK_RE = /[\u3400-\u9fff]/;
@@ -46,7 +63,7 @@ export async function compileAgentVideoPrompt(input: {
     size: string;
     referenceImages: PolishReferenceImage[];
     userIntent: string;
-}): Promise<string> {
+}): Promise<CompiledAgentVideoPrompt> {
     const market = AGENT_VIDEO_MARKETS[input.market];
     if (!market?.enabled || !market.corpus) throw new Error(`${market?.label || input.market}市场语料尚未开放`);
     if (input.referenceImages.length !== input.preset.referenceImages) {
@@ -103,9 +120,9 @@ export async function compileAgentVideoPrompt(input: {
             });
             if (!response.ok) throw new Error(await readResponseError(response));
             const prompt = extractVideoPrompt(readCompletionContent((await response.json()) as ChatCompletionResponse));
-            const errors = validateAgentVideoPrompt(prompt, validationContext);
-            if (!errors.length) return prompt;
-            retryFeedback = errors.join("；");
+            const validation = validateAgentVideoPrompt(prompt, validationContext);
+            if (!validation.errors.length) return { prompt, warnings: validation.warnings };
+            retryFeedback = validation.errors.join("；");
         } catch (error) {
             retryFeedback = error instanceof Error ? error.message : "未知错误";
         }
@@ -113,8 +130,9 @@ export async function compileAgentVideoPrompt(input: {
     throw new Error(`Agent 视频提示词编译失败：${retryFeedback}`);
 }
 
-export function validateAgentVideoPrompt(prompt: string, context: PromptValidationContext) {
+export function validateAgentVideoPrompt(prompt: string, context: PromptValidationContext): AgentVideoPromptValidationResult {
     const errors: string[] = [];
+    const warnings: AgentVideoPromptWarning[] = [];
     const { preset, market, durationSeconds } = context;
     const shortVersion = durationSeconds < 15;
     const markers = Array.from(prompt.matchAll(SHOT_MARKER_RE));
@@ -123,8 +141,12 @@ export function validateAgentVideoPrompt(prompt: string, context: PromptValidati
     const localeEnabled = market === "ph" || market === "my";
 
     if (!localeEnabled) errors.push("当前市场语料尚未开放");
-    if (preset.id === "handsfree" && (prompt.length < 1200 || prompt.length > 1800)) errors.push(`纯手部实测长度应为 1200–1800 字符，当前 ${prompt.length}`);
-    if (preset.id === "creator" && prompt.length > 2000) errors.push(`达人多场景不得超过 2000 字符，当前 ${prompt.length}`);
+    if (prompt.length > 2400) errors.push(`视频提示词超过 2400 字符硬上限，当前 ${prompt.length}`);
+    else if (preset.id === "handsfree" && (prompt.length < 1200 || prompt.length > 1800)) {
+        warnings.push({ code: "prompt_length_outside_target", actualLength: prompt.length, targetMin: 1200, targetMax: 1800 });
+    } else if (preset.id === "creator" && prompt.length > 2000) {
+        warnings.push({ code: "prompt_length_outside_target", actualLength: prompt.length, targetMax: 2000 });
+    }
     if (markers.length < minimumShots || markers.length > maximumShots) errors.push(`镜头数应为 ${minimumShots}–${maximumShots}，当前 ${markers.length}`);
     const scopedReferenceRule = preset.id === "creator" ? `图二产品参考图约束：${AGENT_VIDEO_REFERENCE_ONLY_RULE}` : AGENT_VIDEO_REFERENCE_ONLY_RULE;
     if (!prompt.includes(scopedReferenceRule)) errors.push(preset.id === "creator" ? "缺少图二产品参考图作用域或约束原句" : "缺少参考图主体约束原句");
@@ -181,19 +203,20 @@ export function validateAgentVideoPrompt(prompt: string, context: PromptValidati
             const normalizedSection = section.replace(/[–—]/gu, "-");
             const expectedLabel = `【时长：${CREATOR_TIME_RANGES[index]}秒】`;
             const labels = normalizedSection.match(/【时长：[^】]+】/gu) || [];
-            if (labels.length !== 1 || labels[0] !== expectedLabel) errors.push(`镜头 ${index + 1} 未绑定正确时间窗 ${expectedLabel}`);
+            if (!normalizedSection.startsWith(expectedLabel) || labels.length !== 1 || labels[0] !== expectedLabel) errors.push(`镜头 ${index + 1} 未按时长前置格式绑定正确时间窗 ${expectedLabel}`);
         }
     }
     const finalShot = markers.length ? prompt.slice(markers.at(-1)?.index || 0) : "";
     if (!/(?:结果|完整|清洁后|整理后|完成)/u.test(finalShot) || !/(?:满意|点头|微笑)/u.test(finalShot) || !/(?:CTA|指向|看看|试试|分享|推荐|check|tingnan|try|subukan|cuba|gunakan|boleh)/iu.test(finalShot)) {
         errors.push("最后一镜必须同时完成结果展示、满意感和自然口语 CTA");
     }
-    return Array.from(new Set(errors));
+    return { errors: Array.from(new Set(errors)), warnings };
 }
 
 function buildCompilerSystemPrompt(preset: AgentVideoPreset, marketCorpus: string, market: AgentVideoMarket, durationSeconds: number) {
     const shortVersion = durationSeconds < 15;
     const shotInstruction = shortVersion ? "生成 3–4 个镜头，不写任何秒数或时间窗。" : preset.id === "handsfree" ? "生成 5–7 个镜头，不写任何秒数或时间窗。" : "生成固定 5 个镜头，依次使用【时长：0-3秒】【时长：3-6秒】【时长：6-9秒】【时长：9-12秒】【时长：12-15秒】。";
+    const shotPrefixInstruction = preset.id === "creator" && !shortVersion ? "每镜必须依次以【时长：X-Y秒】【转场手法：具体方式】【ASMR音效：具体声音】开头" : "每镜必须以【转场手法：具体方式】【ASMR音效：具体声音】开头";
     const presetInstruction =
         preset.id === "handsfree"
             ? "画面只拍双手、部分前臂、产品和操作区域，人物不作为主体出现。"
@@ -218,14 +241,14 @@ ${marketCorpus}
 
 以下硬规则优先级最高：
 1. 只输出一个 [Video Prompt] 标记及其正文，标记必须在输出开头；不输出分析、解释、Markdown 标题或代码围栏。
-2. 正文使用中文；每镜必须以【转场手法：具体方式】【ASMR音效：具体声音】开头，并且恰好包含一条明确写成口播：“当地语言...”格式的口播；引号内只有 2–8 个当地语言词，并使用 ... 自然停顿。
+2. 正文使用中文；${shotPrefixInstruction}，并且恰好包含一条明确写成口播：“当地语言...”格式的口播；引号内只有 2–8 个当地语言词，并使用 ... 自然停顿。
 3. ${shotInstruction}
 4. ${presetInstruction}
 5. 每镜使用正向、可观察的画面描述，将画面限定在允许出现的主体、环境与动作；不堆叠 never/no/不要/禁止/不得。画面以真实手机 UGC、自然光、轻微手持、真实物理交互为主。
 6. 口播不含汉字、价格、折扣、促销、免费赠品或品牌名；最后一镜同时完成结果展示、满意感和自然口语 CTA。画面以纯净连续实拍呈现，视觉信息只来自真实产品、双手/达人、生活环境与动作；声音只含当地语言口播和现场 ASMR。
 7. ${referenceInstruction}
 8. 正文最后必须逐字以此句结束：${AGENT_VIDEO_PRODUCT_CONSISTENCY_TAIL}
-9. 纯手部实测总长度 1200–1800 字符；达人多场景总长度不超过 2000 字符。`;
+9. 长度唯一硬上限为 2400 字符；软目标为纯手部实测 1200–1800 字符、达人多场景不超过 2000 字符，偏离软目标时仍须完整输出。`;
 }
 
 function buildCompilerUserPrompt(input: { userIntent: string; model: string; size: string; quality: string; durationSeconds: number; retryFeedback: string }) {

@@ -6,6 +6,8 @@ import { ArrowUp, CheckCircle2, CircleAlert, ImagePlus, LoaderCircle, UserRound,
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import type { LocalUser } from "@/stores/use-user-store";
+import { CanvasVideoOptionsCard, type GenerateAgentVideoOptions, type GenerateAgentVideoResult } from "./canvas-video-options-card";
+import type { CanvasNodeData } from "../types";
 
 export type CanvasAgentChatAttachment = { id: string; name: string; url: string };
 export type CanvasAgentMode = "online" | "local";
@@ -21,7 +23,23 @@ export type CanvasAgentChatMessage = {
 
 const WORKING_TEXT = "working...";
 
-export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveTool }: { item: CanvasAgentChatMessage; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; user: LocalUser | null; onRejectTool?: (id: string) => void; onApproveTool?: (id: string) => void }) {
+export function AgentChatMessage({
+    item,
+    theme,
+    user,
+    nodes = [],
+    onGenerateVideoFromReference,
+    onRejectTool,
+    onApproveTool,
+}: {
+    item: CanvasAgentChatMessage;
+    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    user: LocalUser | null;
+    nodes?: CanvasNodeData[];
+    onGenerateVideoFromReference?: (imageNodeIds: string[], options: GenerateAgentVideoOptions) => Promise<GenerateAgentVideoResult>;
+    onRejectTool?: (id: string) => void;
+    onApproveTool?: (id: string) => void;
+}) {
     const isUser = item.role === "user";
     const isSystem = item.role === "system";
     const color = item.role === "error" ? "#dc2626" : item.role === "tool" ? "#2563eb" : theme.node.text;
@@ -36,6 +54,14 @@ export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveToo
         );
     }
     if (item.role === "tool") {
+        if (objectField(item.detail, "kind") === "video-options" && onGenerateVideoFromReference) {
+            return (
+                <div className="flex items-start gap-3">
+                    <AgentAvatar theme={theme} />
+                    <CanvasVideoOptionsCard detail={item.detail} nodes={nodes} theme={theme} onGenerateVideoFromReference={onGenerateVideoFromReference} />
+                </div>
+            );
+        }
         if (objectField(item.detail, "status") === "pending") return <AgentPendingToolCard summary={item.text} detail={item.detail} theme={theme} onReject={() => onRejectTool?.(item.id)} onApprove={() => onApproveTool?.(item.id)} />;
         return (
             <div className="flex items-start gap-3">

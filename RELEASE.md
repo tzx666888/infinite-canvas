@@ -1,15 +1,14 @@
-# Infinite Canvas v3.0.56
+# Infinite Canvas v3.0.57
 
-Google static image generation is now 4K-only.
+Canvas Agent now exposes a guided commerce-video options card on top of the existing video generation pipeline.
 
-- Public settings and model synchronization expose only
-  `gemini-3.1-flash-image-4k`.
-- Legacy base, 1K and 2K selections are recognized only long enough to migrate
-  persisted browser settings and historical canvas nodes to 4K.
-- Every Google image request is normalized to the 4K public model ID and
-  `image_size=4K`.
-- The 14 official aspect ratios and their native 4K dimensions remain
-  available.
-- The immutable rollback image is `infinite-canvas:v3.0.55`.
+- Defaults to hands-free / Philippines / Omni portrait / 720x1280.
+- Creator mode accepts a second creator image and preserves creator-before-product reference order.
+- Omni, Veo and Seedance remain the only card choices; Seedance is labelled as silent and awaits channel-level live verification.
+- M1 prompt length targets are warnings unless the prompt exceeds 2400 characters.
+- Fifteen-second creator shots use duration, transition and ASMR labels in that order.
+- Google static image generation remains 4K-only from v3.0.56.
 
-Production image: `infinite-canvas:v3.0.56`.
+Rollback source is tag `v3.0.56`: check it out, rebuild the v3.0.56 image manually, then run `docker-compose down` followed by `docker-compose up -d`. Do not restore `.bak` files.
+
+Production image: `infinite-canvas:v3.0.57`.

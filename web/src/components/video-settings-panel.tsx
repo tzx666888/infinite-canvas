@@ -28,7 +28,7 @@ const baseResolutionOptions = [
     { value: "720", label: "720p" },
     { value: "480", label: "480p" },
 ];
-const sizeOptions = [
+export const sizeOptions = [
     { value: "1280x720", label: "横屏", width: 1280, height: 720 },
     { value: "720x1280", label: "竖屏", width: 720, height: 1280 },
     { value: "1024x1024", label: "方形", width: 1024, height: 1024 },

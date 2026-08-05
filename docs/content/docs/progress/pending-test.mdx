@@ -5,8 +5,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
-- v3.0.55 Agent 视频 SOP 编译器：需在 Agent 视频选项卡接入后，分别实测纯手部实测+菲律宾、达人多场景+菲律宾、达人多场景+马来西亚；核对镜头数、口播语言、市场场景、参考图作用域、时间窗与物理一致性尾句。
-- v3.0.54 Agent 视频通电：需在生产画布选中图片后对 Agent 说“把选中的图片生成视频”，确认工具参数保持 `mode: "video"`、关闭普通工具确认时仍弹确认卡，批准后新建可播放视频节点；同时回归图片/文本/音频 Agent 生成、12 宫格→关键帧→整片与 `/video` 创作台。
+- v3.0.57 画布 Agent 带货视频卡片：需在生产画布核对默认纯手部 / 菲律宾 / Omni 竖屏、达人第二参考图、Seedance 无声标记以及视频节点生成；Seedance 成片待渠道修复后验。
 - Tokaxis 可视化提示词库：需验证提示词中心只显示“Tokaxis 创作 / 商品电商 / 商业人物”三类，不再出现游戏、纯 UI、纯建筑和信息图模块；Agent 选择工作流后只填入启动指令、不自动发送，图片入口只显示图片模板，视频入口只显示经统一视频管线适配的 Tokaxis 视频提示词。
 - v3.0.28 提示词编辑埋点：需分别验证 Agent 生成后人工改写、`user_typed` 改写与上游引用节点删除三种路径；前两者的 `prompt_edited.beforeText` 必须与上一条 `generation.promptText` 完全一致，缺失引用时必须不上报 `prompt_edited`，新增 JSONL 不得出现 `@[node:` 占位符。
 - v3.0.27 画布行为埋点：需在全新浏览器依次完成 Agent 对话、图片生成、人工改写后再生成、60 秒内删除，并在宿主机 `/opt/infinite-canvas-data/telemetry/events-YYYYMMDD.jsonl` 核对完整事件链；同时验证文件内不含图片数据、Base64 或图片 URL，端点断开不影响生成且控制台无埋点错误，`TELEMETRY_ENABLED=0` 不落盘，容器重建后历史 JSONL 仍保留。可用 `node scripts/telemetry-report.mjs /opt/infinite-canvas-data/telemetry` 输出只读汇总。
