@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+    buildTokaxisGoogleImageChatRequest,
     GENERIC_IMAGE_MAX_EDGE,
     GENERIC_IMAGE_MAX_RATIO,
     GENERIC_IMAGE_MIN_PIXELS,
@@ -19,21 +20,38 @@ import {
 import { normalizeImageQualityForModel } from "../src/lib/image-quality.ts";
 
 assert.equal(Object.keys(TOKAXIS_GOOGLE_NATIVE_SIZES).length, 14, "Google 模型必须保留官方 14 种比例");
-assert.deepEqual(TOKAXIS_GOOGLE_IMAGE_SIZES, ["1K", "2K", "4K"]);
+assert.deepEqual(TOKAXIS_GOOGLE_IMAGE_SIZES, ["4K"]);
 
 for (const imageSize of TOKAXIS_GOOGLE_IMAGE_SIZES) {
     const model = TOKAXIS_GOOGLE_IMAGE_MODELS[imageSize];
     assert.equal(isTokaxisGoogleImageModel(model), true);
-    assert.equal(resolveTokaxisGoogleImageConfig(model, "16:9", "low").image_size, imageSize, "模型名后缀必须优先决定档位");
+    assert.equal(resolveTokaxisGoogleImageConfig(model, "16:9", "low").image_size, "4K", "公开 Google 生图模型必须固定为 4K");
 }
 
-assert.equal(resolveTokaxisGoogleImageConfig(TOKAXIS_GOOGLE_IMAGE_BASE_MODEL, "1024x1024").image_size, "1K");
-assert.equal(resolveTokaxisGoogleImageConfig(TOKAXIS_GOOGLE_IMAGE_BASE_MODEL, "2752x1536").image_size, "2K");
+assert.equal(isTokaxisGoogleImageModel(`${TOKAXIS_GOOGLE_IMAGE_BASE_MODEL}-1k`), true, "旧 1K ID 必须只用于历史配置迁移");
+assert.equal(isTokaxisGoogleImageModel(`${TOKAXIS_GOOGLE_IMAGE_BASE_MODEL}-2k`), true, "旧 2K ID 必须只用于历史配置迁移");
+assert.equal(resolveTokaxisGoogleImageConfig(TOKAXIS_GOOGLE_IMAGE_BASE_MODEL, "1024x1024").image_size, "4K");
+assert.equal(resolveTokaxisGoogleImageConfig(TOKAXIS_GOOGLE_IMAGE_BASE_MODEL, "2752x1536").image_size, "4K");
 assert.deepEqual(resolveTokaxisGoogleImageConfig(TOKAXIS_GOOGLE_IMAGE_BASE_MODEL, "5504x3072"), {
     aspect_ratio: "16:9",
     image_size: "4K",
 });
 assert.equal(tokaxisGoogleModelForSize("tokaxis::gemini-3.1-flash-image-1k", "4K"), "tokaxis::gemini-3.1-flash-image-4k");
+assert.equal(tokaxisGoogleModelForSize("tokaxis::gemini-3.1-flash-image-2k", "4K"), "tokaxis::gemini-3.1-flash-image-4k");
+assert.deepEqual(
+    buildTokaxisGoogleImageChatRequest({
+        model: "gemini-3.1-flash-image-1k",
+        messages: [{ role: "user", content: "legacy canvas node" }],
+        imageConfig: resolveTokaxisGoogleImageConfig("gemini-3.1-flash-image-1k", "1:1", "low"),
+    }),
+    {
+        model: "gemini-3.1-flash-image-4k",
+        messages: [{ role: "user", content: "legacy canvas node" }],
+        stream: false,
+        image_config: { aspect_ratio: "1:1", image_size: "4K" },
+    },
+    "旧画布节点提交前必须同时迁移模型 ID 与 image_size",
+);
 
 assert.equal(normalizeImageSizeForSelectedModel("tokaxis::gemini-3.1-flash-image-4k", "5504x3072"), "5504x3072", "Google 4K 必须保留原生尺寸");
 assert.equal(GPT_IMAGE_2_MAX_PIXELS, 8_294_400, "GPT Image 2 必须使用上游的 4K UHD 总像素上限");
@@ -70,9 +88,19 @@ for (const [aspectRatio, sizes] of Object.entries(TOKAXIS_GOOGLE_NATIVE_SIZES)) 
 }
 
 const imageServiceSource = readFileSync(new URL("../src/services/api/image.ts", import.meta.url), "utf8");
+const settingsSource = readFileSync(new URL("../src/app/api/settings/route.ts", import.meta.url), "utf8");
+const configStoreSource = readFileSync(new URL("../src/stores/use-config-store.ts", import.meta.url), "utf8");
+const settingsPanelSource = readFileSync(new URL("../src/components/image-settings-panel.tsx", import.meta.url), "utf8");
+const canvasClientSource = readFileSync(new URL("../src/app/(user)/canvas/[id]/canvas-client-page.tsx", import.meta.url), "utf8");
 assert.match(imageServiceSource, /isGptImageModel\(requestModel\) \? \{\} : \{ response_format: "b64_json" \}/, "GPT Image requests must omit the removed response_format field for JSON generation requests");
 assert.match(imageServiceSource, /if \(!isGptImageModel\(requestModel\)\) \{\s*formData\.set\("response_format", "b64_json"\);/, "GPT Image edit requests must omit the removed response_format multipart field");
 assert.match(imageServiceSource, /supportsGptImageInputFidelity\(requestModel\)/, "GPT Image edit requests must gate input_fidelity by model support");
 assert.match(imageServiceSource, /!\/\^gpt-image-2/, "GPT Image 2 requests must omit the unsupported input_fidelity field");
+assert.doesNotMatch(settingsSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["(?:1K|2K)"\]/, "settings API must not expose retired Google image aliases");
+assert.doesNotMatch(configStoreSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["(?:1K|2K)"\]/, "model sync must not expose retired Google image aliases");
+assert.match(configStoreSource, /TOKAXIS_DEFAULTS_VERSION = 20/, "saved model lists must migrate to the 4K-only contract");
+assert.match(configStoreSource, /TOKAXIS_DEFAULT_SELECTIONS_VERSION = 20/, "saved 1K\/2K selections must migrate to 4K");
+assert.match(settingsPanelSource, /usesNativeGoogleSizes \? resolutionOptions\.filter\(\(item\) => item\.value === "4k"\)/, "Google image settings must show only the 4K resolution choice");
+assert.match(canvasClientSource, /VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS = \["gemini-3\.1-flash-image-4k", "gpt-image-2"\]/, "video bridge fallback must never request retired Google image aliases");
 
-console.log("Google image model contract passed: 3 model names, 14 ratios, native 1K/2K/4K sizes.");
+console.log("Google image model contract passed: 4K-only public model, legacy migration, 14 native ratios.");

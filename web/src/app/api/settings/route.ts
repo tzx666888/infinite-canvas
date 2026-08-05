@@ -4,8 +4,6 @@ import { GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-providers/google-video";
 
 const FALLBACK_MODELS = [
     "gpt-image-2",
-    TOKAXIS_GOOGLE_IMAGE_MODELS["1K"],
-    TOKAXIS_GOOGLE_IMAGE_MODELS["2K"],
     TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
     ...GOOGLE_VIDEO_MODEL_IDS,
     ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS,

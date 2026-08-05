@@ -1,6 +1,6 @@
 export const TOKAXIS_GOOGLE_IMAGE_BASE_MODEL = "gemini-3.1-flash-image";
 
-export const TOKAXIS_GOOGLE_IMAGE_SIZES = ["1K", "2K", "4K"] as const;
+export const TOKAXIS_GOOGLE_IMAGE_SIZES = ["4K"] as const;
 export type TokaxisGoogleImageSize = (typeof TOKAXIS_GOOGLE_IMAGE_SIZES)[number];
 
 export const GENERIC_IMAGE_SIZE_STEP = 16;
@@ -11,10 +11,15 @@ export const GENERIC_IMAGE_MAX_RATIO = 3;
 export const GPT_IMAGE_2_MAX_PIXELS = 3_840 * 2_160;
 
 export const TOKAXIS_GOOGLE_IMAGE_MODELS: Record<TokaxisGoogleImageSize, string> = {
-    "1K": `${TOKAXIS_GOOGLE_IMAGE_BASE_MODEL}-1k`,
-    "2K": `${TOKAXIS_GOOGLE_IMAGE_BASE_MODEL}-2k`,
     "4K": `${TOKAXIS_GOOGLE_IMAGE_BASE_MODEL}-4k`,
 };
+
+const TOKAXIS_LEGACY_GOOGLE_IMAGE_MODELS = new Set([
+    TOKAXIS_GOOGLE_IMAGE_BASE_MODEL,
+    `${TOKAXIS_GOOGLE_IMAGE_BASE_MODEL}-1k`,
+    `${TOKAXIS_GOOGLE_IMAGE_BASE_MODEL}-2k`,
+    TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
+]);
 
 export const TOKAXIS_GOOGLE_NATIVE_SIZES = {
     "1:1": { "1K": "1024x1024", "2K": "2048x2048", "4K": "4096x4096" },
@@ -38,10 +43,10 @@ export type TokaxisGoogleAspectRatio = keyof typeof TOKAXIS_GOOGLE_NATIVE_SIZES;
 export function buildTokaxisGoogleImageChatRequest(input: { model: string; messages: unknown[]; imageConfig: ReturnType<typeof resolveTokaxisGoogleImageConfig> }) {
     if (!isTokaxisGoogleImageModel(input.model)) throw new Error(`Unsupported TokAxis Google image model: ${input.model || "(empty)"}`);
     return {
-        model: input.model,
+        model: tokaxisGoogleModelForSize(input.model, "4K"),
         messages: input.messages,
         stream: false,
-        image_config: input.imageConfig,
+        image_config: { ...input.imageConfig, image_size: "4K" as TokaxisGoogleImageSize },
     };
 }
 
@@ -51,30 +56,26 @@ export function tokaxisGoogleModelName(value: string) {
 
 export function isTokaxisGoogleImageModel(value: string) {
     const model = tokaxisGoogleModelName(value);
-    return model === TOKAXIS_GOOGLE_IMAGE_BASE_MODEL || Object.values(TOKAXIS_GOOGLE_IMAGE_MODELS).includes(model);
+    return TOKAXIS_LEGACY_GOOGLE_IMAGE_MODELS.has(model);
 }
 
 export function tokaxisGoogleImageSizeFromModel(value: string): TokaxisGoogleImageSize | undefined {
-    const model = tokaxisGoogleModelName(value);
-    return TOKAXIS_GOOGLE_IMAGE_SIZES.find((size) => TOKAXIS_GOOGLE_IMAGE_MODELS[size] === model);
+    return isTokaxisGoogleImageModel(value) ? "4K" : undefined;
 }
 
-export function tokaxisGoogleModelForSize(value: string, imageSize: TokaxisGoogleImageSize) {
+export function tokaxisGoogleModelForSize(value: string, _imageSize: TokaxisGoogleImageSize) {
     const separator = value.lastIndexOf("::");
     const prefix = separator >= 0 ? value.slice(0, separator + 2) : "";
-    return `${prefix}${TOKAXIS_GOOGLE_IMAGE_MODELS[imageSize]}`;
+    return `${prefix}${TOKAXIS_GOOGLE_IMAGE_MODELS["4K"]}`;
 }
 
 export function tokaxisGoogleImageSizeFromDimensions(value?: string): TokaxisGoogleImageSize | undefined {
     if (!value) return undefined;
+    if (value in TOKAXIS_GOOGLE_NATIVE_SIZES) return "4K";
     for (const sizes of Object.values(TOKAXIS_GOOGLE_NATIVE_SIZES)) {
-        const match = TOKAXIS_GOOGLE_IMAGE_SIZES.find((imageSize) => sizes[imageSize] === value);
-        if (match) return match;
+        if (Object.values(sizes).includes(value as never)) return "4K";
     }
-    const dimensions = parseDimensions(value);
-    if (!dimensions) return undefined;
-    const pixels = dimensions.width * dimensions.height;
-    return pixels > 8_000_000 ? "4K" : pixels > 2_000_000 ? "2K" : "1K";
+    return parseDimensions(value) ? "4K" : undefined;
 }
 
 export function normalizeImageSizeForSelectedModel(model: string, size?: string) {
@@ -109,20 +110,10 @@ export function imageMaxPixelsForSelectedModel(model: string) {
 }
 
 export function resolveTokaxisGoogleImageConfig(model: string, size?: string, quality?: string) {
-    const modelSize = tokaxisGoogleImageSizeFromModel(model);
-    const dimensionSize = tokaxisGoogleImageSizeFromDimensions(size);
-    const qualitySize = tokaxisGoogleImageSizeFromQuality(quality);
-    const imageSize = modelSize || dimensionSize || qualitySize || "1K";
+    if (!isTokaxisGoogleImageModel(model)) throw new Error(`Unsupported TokAxis Google image model: ${model || "(empty)"}`);
+    void quality;
     const aspectRatio = resolveAspectRatio(size);
-    return { aspect_ratio: aspectRatio, image_size: imageSize };
-}
-
-function tokaxisGoogleImageSizeFromQuality(quality?: string): TokaxisGoogleImageSize | undefined {
-    const value = quality?.trim().toLowerCase();
-    if (["high", "hd", "4k"].includes(value || "")) return "4K";
-    if (["medium", "2k"].includes(value || "")) return "2K";
-    if (["low", "standard", "1k"].includes(value || "")) return "1K";
-    return undefined;
+    return { aspect_ratio: aspectRatio, image_size: "4K" as TokaxisGoogleImageSize };
 }
 
 function resolveAspectRatio(value?: string): TokaxisGoogleAspectRatio {

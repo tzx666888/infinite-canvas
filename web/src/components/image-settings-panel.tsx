@@ -69,7 +69,8 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const usesNativeGoogleSizes = isTokaxisGoogleImageModel(activeModel);
     const maxImagePixels = imageMaxPixelsForSelectedModel(activeModel);
     const availableAspectOptions = aspectOptions.filter((item) => !item.nativeOnly || usesNativeGoogleSizes);
-    const resolution = googleResolution(activeModel) || readResolution(activeSize, maxImagePixels);
+    const availableResolutionOptions = usesNativeGoogleSizes ? resolutionOptions.filter((item) => item.value === "4k") : resolutionOptions;
+    const resolution = usesNativeGoogleSizes ? "4k" : googleResolution(activeModel) || readResolution(activeSize, maxImagePixels);
     const selectedAspect = findSelectedAspect(activeSize);
     const displayedSize = usesNativeGoogleSizes && selectedAspect ? sizeForAspect(selectedAspect, resolution, true) : activeSize;
     const dimensions = readSizeDimensions(displayedSize, selectedAspect || aspectOptions[0]);
@@ -120,8 +121,8 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 </div>
                 <div className="space-y-2.5">
                     <SettingTitle color={theme.node.muted}>分辨率</SettingTitle>
-                    <div className="grid grid-cols-3 gap-2.5">
-                        {resolutionOptions.map((item) => (
+                    <div className={`grid gap-2.5 ${usesNativeGoogleSizes ? "grid-cols-1" : "grid-cols-3"}`}>
+                        {availableResolutionOptions.map((item) => (
                             <OptionPill key={item.value} selected={resolution === item.value && activeSize !== "auto"} theme={theme} onClick={() => selectResolution(item.value)}>
                                 {item.label}
                             </OptionPill>
@@ -200,7 +201,7 @@ export function imageQualityLabel(value: string) {
 export function imageSizeLabel(size: string, model?: string) {
     if (!size || size === "auto") return "auto";
     const aspect = findSelectedAspect(size);
-    const resolution = readResolution(size, model ? imageMaxPixelsForSelectedModel(model) : GENERIC_IMAGE_MAX_PIXELS);
+    const resolution = model && isTokaxisGoogleImageModel(model) ? "4k" : readResolution(size, model ? imageMaxPixelsForSelectedModel(model) : GENERIC_IMAGE_MAX_PIXELS);
     const resolutionLabel = resolution === "1k" ? "" : ` · ${resolution.toUpperCase()}`;
     return `${aspect?.label || size}${resolutionLabel}`;
 }

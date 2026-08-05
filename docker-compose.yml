@@ -1,6 +1,6 @@
 services:
   app:
-    image: infinite-canvas:latest
+    image: infinite-canvas:v3.0.56
     container_name: infinite-canvas
     network_mode: host
     env_file:

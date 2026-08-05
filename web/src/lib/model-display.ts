@@ -10,8 +10,7 @@ export function modelDisplayInfo(model: string): ModelDisplayInfo {
     if (!value) return { label: "" };
 
     if (lower === "gpt-image-2") return { label: "GPT Image 2", badge: "OpenAI" };
-    if (lower === "gemini-3.1-flash-image-1k") return { label: "Gemini 3.1 Flash Image 1K", badge: "Google" };
-    if (lower === "gemini-3.1-flash-image-2k") return { label: "Gemini 3.1 Flash Image 2K", badge: "Google" };
+    if (["gemini-3.1-flash-image", "gemini-3.1-flash-image-1k", "gemini-3.1-flash-image-2k"].includes(lower)) return { label: "Gemini 3.1 Flash Image 4K（已迁移）", badge: "Google" };
     if (lower === "gemini-3.1-flash-image-4k") return { label: "Gemini 3.1 Flash Image 4K", badge: "Google" };
     if (lower === "grok-imagine-image-lite") return { label: "Grok Imagine Lite", badge: "Grok" };
     if (lower === "veo_3_1_t2v_fast_landscape") return { label: "Veo 3.1 文生视频 · 横屏", description: "纯文字生成；固定 8 秒；原生 1080p", badge: "Google" };
