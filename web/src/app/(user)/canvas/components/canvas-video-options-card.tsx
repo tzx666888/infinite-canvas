@@ -1,20 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Button, Select } from "antd";
-import { ImagePlus, LoaderCircle, Video } from "lucide-react";
+import { Button, Select, Switch } from "antd";
+import { Eye, ImagePlus, LoaderCircle, LockKeyhole, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
-import { modelOptionLabel, modelOptionName, useEffectiveConfig } from "@/stores/use-config-store";
+import { modelOptionLabel, useEffectiveConfig } from "@/stores/use-config-store";
 import { sizeOptions } from "@/components/video-settings-panel";
 import {
     AGENT_VIDEO_DEFAULT_MODEL_ID,
     AGENT_VIDEO_MARKETS,
-    AGENT_VIDEO_MODEL_OPTIONS,
     AGENT_VIDEO_PRESETS,
     type AgentVideoMarket,
     type AgentVideoPresetId,
 } from "../utils/agent-video-presets";
+import { availableAgentVideoModels, selectedAgentVideoModel } from "../utils/agent-video-models";
+import { splitAgentVideoPrompt, validateAgentVideoPrompt, type AgentVideoPromptPart, type AgentVideoPromptWarning } from "../utils/agent-video-sop";
 import { CanvasNodeType, type CanvasNodeData } from "../types";
 
 export type AgentVideoGenerationStage = "reading" | "compiling" | "generating";
@@ -27,6 +28,10 @@ export type GenerateAgentVideoOptions = {
     userIntent: string;
     creatorNodeId?: string;
     creatorFile?: File;
+    withSubtitle?: boolean;
+    compileOnly?: boolean;
+    promptOverride?: string;
+    originalCompiledPrompt?: string;
     onStage?: (stage: AgentVideoGenerationStage) => void;
 };
 
@@ -37,6 +42,8 @@ export type GenerateAgentVideoResult = {
     error?: string;
     errorKind?: string;
     retryModelId?: string;
+    prompt?: string;
+    warnings?: AgentVideoPromptWarning[];
 };
 
 type CanvasVideoOptionsCardProps = {
@@ -53,6 +60,7 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
     const config = useEffectiveConfig();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const detailRecord = objectRecord(detail);
+    const userIntent = typeof detailRecord.userIntent === "string" ? detailRecord.userIntent : "用所选图片生成带货视频";
     const requestedIds = Array.isArray(detailRecord.imageNodeIds) ? detailRecord.imageNodeIds.filter((id): id is string => typeof id === "string") : [];
     const productNodes = requestedIds.map((id) => nodes.find((node) => node.id === id && node.type === CanvasNodeType.Image && node.metadata?.content)).filter((node): node is CanvasNodeData => Boolean(node));
     const productNode = productNodes.length === 1 ? productNodes[0] : undefined;
@@ -60,30 +68,40 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
     const [market, setMarket] = useState<AgentVideoMarket>("ph");
     const [model, setModel] = useState<string>(AGENT_VIDEO_DEFAULT_MODEL_ID);
     const [size, setSize] = useState(DEFAULT_VIDEO_SIZE);
+    const [withSubtitle, setWithSubtitle] = useState(false);
     const [creatorNodeId, setCreatorNodeId] = useState("");
     const [creatorFile, setCreatorFile] = useState<File>();
     const [creatorPreviewUrl, setCreatorPreviewUrl] = useState("");
     const [running, setRunning] = useState(false);
     const [stage, setStage] = useState<AgentVideoGenerationStage>();
-    const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string; retryModelId?: string }>();
+    const [feedback, setFeedback] = useState<{ kind: "success" | "error" | "info"; text: string; retryModelId?: string }>();
+    const [promptPreview, setPromptPreview] = useState<{ original: string; parts: AgentVideoPromptPart[]; cacheKey: string }>();
 
-    const availableModels = useMemo(
-        () =>
-            AGENT_VIDEO_MODEL_OPTIONS.flatMap((spec) =>
-                config.videoModels.filter((candidate) => modelOptionName(candidate).toLowerCase() === spec.id.toLowerCase()).map((value) => ({ value, spec })),
-            ),
-        [config.videoModels],
-    );
-    const selectedModel = availableModels.some((item) => item.value === model)
-        ? model
-        : availableModels.find((item) => item.spec.id === AGENT_VIDEO_DEFAULT_MODEL_ID)?.value || availableModels[0]?.value || "";
-    const selectedModelSpec = availableModels.find((item) => item.value === selectedModel)?.spec;
+    const preset = AGENT_VIDEO_PRESETS[presetId];
+    const availableModels = useMemo(() => availableAgentVideoModels(config, size, preset.referenceImages), [config, preset.referenceImages, size]);
+    const selectedModel = selectedAgentVideoModel(availableModels, model);
+    const selectedModelSpec = availableModels.find((item) => item.value === selectedModel);
     const creatorCandidates = nodes.filter((node) => node.type === CanvasNodeType.Image && node.metadata?.content && !requestedIds.includes(node.id));
     const creatorNode = creatorCandidates.find((node) => node.id === creatorNodeId);
-    const preset = AGENT_VIDEO_PRESETS[presetId];
+    const marketConfig = AGENT_VIDEO_MARKETS[market];
     const creatorReady = presetId !== "creator" || Boolean(creatorNode || creatorFile);
-    const canGenerate = Boolean(productNode && selectedModel && AGENT_VIDEO_MARKETS[market].enabled && creatorReady && !running);
-    const retryModel = feedback?.retryModelId ? availableModels.find((item) => item.spec.id === feedback.retryModelId) : undefined;
+    const canGenerate = Boolean(productNode && selectedModel && marketConfig.enabled && creatorReady && !running);
+    const retryModel = feedback?.retryModelId ? availableModels.find((item) => item.value === feedback.retryModelId) : undefined;
+    const promptCacheKey = JSON.stringify({ presetId, market, model: selectedModel, size, withSubtitle, userIntent, productNodeId: productNode?.id, creatorNodeId: creatorNode?.id, creatorFile: creatorFile ? [creatorFile.name, creatorFile.size, creatorFile.lastModified] : undefined });
+    const editedPrompt = promptPreview?.parts.map((part) => part.text).join("").trim() || "";
+    const editValidation = useMemo(
+        () =>
+            promptPreview && selectedModelSpec
+                ? validateAgentVideoPrompt(editedPrompt, {
+                      preset,
+                      market,
+                      durationSeconds: selectedModelSpec.durationSeconds,
+                      withSubtitle,
+                  })
+                : undefined,
+        [editedPrompt, market, preset, promptPreview, selectedModelSpec, withSubtitle],
+    );
+    const validationMessages = editValidation ? [...editValidation.errors, ...editValidation.warnings.map(promptWarningText)] : [];
 
     useEffect(() => {
         if (!creatorFile) {
@@ -95,7 +113,18 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
         return () => URL.revokeObjectURL(url);
     }, [creatorFile]);
 
-    const generate = async (targetModel = selectedModel) => {
+    useEffect(() => {
+        if (!promptPreview || promptPreview.cacheKey === promptCacheKey) return;
+        setPromptPreview(undefined);
+        setFeedback({ kind: "info", text: "参数已变更，请重新生成提示词" });
+    }, [promptCacheKey, promptPreview]);
+
+    const invalidatePromptPreview = () => {
+        setFeedback(promptPreview ? { kind: "info", text: "参数已变更，请重新生成提示词" } : undefined);
+        setPromptPreview(undefined);
+    };
+
+    const generate = async (targetModel = selectedModel, compileOnly = false, forceCompile = false) => {
         if (!productNode || !targetModel || !creatorReady || running) return;
         setRunning(true);
         setFeedback(undefined);
@@ -106,16 +135,25 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                 market,
                 model: targetModel,
                 size,
-                userIntent: typeof detailRecord.userIntent === "string" ? detailRecord.userIntent : "用所选图片生成带货视频",
+                userIntent,
                 creatorNodeId: presetId === "creator" ? creatorNode?.id : undefined,
                 creatorFile: presetId === "creator" && !creatorNode ? creatorFile : undefined,
+                withSubtitle,
+                compileOnly,
+                promptOverride: !compileOnly && promptPreview && !forceCompile ? editedPrompt : undefined,
+                originalCompiledPrompt: !compileOnly && promptPreview && !forceCompile ? promptPreview.original : undefined,
                 onStage: setStage,
             });
             if (result.creatorNodeId) {
                 setCreatorNodeId(result.creatorNodeId);
                 setCreatorFile(undefined);
             }
-            setFeedback(result.ok ? { kind: "success", text: "视频已生成并保留在画布节点中。" } : { kind: "error", text: result.error || "视频生成失败，请重试。", retryModelId: result.retryModelId });
+            if (compileOnly && result.ok && result.prompt) {
+                setPromptPreview({ original: result.prompt, parts: splitAgentVideoPrompt(result.prompt, withSubtitle), cacheKey: promptCacheKey });
+                setFeedback({ kind: "success", text: "提示词已生成，可编辑镜头、动作、转场、音效和口播。" });
+            } else {
+                setFeedback(result.ok ? { kind: "success", text: "视频已生成并保留在画布节点中。" } : { kind: "error", text: result.error || "视频生成失败，请重试。", retryModelId: result.retryModelId });
+            }
         } catch {
             setFeedback({ kind: "error", text: "视频生成失败，请检查模型配置后重试。" });
         } finally {
@@ -124,7 +162,7 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
         }
     };
 
-    const stageText = stage === "reading" ? "正在读取参考图…" : stage === "compiling" ? "正在编排镜头…" : stage === "generating" ? "正在生成视频…" : "生成视频";
+    const stageText = stage === "reading" ? "正在读取参考图…" : stage === "compiling" ? "正在编排镜头…" : stage === "generating" ? "正在生成视频…" : promptPreview ? "用这段生成" : "生成视频";
 
     return (
         <div className="min-w-0 flex-1 rounded-xl border p-4" style={{ borderColor: theme.node.stroke, background: "transparent", color: theme.node.text }}>
@@ -157,7 +195,7 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                         disabled={running}
                         onChange={(value) => {
                             setPresetId(value);
-                            setFeedback(undefined);
+                            invalidatePromptPreview();
                         }}
                         options={Object.values(AGENT_VIDEO_PRESETS).map((item) => ({ value: item.id, label: item.label }))}
                     />
@@ -167,9 +205,15 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                         className="w-full"
                         value={market}
                         disabled={running}
-                        onChange={setMarket}
+                        onChange={(value) => {
+                            setMarket(value);
+                            invalidatePromptPreview();
+                        }}
                         options={Object.values(AGENT_VIDEO_MARKETS).map((item) => ({ value: item.id, label: item.enabled ? item.label : `${item.label}（待开放）`, disabled: !item.enabled }))}
                     />
+                    <div className="mt-1 text-[11px] leading-4" style={{ color: theme.node.muted }}>
+                        创作语境：{marketConfig.platform} · {marketConfig.language}
+                    </div>
                 </CardField>
             </div>
 
@@ -181,14 +225,14 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                     placeholder="当前令牌暂无可用视频模型"
                     onChange={(value) => {
                         setModel(value);
-                        setFeedback(undefined);
+                        invalidatePromptPreview();
                     }}
-                    options={availableModels.map(({ value, spec }) => ({
+                    options={availableModels.map(({ value, spec, durationSeconds, resolution, hasAudio, recommendation }) => ({
                         value,
                         label: (
                             <span className="flex min-w-0 items-center justify-between gap-2">
-                                <span className="min-w-0 truncate">{modelOptionLabel(config, value)}</span>
-                                <span className="shrink-0 text-xs opacity-60">{spec.durationSeconds} 秒 · {spec.resolution} · {spec.hasAudio ? "有声" : "无声"} · {spec.recommendation}</span>
+                                <span className="min-w-0 truncate">{spec?.label || modelOptionLabel(config, value)}</span>
+                                <span className="shrink-0 text-xs opacity-60">{durationSeconds} 秒 · {resolution} · {hasAudio ? "有声" : "无声"}{recommendation ? ` · ${recommendation}` : ""}</span>
                             </span>
                         ),
                     }))}
@@ -203,7 +247,32 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
             </CardField>
 
             <CardField label="尺寸" theme={theme}>
-                <Select className="w-full" value={size} disabled={running} onChange={setSize} options={VIDEO_SIZE_OPTIONS.map((item) => ({ value: item.value, label: `${item.label} · ${item.value}` }))} />
+                <Select
+                    className="w-full"
+                    value={size}
+                    disabled={running}
+                    onChange={(value) => {
+                        setSize(value);
+                        invalidatePromptPreview();
+                    }}
+                    options={VIDEO_SIZE_OPTIONS.map((item) => ({ value: item.value, label: `${item.label} · ${item.value}` }))}
+                />
+            </CardField>
+
+            <CardField label="画面内字幕" theme={theme}>
+                <div className="flex items-center gap-2">
+                    <Switch
+                        size="small"
+                        checked={withSubtitle}
+                        disabled={running}
+                        onChange={(checked) => {
+                            setWithSubtitle(checked);
+                            invalidatePromptPreview();
+                        }}
+                    />
+                    <span className="text-xs" style={{ color: theme.node.muted }}>{withSubtitle ? "开启" : "关闭"}</span>
+                </div>
+                <div className="mt-1 text-[11px] leading-4" style={{ color: theme.node.muted }}>非中文市场的画面字幕可能出现错别字，建议先小批量验证</div>
             </CardField>
 
             {presetId === "creator" ? (
@@ -222,7 +291,7 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                                 onChange={(value) => {
                                     setCreatorNodeId(value || "");
                                     if (value) setCreatorFile(undefined);
-                                    setFeedback(undefined);
+                                    invalidatePromptPreview();
                                 }}
                                 options={creatorCandidates.map((node) => ({ value: node.id, label: node.title || node.id }))}
                             />
@@ -236,7 +305,7 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                                     if (file) {
                                         setCreatorFile(file);
                                         setCreatorNodeId("");
-                                        setFeedback(undefined);
+                                        invalidatePromptPreview();
                                     }
                                     event.target.value = "";
                                 }}
@@ -245,6 +314,52 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                         </div>
                     </div>
                     {!creatorReady ? <div className="mt-1 text-xs text-red-600">请上传达人参考图</div> : null}
+                </CardField>
+            ) : null}
+
+            {promptPreview ? (
+                <CardField label="视频提示词" theme={theme}>
+                    <div className="space-y-2">
+                        {validationMessages.length ? (
+                            <div className="rounded-lg border border-red-500/35 px-3 py-2 text-xs leading-5 text-red-600">
+                                {validationMessages.map((text) => <div key={text}>{text}</div>)}
+                                <div>提示仅供检查，不会阻止生成。</div>
+                            </div>
+                        ) : null}
+                        {promptPreview.parts.map((part, index) =>
+                            part.kind === "locked" ? (
+                                <div key={`${part.kind}-${index}`} className="rounded-lg border px-3 py-2" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
+                                    <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium" style={{ color: theme.node.muted }}>
+                                        <LockKeyhole className="size-3" />
+                                        {part.label} · 已锁定
+                                    </div>
+                                    <div className="whitespace-pre-wrap text-xs leading-5">{part.text}</div>
+                                </div>
+                            ) : (
+                                <textarea
+                                    key={`${part.kind}-${index}`}
+                                    data-canvas-no-zoom
+                                    value={part.text}
+                                    disabled={running}
+                                    rows={promptEditorRows(part.text)}
+                                    className="w-full resize-y rounded-lg border bg-transparent px-3 py-2 text-xs leading-5 outline-none transition focus:ring-1"
+                                    style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                                    aria-label="可编辑视频提示词"
+                                    onChange={(event) => {
+                                        const text = event.target.value;
+                                        setPromptPreview((current) =>
+                                            current
+                                                ? {
+                                                      ...current,
+                                                      parts: current.parts.map((item, partIndex) => (partIndex === index ? { ...item, text } : item)),
+                                                  }
+                                                : current,
+                                        );
+                                    }}
+                                />
+                            ),
+                        )}
+                    </div>
                 </CardField>
             ) : null}
 
@@ -258,15 +373,19 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                 <Button type="primary" className="min-w-0 flex-1" disabled={!canGenerate} icon={running ? <LoaderCircle className="size-4 animate-spin" /> : <Video className="size-4" />} onClick={() => void generate()}>
                     {stageText}
                 </Button>
+                <Button className="min-w-0 flex-1" disabled={!canGenerate} icon={running ? <LoaderCircle className="size-4 animate-spin" /> : <Eye className="size-4" />} onClick={() => void generate(selectedModel, true)}>
+                    {promptPreview ? "重新生成提示词" : "先看提示词"}
+                </Button>
                 {feedback?.kind === "error" && retryModel ? (
                     <Button
                         disabled={running}
                         onClick={() => {
                             setModel(retryModel.value);
-                            void generate(retryModel.value);
+                            if (promptPreview) invalidatePromptPreview();
+                            else void generate(retryModel.value, false, true);
                         }}
                     >
-                        {retryModel.spec.id === "omni_portrait" ? "换 Omni 重试" : "换 Veo 重试"}
+                        {retryModel.spec?.id === "omni" ? "换 Omni 重试" : "换 Veo 重试"}
                     </Button>
                 ) : null}
             </div>
@@ -285,4 +404,13 @@ function CardField({ label, theme, children }: { label: string; theme: (typeof c
 
 function objectRecord(value: unknown) {
     return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function promptEditorRows(value: string) {
+    return Math.max(2, Math.min(12, value.split(/\r?\n/u).length + 1));
+}
+
+function promptWarningText(warning: AgentVideoPromptWarning) {
+    const target = warning.targetMin ? `${warning.targetMin}–${warning.targetMax}` : `不超过 ${warning.targetMax}`;
+    return `提示词当前 ${warning.actualLength} 字符，建议 ${target} 字符。`;
 }

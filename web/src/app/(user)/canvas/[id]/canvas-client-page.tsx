@@ -97,8 +97,9 @@ import { buildCanvasResourceReferences, buildInputMentionReferences, buildNodeMe
 import { composePromptWithUpstreamText } from "../utils/prompt-composition";
 import { selectLeafFailureIds } from "../utils/retry-selection";
 import { canvasVideoModelSelectionPatch, resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
-import { AGENT_VIDEO_MARKETS, AGENT_VIDEO_MODEL_OPTIONS, AGENT_VIDEO_PRESETS } from "../utils/agent-video-presets";
-import { compileAgentVideoPrompt } from "../utils/agent-video-sop";
+import { AGENT_VIDEO_MARKETS, AGENT_VIDEO_PRESETS } from "../utils/agent-video-presets";
+import { agentVideoFallbackModel, availableAgentVideoModels } from "../utils/agent-video-models";
+import { compileAgentVideoPrompt, prepareAgentVideoPromptForGeneration } from "../utils/agent-video-sop";
 import type { CanvasAgentMode } from "../components/canvas-agent-chat-ui";
 import {
     CanvasNodeType,
@@ -4485,11 +4486,11 @@ function InfiniteCanvasPage() {
             try {
                 const preset = AGENT_VIDEO_PRESETS[options.presetId];
                 const market = AGENT_VIDEO_MARKETS[options.market];
-                const modelSpec = AGENT_VIDEO_MODEL_OPTIONS.find((item) => item.id.toLowerCase() === modelOptionName(options.model).toLowerCase());
+                const modelOption = availableAgentVideoModels(effectiveConfig, options.size, preset.referenceImages).find((item) => item.value === options.model);
                 const productNodeIds = Array.from(new Set(imageNodeIds));
                 if (productNodeIds.length !== 1) return { ok: false, error: "请选择一张产品参考图后再生成。", errorKind: "invalid_args" };
                 if (!preset || !market?.enabled) return { ok: false, error: "当前剧情或市场尚未开放。", errorKind: "invalid_args" };
-                if (!modelSpec || !effectiveConfig.videoModels.includes(options.model)) return { ok: false, error: "当前令牌未开放所选视频模型，请重新选择。", errorKind: "invalid_args" };
+                if (!modelOption || !modelMatchesCapability(options.model, "video")) return { ok: false, error: "当前令牌未开放所选视频模型，请重新选择。", errorKind: "invalid_args" };
 
                 const productNode = nodesRef.current.find((node) => node.id === productNodeIds[0] && node.type === CanvasNodeType.Image && node.metadata?.content);
                 if (!productNode) return { ok: false, error: "产品参考图已不存在或内容已丢失，请重新选择。", errorKind: "missing_node_id" };
@@ -4532,9 +4533,9 @@ function InfiniteCanvasPage() {
                     model: options.model,
                     videoModel: options.model,
                     size: options.size,
-                    videoSeconds: String(modelSpec.durationSeconds),
-                    vquality: selectionPatch.vquality || modelSpec.resolution,
-                    videoGenerateAudio: String(modelSpec.hasAudio),
+                    videoSeconds: String(modelOption.durationSeconds),
+                    vquality: selectionPatch.vquality || modelOption.resolution,
+                    videoGenerateAudio: selectionPatch.generateAudio || String(modelOption.hasAudio),
                 };
                 const referenceImages =
                     preset.id === "creator"
@@ -4543,17 +4544,45 @@ function InfiniteCanvasPage() {
                               { dataUrl: productDataUrl, label: "图二产品", name: productNode.title || "产品参考图" },
                           ]
                         : [{ dataUrl: productDataUrl, label: "产品参考图", name: productNode.title || "产品参考图" }];
-                options.onStage?.("compiling");
-                const compiled = await compileAgentVideoPrompt({
-                    config: requestedConfig,
-                    preset,
-                    market: options.market,
-                    model: options.model,
-                    size: options.size,
-                    referenceImages,
-                    userIntent: options.userIntent.trim() || "基于所选产品参考图生成真实带货视频",
-                });
-                if (compiled.warnings.length) console.debug("[canvas-agent-video] prompt validation warnings", compiled.warnings);
+                const withSubtitle = options.withSubtitle ?? false;
+                let prompt = options.promptOverride?.trim() || "";
+                let promptWarnings: GenerateAgentVideoResult["warnings"] = [];
+                if (!prompt) {
+                    options.onStage?.("compiling");
+                    const compiled = await compileAgentVideoPrompt({
+                        config: requestedConfig,
+                        preset,
+                        market: options.market,
+                        model: options.model,
+                        size: options.size,
+                        referenceImages,
+                        userIntent: options.userIntent.trim() || "基于所选产品参考图生成真实带货视频",
+                        withSubtitle,
+                    });
+                    prompt = compiled.prompt;
+                    promptWarnings = compiled.warnings;
+                    if (compiled.warnings.length) console.debug("[canvas-agent-video] prompt validation warnings", compiled.warnings);
+                }
+                if (options.compileOnly) return { ok: true, creatorNodeId, prompt, warnings: promptWarnings };
+
+                const resolvedConfig = resolveReferenceImageVideoConfig(requestedConfig, referenceImages.length);
+                const resolvedModel = resolvedConfig.videoModel || resolvedConfig.model;
+                const generationPrompt = prepareAgentVideoPromptForGeneration(prompt, withSubtitle);
+                const templateId = `video-sop:${preset.id}:${options.market}`;
+                const originalPrompt = options.originalCompiledPrompt?.trim() || "";
+                const userEdited = Boolean(options.promptOverride && (!originalPrompt || originalPrompt !== prompt));
+                const provenance: GenerationProvenance = {
+                    sourceKind: userEdited ? "user_typed" : "agent_generated",
+                    templateId,
+                    ...(userEdited && originalPrompt
+                        ? {
+                              editedFrom: {
+                                  beforeText: prepareAgentVideoPromptForGeneration(originalPrompt, withSubtitle),
+                                  previousSourceKind: "agent_generated" as const,
+                              },
+                          }
+                        : {}),
+                };
 
                 let uploadedCreator: UploadedImage | undefined;
                 if (preset.id === "creator" && !creatorNode && options.creatorFile) {
@@ -4567,7 +4596,7 @@ function InfiniteCanvasPage() {
 
                 const orderedReferenceNodeIds = preset.id === "creator" ? [creatorNodeId!, productNode.id] : [productNode.id];
                 const videoId = `video-${nanoid()}`;
-                const videoSpec = nodeSizeFromRatio(requestedConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
+                const videoSpec = nodeSizeFromRatio(resolvedConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
                 const ops: CanvasAgentOp[] = [];
                 if (uploadedCreator && options.creatorFile) {
                     const creatorSize = fitNodeSize(uploadedCreator.width, uploadedCreator.height);
@@ -4591,18 +4620,18 @@ function InfiniteCanvasPage() {
                     width: videoSpec.width,
                     height: videoSpec.height,
                     metadata: {
-                        prompt: compiled.prompt,
-                        promptSourceKind: "agent_generated",
-                        promptTemplateId: `video-sop:${preset.id}:${options.market}`,
+                        prompt: generationPrompt,
+                        promptSourceKind: provenance.sourceKind,
+                        promptTemplateId: templateId,
                         generationMode: "video",
                         status: NODE_STATUS_IDLE,
-                        model: options.model,
-                        size: requestedConfig.size,
-                        seconds: requestedConfig.videoSeconds,
-                        vquality: requestedConfig.vquality,
-                        generateAudio: requestedConfig.videoGenerateAudio,
-                        watermark: requestedConfig.videoWatermark,
-                        productScaleMode: requestedConfig.videoProductScaleMode,
+                        model: resolvedModel,
+                        size: resolvedConfig.size,
+                        seconds: resolvedConfig.videoSeconds,
+                        vquality: resolvedConfig.vquality,
+                        generateAudio: resolvedConfig.videoGenerateAudio,
+                        watermark: resolvedConfig.videoWatermark,
+                        productScaleMode: resolvedConfig.videoProductScaleMode,
                         inputOrder: orderedReferenceNodeIds,
                     },
                 });
@@ -4611,7 +4640,7 @@ function InfiniteCanvasPage() {
                 applyAgentOps(ops);
 
                 options.onStage?.("generating");
-                await handleGenerateNode(videoId, "video", compiled.prompt, { sourceKind: "agent_generated", templateId: `video-sop:${preset.id}:${options.market}` });
+                await handleGenerateNode(videoId, "video", generationPrompt, provenance);
                 let videoNode = nodesRef.current.find((node) => node.id === videoId);
                 for (let attempt = 0; attempt < 20 && !videoNode?.metadata?.content && !videoNode?.metadata?.errorDetails; attempt += 1) {
                     await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
@@ -4621,7 +4650,7 @@ function InfiniteCanvasPage() {
                 if (videoNode?.metadata?.status === NODE_STATUS_SUCCESS && videoNode.metadata.content) return { ok: true, videoNodeId: videoId, creatorNodeId };
                 if (errorDetails) {
                     const policyFailure = isContentPolicyErrorMessage(errorDetails) || /unsafe|content.?policy|copyright|infring|肖像|portrait.+protect|侵权|审核|安全过滤/iu.test(errorDetails);
-                    const retryModelId = modelOptionName(options.model).toLowerCase() === "omni_portrait" ? "veo_3_1_i2v_s_fast_portrait_fl" : "omni_portrait";
+                    const retryModelId = agentVideoFallbackModel(availableAgentVideoModels(effectiveConfig, options.size, preset.referenceImages), options.model);
                     return {
                         ok: false,
                         videoNodeId: videoId,

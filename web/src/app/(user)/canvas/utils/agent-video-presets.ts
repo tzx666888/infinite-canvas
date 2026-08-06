@@ -1,5 +1,8 @@
 export type AgentVideoPresetId = "handsfree" | "creator";
-export type AgentVideoMarket = "ph" | "my" | "id" | "th";
+export type AgentVideoMarket = "ph" | "my" | "id" | "th" | "vn" | "cn" | "us" | "uk" | "sg" | "jp" | "kr" | "sa" | "br" | "mx";
+export type AgentVideoScript = "latin" | "cjk" | "thai" | "arabic";
+export type AgentVideoCorpusOrigin = "xinge-original" | "derived-pending-review" | "placeholder";
+export type AgentVideoMarketPriority = "p0" | "p1" | "p2";
 
 export type AgentVideoPreset = {
     id: AgentVideoPresetId;
@@ -15,12 +18,17 @@ export type AgentVideoMarketConfig = {
     id: AgentVideoMarket;
     label: string;
     language: string;
+    script: AgentVideoScript;
+    platform: string;
+    priority: AgentVideoMarketPriority;
+    corpusOrigin: AgentVideoCorpusOrigin;
     enabled: boolean;
     corpus: string;
 };
 
 export type AgentVideoModelOption = {
     id: string;
+    modelIds: readonly string[];
     label: string;
     durationSeconds: 8 | 10 | 15;
     resolution: "720p" | "1080p";
@@ -31,13 +39,41 @@ export type AgentVideoModelOption = {
 export const AGENT_VIDEO_PRODUCT_CONSISTENCY_TAIL = "保持垫图主体高度一致，无变形，符合真实物理引擎（Subject Consistency, No morphing, Realistic physics）。";
 export const AGENT_VIDEO_REFERENCE_ONLY_RULE = "只使用用户参考图中的产品主体，不使用参考图中的原场景、背景、人物或其他元素。";
 export const AGENT_VIDEO_CREATOR_FIRST_LINE = "图一是我的带货达人，图二是我的产品。";
+export const AGENT_VIDEO_VISUAL_ONLY_RULE = "视觉信息只来自参考图中的产品主体、双手与人物、真实生活环境和实际操作动作。";
+export const AGENT_VIDEO_SUBTITLE_SPEC = "画面底部安全区显示与口播逐字一致的字幕，每个镜头一句，简洁无描边，不遮挡产品主体。";
 export const AGENT_VIDEO_SHOT_PREFIX = "【转场手法：XXX】【ASMR音效：XXX】";
+export const AGENT_VIDEO_EXCLUDED_MODEL_IDS = ["qy-seedance-2.0", "qy-seedance-2.0-fast"] as const;
 export const AGENT_VIDEO_MODEL_OPTIONS = [
-    { id: "omni_portrait", label: "Omni 竖屏视频", durationSeconds: 10, resolution: "720p", hasAudio: true, recommendation: "最稳（推荐）" },
-    { id: "veo_3_1_i2v_s_fast_portrait_fl", label: "Veo 3.1 首尾帧 · 竖屏", durationSeconds: 8, resolution: "1080p", hasAudio: true, recommendation: "画质最好" },
-    { id: "Seedance 2.0-fast-720p", label: "Seedance 2.0 Fast 720p", durationSeconds: 15, resolution: "720p", hasAudio: false, recommendation: "镜头最完整" },
+    { id: "omni", modelIds: ["omni", "omni_portrait"], label: "Omni 智能创作", durationSeconds: 10, resolution: "720p", hasAudio: true, recommendation: "最稳（推荐）" },
+    {
+        id: "veo-auto",
+        modelIds: ["veo_3_1_i2v_s_fast_portrait_fl", "veo_3_1_i2v_s_fast_fl"],
+        label: "Veo 3.1 首尾帧",
+        durationSeconds: 8,
+        resolution: "1080p",
+        hasAudio: true,
+        recommendation: "画质最好",
+    },
+    {
+        id: "veo-r2v",
+        modelIds: ["veo_3_1_r2v_fast_portrait", "veo_3_1_r2v_fast_landscape", "veo_3_1_r2v_fast"],
+        label: "Veo 3.1 多参考",
+        durationSeconds: 8,
+        resolution: "1080p",
+        hasAudio: true,
+        recommendation: "达人双图",
+    },
+    {
+        id: "seedance-fast-720p",
+        modelIds: ["seedance 2.0-fast-720p"],
+        label: "Seedance 2.0 Fast 720p",
+        durationSeconds: 15,
+        resolution: "720p",
+        hasAudio: false,
+        recommendation: "镜头最完整",
+    },
 ] as const satisfies readonly AgentVideoModelOption[];
-export const AGENT_VIDEO_DEFAULT_MODEL_ID = AGENT_VIDEO_MODEL_OPTIONS[0].id;
+export const AGENT_VIDEO_DEFAULT_MODEL_ID = "omni";
 
 /**
  * 鑫哥 2026-08-04 原始语料归档。内容逐字来自原会话，不在运行时改写。
@@ -1525,7 +1561,7 @@ Seedance 2.0生成要求：
 
 const HANDSFREE_SOP = `单张产品参考图，一次输出一段可直接生成完整视频的 [Video Prompt] 正文。
 只拍双手、部分前臂、产品和操作区域，人物不作为主体。产品在普通家庭的真实使用场景中完成 5–7 个连续镜头，覆盖 Hook、实际操作、物理反馈、结果展示与自然 CTA。
-每镜以【转场手法：XXX】【ASMR音效：XXX】开头，口播为 2–8 词的当地语言，并用 ... 自然停顿。不写秒数标签。
+每镜以【转场手法：XXX】【ASMR音效：XXX】开头，口播使用当地语言并符合当前市场脚本长度规则，用 ... 自然停顿。不写秒数标签。
 手指触感、拿取、安装、穿戴、收纳、倾倒、清洁或其他操作必须与参考图中可见的产品类型相符，不猜测隐藏结构或功效。
 ${AGENT_VIDEO_REFERENCE_ONLY_RULE}
 最后一镜同时呈现使用结果、满意感和自然口语 CTA。正文总长 1200–1800 字符，以下句结尾：
@@ -1534,7 +1570,7 @@ ${AGENT_VIDEO_PRODUCT_CONSISTENCY_TAIL}`;
 const CREATOR_SOP = `两张参考图：图一是成年带货达人，图二是产品。一次输出一段可直接生成完整视频的 [Video Prompt] 正文。
 ${AGENT_VIDEO_CREATOR_FIRST_LINE}
 同一成年达人、同一产品、同一天与连续生活状态贯穿全片；至少进入 3 个与产品实际用途匹配的当地生活场景。
-15 秒版固定 5 镜：0-3 / 3-6 / 6-9 / 9-12 / 12-15 秒。每镜依次以【时长：X-Y秒】【转场手法：XXX】【ASMR音效：XXX】开头，口播为 2–8 词的当地语言，并用 ... 自然停顿。
+15 秒版固定 5 镜：0-3 / 3-6 / 6-9 / 9-12 / 12-15 秒。每镜依次以【时长：X-Y秒】【转场手法：XXX】【ASMR音效：XXX】开头，口播使用当地语言并符合当前市场脚本长度规则，用 ... 自然停顿。
 图一只锁定达人的可见身份特征；图二只锁定产品的可见外观、材质、结构和比例。两图的原背景与其他元素都不沿用。正文使用下列完整格式明确其作用域：
 图二产品参考图约束：${AGENT_VIDEO_REFERENCE_ONLY_RULE}
 最后一镜同时呈现使用结果、达人满意感和自然口语 CTA。正文不超过 2000 字符，以下句结尾：
@@ -1545,6 +1581,25 @@ const PH_MARKET_CORPUS = `口播使用 Filipino / Tagalog / 自然 Taglish，像
 
 const MY_MARKET_CORPUS = `口播使用 Bahasa Melayu，像马来西亚普通消费者真实分享，自然、可信、接地气。可使用的自然短句语感：“Memang senang...”“Saya guna...”“Agak praktikal...”“Memang berbaloi...”。
 场景优先来自马来西亚 condo 的 bilik tidur、almari、dapur、ruang tamu、meja kerja、bilik air、balkon 或 kereta；根据产品选择至少三个真实适配场景。本地化价值词：senang guna、praktikal、jimat masa、mudahkan kerja harian、berbaloi。`;
+
+/**
+ * 基于已验证 ph / my 骨架派生的待审语料，不属于鑫哥原文。
+ * corpusOrigin: "derived-pending-review"
+ */
+export const AGENT_VIDEO_DERIVED_MARKET_CORPUS = {
+    id: `口播使用 Bahasa Indonesia，像印度尼西亚普通用户在 TikTok Shop 分享真实使用体验，短句、自然、不用播音腔。可参考语感：“Gampang dipakai... enak banget”“Aku pakai ini... praktis”“Rapi juga... cocok dipakai”“Coba lihat... simpel banget”。
+场景优先来自 kos、apartemen、dapur、kamar tidur、kamar mandi、ruang tamu、meja kerja、balkon、area laundry、motor 或 mobil；只选与产品实际用途匹配的环境。本地化价值表达：mudah dipakai、praktis、rapi、nyaman、hemat waktu、cocok untuk sehari-hari。
+口播与画面文案不使用 gratis、diskon、promo、harga、cashback、bonus、termurah、nomor satu，不编造价格、功效、评价、销量或稀缺性。`,
+    th: `口播使用自然泰语，像泰国普通用户在 TikTok Shop 随手分享，语气轻松、短促、有停顿，不用官方播音腔。可参考语感：“ใช้ง่ายมาก... ชอบเลย”“ลองแล้ว... สะดวกดี”“ใช้ทุกวัน... คล่องตัวมาก”“ดูนี่... เข้าท่าดี”。
+场景优先来自泰国公寓、租屋、宿舍、卧室、小厨房、阳台、浴室、工作桌、洗衣区或车内，保留真实居住痕迹。本地化价值表达：ใช้ง่าย、สะดวก、คล่องตัว、เหมาะกับทุกวัน、ประหยัดเวลา。
+口播与画面文案不使用免费、打折、促销、价格、赠品、最便宜、第一等表达，不编造功效、认证、销量或用户评价。`,
+    vn: `口播使用 Tiếng Việt，像越南普通用户在 TikTok Shop 分享日常使用体验，口语化、简短、有停顿，不做硬广播音。可参考语感：“Dễ dùng thật... thích ghê”“Mình dùng hằng ngày... tiện lắm”“Nhìn này... gọn hơn hẳn”“Thử xem... khá thực tế”。
+场景优先来自 căn hộ、phòng trọ、ký túc xá、bếp、phòng ngủ、phòng tắm、ban công、bàn làm việc、khu giặt đồ、xe máy 或小型汽车；根据产品可见用途选择。本地化价值表达：dễ dùng、tiện lợi、gọn gàng、tiết kiệm thời gian、hợp dùng hằng ngày。
+口播与画面文案不使用 miễn phí、giảm giá、khuyến mãi、giá、quà tặng、rẻ nhất、số một，不编造价格、功效、评价、销量或限时紧迫感。`,
+    cn: `平台语境只使用抖音 / 快手，口播使用简体中文口语短句，像普通用户给朋友分享真实使用体验，有自然停顿，不用播音腔。可参考语感：“上手很顺... 真省心”“我每天都用... 挺方便”“这个细节... 很实用”“你也试试... 挺顺手”。
+场景优先来自出租屋、次卧、阳台、开放式厨房、飘窗、工位、宿舍、老破小、卫生间、洗衣区或通勤车内；环境保留真实生活痕迹，只选与产品可见用途匹配的场景。本地化价值表达：上手顺、省心、方便、实用、顺手、适合日常。
+严格遵守中国大陆广告表达边界：口播和画面文案不使用“最”“第一”“国家级”“永久”“根治”“秒变”“神器”，不编造价格、折扣、免费、赠品、功效、认证、销量、评价或紧迫感。`,
+} as const;
 
 export const AGENT_VIDEO_PRESETS: Record<AgentVideoPresetId, AgentVideoPreset> = {
     handsfree: {
@@ -1568,31 +1623,163 @@ export const AGENT_VIDEO_PRESETS: Record<AgentVideoPresetId, AgentVideoPreset> =
 };
 
 export const AGENT_VIDEO_MARKETS: Record<AgentVideoMarket, AgentVideoMarketConfig> = {
+    // corpusOrigin: "xinge-original"
     ph: {
         id: "ph",
         label: "菲律宾",
         language: "Filipino / Tagalog / natural Taglish",
+        script: "latin",
+        platform: "TikTok Shop",
+        priority: "p0",
+        corpusOrigin: "xinge-original",
         enabled: true,
         corpus: PH_MARKET_CORPUS,
     },
+    // corpusOrigin: "xinge-original"
     my: {
         id: "my",
         label: "马来西亚",
         language: "Bahasa Melayu",
+        script: "latin",
+        platform: "TikTok Shop",
+        priority: "p0",
+        corpusOrigin: "xinge-original",
         enabled: true,
         corpus: MY_MARKET_CORPUS,
     },
+    // corpusOrigin: "derived-pending-review"
     id: {
         id: "id",
         label: "印度尼西亚",
-        language: "",
-        enabled: false,
-        corpus: "",
+        language: "Bahasa Indonesia",
+        script: "latin",
+        platform: "TikTok Shop",
+        priority: "p0",
+        corpusOrigin: "derived-pending-review",
+        enabled: true,
+        corpus: AGENT_VIDEO_DERIVED_MARKET_CORPUS.id,
     },
+    // corpusOrigin: "derived-pending-review"
     th: {
         id: "th",
         label: "泰国",
-        language: "",
+        language: "ภาษาไทย",
+        script: "thai",
+        platform: "TikTok Shop",
+        priority: "p0",
+        corpusOrigin: "derived-pending-review",
+        enabled: true,
+        corpus: AGENT_VIDEO_DERIVED_MARKET_CORPUS.th,
+    },
+    // corpusOrigin: "derived-pending-review"
+    vn: {
+        id: "vn",
+        label: "越南",
+        language: "Tiếng Việt",
+        script: "latin",
+        platform: "TikTok Shop",
+        priority: "p0",
+        corpusOrigin: "derived-pending-review",
+        enabled: true,
+        corpus: AGENT_VIDEO_DERIVED_MARKET_CORPUS.vn,
+    },
+    // corpusOrigin: "derived-pending-review"
+    cn: {
+        id: "cn",
+        label: "中国",
+        language: "简体中文",
+        script: "cjk",
+        platform: "抖音 / 快手",
+        priority: "p0",
+        corpusOrigin: "derived-pending-review",
+        enabled: true,
+        corpus: AGENT_VIDEO_DERIVED_MARKET_CORPUS.cn,
+    },
+    us: {
+        id: "us",
+        label: "美国",
+        language: "English",
+        script: "latin",
+        platform: "待开放",
+        priority: "p1",
+        corpusOrigin: "placeholder",
+        enabled: false,
+        corpus: "",
+    },
+    uk: {
+        id: "uk",
+        label: "英国",
+        language: "English",
+        script: "latin",
+        platform: "待开放",
+        priority: "p1",
+        corpusOrigin: "placeholder",
+        enabled: false,
+        corpus: "",
+    },
+    sg: {
+        id: "sg",
+        label: "新加坡",
+        language: "English / Singlish",
+        script: "latin",
+        platform: "待开放",
+        priority: "p1",
+        corpusOrigin: "placeholder",
+        enabled: false,
+        corpus: "",
+    },
+    jp: {
+        id: "jp",
+        label: "日本",
+        language: "日本語",
+        script: "cjk",
+        platform: "待开放",
+        priority: "p2",
+        corpusOrigin: "placeholder",
+        enabled: false,
+        corpus: "",
+    },
+    kr: {
+        id: "kr",
+        label: "韩国",
+        language: "한국어",
+        script: "cjk",
+        platform: "待开放",
+        priority: "p2",
+        corpusOrigin: "placeholder",
+        enabled: false,
+        corpus: "",
+    },
+    sa: {
+        id: "sa",
+        label: "沙特阿拉伯",
+        language: "العربية",
+        script: "arabic",
+        platform: "待开放",
+        priority: "p2",
+        corpusOrigin: "placeholder",
+        enabled: false,
+        corpus: "",
+    },
+    br: {
+        id: "br",
+        label: "巴西",
+        language: "Português",
+        script: "latin",
+        platform: "待开放",
+        priority: "p2",
+        corpusOrigin: "placeholder",
+        enabled: false,
+        corpus: "",
+    },
+    mx: {
+        id: "mx",
+        label: "墨西哥",
+        language: "Español",
+        script: "latin",
+        platform: "待开放",
+        priority: "p2",
+        corpusOrigin: "placeholder",
         enabled: false,
         corpus: "",
     },
