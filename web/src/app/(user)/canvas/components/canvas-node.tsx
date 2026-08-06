@@ -5,12 +5,12 @@ import type { ReactNode } from "react";
 import { AlertTriangle, Box, ChevronRight, Image as ImageIcon, Music2, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
-import { isContentPolicyErrorMessage } from "@/lib/content-policy-error";
 import { formatBytes } from "@/lib/image-utils";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type Position } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
+import { describeCanvasNodeError } from "../utils/node-error-display";
 
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 type PanelResizeEdge = "left" | "right" | "bottom" | "bottom-right";
@@ -21,7 +21,6 @@ const PANEL_MAX_WIDTH = 960;
 const PANEL_DEFAULT_TEXTAREA_HEIGHT = 96;
 const PANEL_MIN_TEXTAREA_HEIGHT = 72;
 const PANEL_MAX_TEXTAREA_HEIGHT = 360;
-const LEGACY_STORYBOARD_REVIEW_VIDEO_ERROR = "12宫格分镜候选不能直接生成视频";
 
 type ScrollableWheelEvent = {
     deltaX: number;
@@ -542,7 +541,7 @@ function formatElapsedSeconds(seconds: number) {
 }
 
 function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "node" | "theme" | "onRetry">) {
-    const error = describeNodeError(node.metadata?.errorDetails);
+    const error = describeCanvasNodeError(node.metadata?.errorDetails);
     return (
         <div className="flex max-w-[280px] flex-col items-center gap-3 px-5 text-center">
             <div className="grid size-9 place-items-center rounded-full bg-red-500/10 text-red-300">
@@ -551,11 +550,6 @@ function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "
             <div className="space-y-1">
                 <div className="text-sm font-semibold text-red-200">{error.title}</div>
                 <div className="text-xs leading-5 text-red-200/85">{error.message}</div>
-                {error.detail ? (
-                    <div className="max-h-12 overflow-hidden text-[10px] leading-4 text-red-200/55" title={error.detail}>
-                        {error.detail}
-                    </div>
-                ) : null}
             </div>
             <button
                 type="button"
@@ -572,58 +566,6 @@ function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "
             </button>
         </div>
     );
-}
-
-function describeNodeError(errorDetails?: string) {
-    const detail = errorDetails?.trim();
-    const text = detail || "生成失败";
-    const lower = text.toLowerCase();
-
-    if (text.includes(LEGACY_STORYBOARD_REVIEW_VIDEO_ERROR)) {
-        return {
-            title: "宫格视频链路已更新",
-            message: "现在支持用 12 宫格分镜作为视频参考，点重试会自动按新链路生成。",
-            detail: text,
-        };
-    }
-
-    if (/429|rate limit|too many|频率|限流|排队|quota/.test(lower) || /限流|频率|排队/.test(text)) {
-        return { title: "请求太密集", message: "系统已保留节点和提示词，稍等片刻后点重试即可。", detail };
-    }
-
-    if (/public_error_audio_filtered|audio[_ -]?filtered/.test(lower)) {
-        return {
-            title: "音频生成被模型过滤",
-            message: "Veo 的音频安全或处理过滤未通过，不是服务器超时。请检查口播内容后手动重试。",
-            detail,
-        };
-    }
-
-    if (isContentPolicyErrorMessage(text) || /no final video url|风控/.test(lower)) {
-        return { title: "内容审核未通过", message: "这是模型内容安全限制，不是服务器故障；请调整提示词或参考图后重试。", detail };
-    }
-
-    if (/timeout|timed out|524|gateway|upstream|超时/.test(lower) || /超时|上游/.test(text)) {
-        return { title: "生成失败：上游超时，请重试", message: "素材和参数已保留，可单独重新生成这一张。", detail };
-    }
-
-    if (/401|403|api key|token|permission|unauthorized|forbidden|令牌|权限|未开放/.test(lower) || /令牌|权限|未开放/.test(text)) {
-        return { title: "令牌或模型权限不足", message: "检查当前令牌是否可用，或切换到已开放的模型再重试。", detail };
-    }
-
-    if (/404|not_found|model not found|模型不存在|模型不可用/.test(lower) || /模型不存在|模型不可用/.test(text)) {
-        return { title: "模型不可用", message: "当前模型暂不可用，切换模型或稍后重试。", detail };
-    }
-
-    if (/reference|storage|mask|lost|missing|参考图片|素材|蒙版|丢失/.test(lower) || /参考图片|素材|蒙版|丢失/.test(text)) {
-        return { title: "参考素材丢失", message: "重新上传或重新连接参考图后再生成。", detail };
-    }
-
-    if (/abort|canceled|cancelled|中断|取消/.test(lower) || /中断|取消/.test(text)) {
-        return { title: "任务已中断", message: "节点已保留，可以重新生成。", detail };
-    }
-
-    return { title: "生成失败", message: "节点已保留，查看提示词或参考图后可直接重试。", detail };
 }
 
 function UnknownNodeContent({ theme }: Pick<NodeContentRendererProps, "theme">) {

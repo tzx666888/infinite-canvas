@@ -55,7 +55,7 @@ assert.equal(normalizeSeedanceDuration("4", fixed), 5);
 assert.equal(normalizeSeedanceDuration("8", fixed), 10);
 assert.equal(normalizeSeedanceDuration("12", fixed), 10);
 assert.equal(normalizeSeedanceDuration("16", fixed), 15);
-assert.equal(normalizeSeedanceDuration("8", standard), 8);
+assert.equal(normalizeSeedanceDuration("8", standard), 10);
 
 assert.deepEqual(
     buildTokaxisSeedanceVideoPayload({
@@ -99,7 +99,7 @@ assert.deepEqual(
         images: ["image"],
         videos: ["video"],
         audios: ["audio"],
-        duration: 8,
+        duration: 10,
         resolution: "1080p",
         generate_audio: false,
         watermark: true,

@@ -32,6 +32,7 @@ import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
+import { canvasNodeErrorMessage } from "../utils/node-error-display";
 import { canvasVideoModelSelectionPatch, selectReferenceImageVideoModel } from "../utils/video-reference-model";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasCommerceVideoPlan, type CanvasNodeData, type CanvasPromptSourceKind } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
@@ -131,7 +132,7 @@ export function CanvasNodePromptPanel({
                 ...productBreakdownPlan,
                 shots: productBreakdownPlan.shots.slice(0, count),
             }).catch((error) => {
-                message.error(`产品拆解图生成失败：${error instanceof Error ? error.message : "未知错误"}`);
+                message.error(`产品拆解图生成失败：${canvasNodeErrorMessage(error instanceof Error ? error.message : "未知错误")}`);
             });
             return;
         }
@@ -141,7 +142,7 @@ export function CanvasNodePromptPanel({
                 ...sceneExpansionPlan,
                 scenes: sceneExpansionPlan.scenes.slice(0, count),
             }).catch((error) => {
-                message.error(`场景图生成失败：${error instanceof Error ? error.message : "未知错误"}`);
+                message.error(`场景图生成失败：${canvasNodeErrorMessage(error instanceof Error ? error.message : "未知错误")}`);
             });
             return;
         }
@@ -153,7 +154,7 @@ export function CanvasNodePromptPanel({
                 selectedHookType: storyboardPlan.selectedHookType,
             } as Partial<CanvasNodeData["metadata"]>);
             void onGenerateVideoStoryboard(node.id, storyboardPlan).catch((error) => {
-                message.error(`12宫格分镜候选生成失败：${error instanceof Error ? error.message : "未知错误"}`);
+                message.error(`12宫格分镜候选生成失败：${canvasNodeErrorMessage(error instanceof Error ? error.message : "未知错误")}`);
             });
             return;
         }
@@ -223,7 +224,7 @@ export function CanvasNodePromptPanel({
             updatePrompt(finalPrompt, "builtin_template", template);
             message.success(mode === "video" && template === "videoprompt" ? (promptModel !== config.model ? "已切换到参考图视频模型并回填提示词" : "已回填当前模型的视频提示词") : "已回填润色结果");
         } catch (error) {
-            message.error(`润色失败：${error instanceof Error ? error.message : "未知错误"}`);
+            message.error(`润色失败：${canvasNodeErrorMessage(error instanceof Error ? error.message : "未知错误")}`);
         } finally {
             setPolishing(false);
         }

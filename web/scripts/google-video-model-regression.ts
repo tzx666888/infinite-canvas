@@ -56,11 +56,11 @@ assert.equal(isGoogleVeoOfficialExtendDuration("15", t2v), false);
 assert.equal(isGoogleVeoOfficialExtendDuration("15", i2v), false);
 assert.equal(isGoogleVeoOfficialExtendDuration("15", r2v), false);
 assert.equal(isGoogleVeoOfficialExtendDuration("15", "omni"), false);
-assert.equal(fixedGoogleVideoResolution(r2v), "1080");
+assert.equal(fixedGoogleVideoResolution(r2v), "720");
 assert.equal(fixedGoogleVideoResolution(t2v, "15"), "1080");
 assert.equal(fixedGoogleVideoResolution("omni_portrait"), "720");
 assert.deepEqual(defaultGoogleVideoEntrySettings(t2v), { videoSeconds: "8", vquality: "1080" });
-assert.deepEqual(defaultGoogleVideoEntrySettings(r2v), { videoSeconds: "8", vquality: "1080" });
+assert.deepEqual(defaultGoogleVideoEntrySettings(r2v), { videoSeconds: "8", vquality: "720" });
 assert.deepEqual(defaultGoogleVideoEntrySettings("omni"), { videoSeconds: "10", vquality: "720" });
 
 assert.equal(googleVideoEntryMode(t2v), "veo-auto");

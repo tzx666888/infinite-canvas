@@ -9,6 +9,7 @@ import { formatBytes, getDataUrlByteSize } from "@/lib/image-utils";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "../types";
+import { describeCanvasNodeError } from "../utils/node-error-display";
 import { ImageToolSettingsModal, type ImageToolbarSettingsTool } from "./canvas-image-toolbar-settings-modal";
 import { IMAGE_QUICK_TOOLS_STORAGE_KEY, buildImageToolbarTools, defaultImageQuickToolIds, readImageQuickToolsConfig, type ImageQuickToolId } from "./canvas-image-toolbar-tools";
 
@@ -358,6 +359,9 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
             node,
             (key, value) => {
                 if (key === "title") return undefined;
+                // Raw provider diagnostics are intentionally excluded from the
+                // customer-facing inspector. They remain available in server logs.
+                if (key === "errorDetails") return undefined;
                 if (key === "content" && typeof value === "string" && value.startsWith("data:image/")) {
                     return "[base64 image]";
                 }
@@ -417,7 +421,8 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
                             {imageBytes ? <InfoRow label="图片大小" value={formatBytes(imageBytes)} /> : null}
                             {node.metadata?.errorDetails ? (
                                 <div className="rounded-lg border p-3 text-red-400" style={{ borderColor: theme.node.stroke }}>
-                                    {node.metadata.errorDetails}
+                                    <div className="font-medium">{describeCanvasNodeError(node.metadata.errorDetails).title}</div>
+                                    <div className="mt-1 text-xs">{describeCanvasNodeError(node.metadata.errorDetails).message}</div>
                                 </div>
                             ) : null}
                         </div>

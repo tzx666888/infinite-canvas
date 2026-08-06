@@ -96,6 +96,7 @@ import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } fro
 import { buildCanvasResourceReferences, buildInputMentionReferences, buildNodeMentionReferences, getGenerationResourceNodes } from "../utils/canvas-resource-references";
 import { composePromptWithUpstreamText } from "../utils/prompt-composition";
 import { selectLeafFailureIds } from "../utils/retry-selection";
+import { canvasNodeErrorMessage } from "../utils/node-error-display";
 import { canvasVideoModelSelectionPatch, resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
 import { AGENT_VIDEO_MARKETS, AGENT_VIDEO_PRESETS } from "../utils/agent-video-presets";
 import { agentVideoFallbackModel, availableAgentVideoModels } from "../utils/agent-video-models";
@@ -2339,7 +2340,7 @@ function InfiniteCanvasPage() {
             } catch (error) {
                 generationErrorKind = generationTelemetryErrorKind(error);
                 const detail = error instanceof Error ? error.message : "请确认视频可播放且稍后重试";
-                message.error({ content: `视频反推失败：${detail}`, key: "video-reverse" });
+                message.error({ content: `视频反推失败：${canvasNodeErrorMessage(detail)}`, key: "video-reverse" });
             } finally {
                 if (requested)
                     track("generation", {
@@ -2495,7 +2496,7 @@ function InfiniteCanvasPage() {
                 }
                 generationErrorKind = generationTelemetryErrorKind(error);
                 const errorDetails = error instanceof Error ? error.message : "局部修改失败";
-                message.error(errorDetails);
+                message.error(canvasNodeErrorMessage(errorDetails));
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, metadata: imageFailureMetadata(item.metadata, error, errorDetails) } : item)));
                 setDialogNodeId(childId);
             } finally {
@@ -3686,7 +3687,7 @@ function InfiniteCanvasPage() {
                 generationContext = await hydrateNodeGenerationContext(buildNodeGenerationContext(nodeId, generationNodes, generationConnections, generationPrompt));
             } catch (error) {
                 const cancelled = isGenerationCanceled(error);
-                if (!cancelled) message.error(error instanceof Error ? error.message : "生成失败");
+                if (!cancelled) message.error(canvasNodeErrorMessage(error instanceof Error ? error.message : "生成失败"));
                 track("generation", {
                     canvasId: projectId,
                     mode,
@@ -4073,7 +4074,7 @@ function InfiniteCanvasPage() {
                         return;
                     }
                     if (hasFailure) {
-                        message.error(hasSuccess ? "部分图片生成失败" : isContentPolicyErrorMessage(firstFailureDetails) ? `内容审核未通过：${firstFailureDetails}` : "全部图片生成失败");
+                        message.error(hasSuccess ? "部分图片生成失败" : canvasNodeErrorMessage(firstFailureDetails || "全部图片生成失败"));
                     }
                     telemetryPrompt = persistedImagePrompt;
                     generationOk = hasSuccess && !hasFailure;
@@ -4450,7 +4451,7 @@ function InfiniteCanvasPage() {
                 }
                 const errorDetails = error instanceof Error ? error.message : "生成失败";
                 generationErrorKind = generationTelemetryErrorKind(error);
-                message.error(errorDetails);
+                message.error(canvasNodeErrorMessage(errorDetails));
                 setNodes((prev) =>
                     prev.map((node) =>
                         node.id === nodeId || pendingChildIds.includes(node.id) ? (node.id === nodeId && !markSourceStatus ? node : { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, statusMessage: undefined, errorDetails } }) : node,
@@ -4767,7 +4768,7 @@ function InfiniteCanvasPage() {
             const retryWholeStoryboardAnchors = retriesWholeStoryboardSheet ? (hasReusableStoredStoryboardAnchor ? storedVideoReferenceImages.slice(0, 1) : mergeReferenceImages(storyboardRetryKeyframeImages, storyboardRetryWholeImages).slice(0, 1)) : [];
             if (retriesWholeStoryboardSheet && !retryWholeStoryboardAnchors.length) {
                 const errorDetails = "找不到原始12宫格分镜图，无法重试整片视频";
-                message.error(errorDetails);
+                message.error(canvasNodeErrorMessage(errorDetails));
                 setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item)));
                 return;
             }
@@ -5088,7 +5089,7 @@ function InfiniteCanvasPage() {
                 }
                 const errorDetails = error instanceof Error ? error.message : "生成失败";
                 generationErrorKind = generationTelemetryErrorKind(error);
-                message.error(errorDetails);
+                message.error(canvasNodeErrorMessage(errorDetails));
                 setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: imageFailureMetadata(item.metadata, error, errorDetails) } : item)));
             } finally {
                 if (telemetryPrompt) setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, telemetryLastPrompt: telemetryPrompt } } : item)));
@@ -5152,7 +5153,7 @@ function InfiniteCanvasPage() {
                 await handleRetryNode(node);
             } catch (error) {
                 console.error("[canvas] retry failed before submission", error);
-                message.error(error instanceof Error ? error.message : "任务重试失败");
+                message.error(canvasNodeErrorMessage(error instanceof Error ? error.message : "任务重试失败"));
             }
         });
         const retryableCount = leafFailures.length || failedNodes.length;
@@ -5165,7 +5166,7 @@ function InfiniteCanvasPage() {
             const storyboardPlan = node.metadata?.commerceVideoPlan?.beats?.length ? node.metadata.commerceVideoPlan : extractCommerceVideoPlan(prompt);
             if (storyboardPlan?.beats?.length) {
                 void handleGenerateVideoStoryboard(node.id, storyboardPlan).catch((error) => {
-                    message.error(`12宫格分镜候选生成失败：${error instanceof Error ? error.message : "未知错误"}`);
+                    message.error(`12宫格分镜候选生成失败：${canvasNodeErrorMessage(error instanceof Error ? error.message : "未知错误")}`);
                 });
                 return;
             }
@@ -5916,7 +5917,7 @@ function fusionPlacementPlannerErrorMessage(error: unknown) {
     if (/429|too many|rate|限流|频率/.test(lower)) return "场景摆放规划请求过多，已停止融合。请稍后重试。";
     if (/401|403|unauthorized|forbidden|api key|令牌|权限/.test(lower)) return "当前令牌无法完成场景摆放规划，已停止融合。请检查模型权限后重试。";
     if (/json|schema|parse|格式/.test(lower)) return "场景摆放规划返回格式异常，已停止融合。请重试一次。";
-    return detail ? `场景摆放规划失败，已停止融合，避免生成错误合成图。原因：${detail.slice(0, 180)}` : "场景摆放规划失败，已停止融合，避免生成错误合成图。";
+    return "场景摆放规划暂时不可用，已停止融合，避免生成错误合成图。请稍后重试。";
 }
 
 function audioExtension(mimeType?: string) {

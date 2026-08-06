@@ -6,7 +6,7 @@ export const SEEDANCE_REFERENCE_LIMITS = {
     images: 9,
     videos: 3,
     audios: 3,
-    imageMaxBytes: 30 * 1024 * 1024,
+    imageMaxBytes: 12 * 1024 * 1024,
     videoMaxBytes: 50 * 1024 * 1024,
     audioMaxBytes: 15 * 1024 * 1024,
 };
@@ -45,8 +45,8 @@ export const seedanceRatioOptions = [
     { value: "adaptive", label: "自适应" },
 ] as const;
 
-export const seedanceDurationOptions = [5, 6, 8, 10, 12, 15] as const;
-export const seedanceFixed720pDurationOptions = [5, 10, 15] as const;
+export const seedanceDurationOptions = [5, 10, 15] as const;
+export const seedanceFixed720pDurationOptions = seedanceDurationOptions;
 
 const seedancePixels = {
     "480p": {
@@ -168,8 +168,8 @@ export function seedanceDurationOptionsForModel(model: string): readonly number[
 export function normalizeSeedanceDuration(value: string, model = "") {
     const seconds = Math.floor(Number(value) || 5);
     const clamped = Math.max(5, Math.min(15, seconds));
-    if (!isSeedanceFixed720pModel(model)) return clamped;
-    return seedanceFixed720pDurationOptions.reduce((best, candidate) => (Math.abs(candidate - clamped) < Math.abs(best - clamped) ? candidate : best));
+    const options = seedanceDurationOptionsForModel(model);
+    return options.reduce((best, candidate) => (Math.abs(candidate - clamped) < Math.abs(best - clamped) ? candidate : best));
 }
 
 export function normalizeSeedanceRatio(value: string, model = "") {

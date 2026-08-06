@@ -23,7 +23,7 @@ export type GoogleVideoEntryMode = "veo-auto" | "veo-r2v" | "omni";
 
 const GOOGLE_VIDEO_ENTRY_INFO: Record<GoogleVideoEntryMode, { label: string; description: string; badge?: string }> = {
     "veo-auto": { label: "Veo 3.1 智能生成", description: "固定 8 秒 · 原生 1080p；文字或 1–2 张首尾帧", badge: "Google" },
-    "veo-r2v": { label: "Veo 3.1 多参考", description: "固定 8 秒 · 1080p；需 1–3 张人物、产品或场景参考图", badge: "Google" },
+    "veo-r2v": { label: "Veo 3.1 多参考", description: "固定 8 秒 · 720p；需 1–3 张人物、产品或场景参考图", badge: "Google" },
     omni: { label: "Omni 智能创作", description: "固定 10 秒 · 720p；文字或 1–3 张参考图", badge: "Google" },
 };
 
@@ -37,6 +37,7 @@ export function fixedGoogleVideoDurationOptions(model: string): readonly number[
 export function fixedGoogleVideoResolution(model: string, _duration?: string | number): "720" | "1080" | null {
     const normalized = normalizeVideoModelId(model);
     if (OMNI_VIDEO_MODEL_IDS.has(normalized)) return "720";
+    if (normalized.startsWith("veo_3_1_r2v")) return "720";
     return GOOGLE_VIDEO_MODEL_ID_SET.has(normalized) ? "1080" : null;
 }
 
