@@ -42,7 +42,6 @@ export const AGENT_VIDEO_CREATOR_FIRST_LINE = "图一是我的带货达人，图
 export const AGENT_VIDEO_VISUAL_ONLY_RULE = "视觉信息只来自参考图中的产品主体、双手与人物、真实生活环境和实际操作动作。";
 export const AGENT_VIDEO_SUBTITLE_SPEC = "画面底部安全区显示与口播逐字一致的字幕，每个镜头一句，简洁无描边，不遮挡产品主体。";
 export const AGENT_VIDEO_SHOT_PREFIX = "【转场手法：XXX】【ASMR音效：XXX】";
-export const AGENT_VIDEO_EXCLUDED_MODEL_IDS = ["qy-seedance-2.0", "qy-seedance-2.0-fast"] as const;
 export const AGENT_VIDEO_MODEL_OPTIONS = [
     { id: "omni", modelIds: ["omni", "omni_portrait"], label: "Omni 智能创作", durationSeconds: 10, resolution: "720p", hasAudio: true, recommendation: "最稳（推荐）" },
     {
@@ -59,7 +58,7 @@ export const AGENT_VIDEO_MODEL_OPTIONS = [
         modelIds: ["veo_3_1_r2v_fast_portrait", "veo_3_1_r2v_fast_landscape", "veo_3_1_r2v_fast"],
         label: "Veo 3.1 多参考",
         durationSeconds: 8,
-        resolution: "1080p",
+        resolution: "720p",
         hasAudio: true,
         recommendation: "达人双图",
     },
@@ -71,6 +70,24 @@ export const AGENT_VIDEO_MODEL_OPTIONS = [
         resolution: "720p",
         hasAudio: false,
         recommendation: "镜头最完整",
+    },
+    {
+        id: "seedance-qy",
+        modelIds: ["qy-seedance-2.0"],
+        label: "QY Seedance 2.0",
+        durationSeconds: 15,
+        resolution: "1080p",
+        hasAudio: true,
+        recommendation: "有声高清",
+    },
+    {
+        id: "seedance-qy-fast",
+        modelIds: ["qy-seedance-2.0-fast"],
+        label: "QY Seedance 2.0 Fast",
+        durationSeconds: 15,
+        resolution: "720p",
+        hasAudio: true,
+        recommendation: "有声快速",
     },
 ] as const satisfies readonly AgentVideoModelOption[];
 export const AGENT_VIDEO_DEFAULT_MODEL_ID = "omni";

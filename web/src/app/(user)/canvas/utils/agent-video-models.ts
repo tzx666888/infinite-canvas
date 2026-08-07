@@ -3,7 +3,7 @@ import { fixedVideoDurationOptions, fixedVideoResolution, googleVideoEntryMode, 
 import { isSeedanceVideoModel, seedanceSupportsGeneratedAudio } from "@/lib/seedance-video";
 import { modelMatchesCapability, modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
-import { AGENT_VIDEO_EXCLUDED_MODEL_IDS, AGENT_VIDEO_MODEL_OPTIONS, type AgentVideoModelOption } from "./agent-video-presets";
+import { AGENT_VIDEO_MODEL_OPTIONS, type AgentVideoModelOption } from "./agent-video-presets";
 
 export type AvailableAgentVideoModel = {
     value: string;
@@ -14,10 +14,8 @@ export type AvailableAgentVideoModel = {
     recommendation: string;
 };
 
-const excludedModelIds = new Set<string>(AGENT_VIDEO_EXCLUDED_MODEL_IDS);
-
 export function availableAgentVideoModels(config: AiConfig, size: string, referenceImageCount = 1): AvailableAgentVideoModel[] {
-    const eligible = config.videoModels.filter((model) => modelMatchesCapability(model, "video") && !excludedModelIds.has(modelOptionName(model).toLowerCase()));
+    const eligible = config.videoModels.filter((model) => modelMatchesCapability(model, "video"));
     return compactVideoModelPickerOptions(eligible, size)
         .filter((value) => routeIsConfigured({ ...config, models: eligible, videoModels: eligible }, value, size, referenceImageCount))
         .map((value, originalIndex) => {

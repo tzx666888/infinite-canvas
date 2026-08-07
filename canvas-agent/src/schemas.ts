@@ -3,8 +3,8 @@ import { z } from "zod";
 const recordSchema = z.record(z.unknown());
 const positionSchema = z.object({ x: z.number(), y: z.number() });
 const viewportSchema = z.object({ x: z.number(), y: z.number(), k: z.number() });
-const nodeTypeSchema = z.enum(["image", "text", "config", "video", "audio"]);
-const generationModeSchema = z.enum(["text", "image", "video", "audio"]);
+const nodeTypeSchema = z.enum(["image", "text", "config", "audio"]);
+const generationModeSchema = z.enum(["text", "image", "audio"]);
 
 export const toolNames = [
     "canvas_get_state",
@@ -19,8 +19,8 @@ export const toolNames = [
     "canvas_create_generation_flow",
     "canvas_generate_text",
     "canvas_generate_image",
-    "canvas_generate_video",
     "canvas_generate_audio",
+    "canvas_request_video_options",
     "canvas_update_node",
     "canvas_update_node_text",
     "canvas_move_nodes",
@@ -89,8 +89,8 @@ export const toolInputSchemas = {
     canvas_create_generation_flow: generationFlowSchema.extend({ mode: generationModeSchema.optional(), autoRun: z.boolean().optional() }).merge(generationOptionsSchema),
     canvas_generate_text: generationFlowSchema.merge(generationOptionsSchema),
     canvas_generate_image: generationFlowSchema.merge(generationOptionsSchema),
-    canvas_generate_video: generationFlowSchema.merge(generationOptionsSchema),
     canvas_generate_audio: generationFlowSchema.merge(generationOptionsSchema),
+    canvas_request_video_options: z.object({ references: z.object({ productNodeId: z.string().optional(), creatorNodeId: z.string().optional() }).optional(), userIntent: z.string().optional() }),
     canvas_update_node: z.object({ id: z.string(), patch: recordSchema.optional(), metadata: recordSchema.optional() }),
     canvas_update_node_text: z.object({ id: z.string(), text: z.string(), title: z.string().optional() }),
     canvas_move_nodes: z.object({ items: z.array(z.object({ id: z.string(), x: z.number().optional(), y: z.number().optional(), dx: z.number().optional(), dy: z.number().optional() })).min(1) }),
@@ -106,17 +106,17 @@ export const toolDescriptions: Record<ToolName, string> = {
     canvas_get_state: "读取当前网页画布的节点、连线、选区和视口。",
     canvas_get_selection: "读取当前网页画布选中的节点。",
     canvas_export_snapshot: "导出当前画布快照，用于理解布局。",
-    canvas_apply_ops: "批量操作当前网页画布。ops 支持 add_node、update_node、delete_node、delete_connections、connect_nodes、set_viewport、select_nodes、run_generation。",
-    canvas_create_node: "创建任意类型节点：text、image、config、video、audio。适合创建占位图、媒体占位、配置节点或自定义 metadata 节点。",
+    canvas_apply_ops: "批量操作当前网页画布。ops 支持 add_node、update_node、delete_node、delete_connections、connect_nodes、set_viewport、select_nodes、run_generation（仅文本、图片或音频）。",
+    canvas_create_node: "创建 text、image、config、audio 节点。适合创建占位图、媒体占位、配置节点或自定义 metadata 节点；视频必须使用视频创作卡。",
     canvas_create_text_node: "在当前画布创建单个文本节点。",
     canvas_create_text_nodes: "批量创建文本节点，适合生成标题、段落、脚本、说明等内容块。",
-    canvas_create_config_node: "创建生成配置节点，可指定 text/image/video/audio 模式和生成参数，可选择立即触发生成。",
+    canvas_create_config_node: "创建生成配置节点，可指定 text/image/audio 模式和生成参数，可选择立即触发生成。",
     canvas_create_image_prompt_flow: "创建提示词文本节点和图片生成配置节点，并自动连线，可选择立即触发生图。",
-    canvas_create_generation_flow: "创建通用生成流程：提示词文本节点、生成配置节点、参考节点连线，可用于文案、生图、视频或音频。",
+    canvas_create_generation_flow: "创建通用生成流程：提示词文本节点、生成配置节点、参考节点连线，可用于文案、生图或音频。",
     canvas_generate_text: "创建通用文本生成流程并立即触发生成。",
     canvas_generate_image: "创建通用图片生成流程并立即触发生成。",
-    canvas_generate_video: "创建通用视频生成流程并立即触发生成。",
     canvas_generate_audio: "创建通用音频生成流程并立即触发生成。",
+    canvas_request_video_options: "用户要求生成任何视频时调用。只打开统一的视频创作卡，不创建节点、不提交生成；可传已确认的产品或人物图片 id，角色不明确时留空让用户选择。",
     canvas_update_node: "更新节点基础字段或 metadata。",
     canvas_update_node_text: "更新文本节点内容和标题。",
     canvas_move_nodes: "移动一个或多个节点，支持绝对坐标或 dx/dy 偏移。",
@@ -125,5 +125,5 @@ export const toolDescriptions: Record<ToolName, string> = {
     canvas_connect_nodes: "批量连接节点。",
     canvas_select_nodes: "设置当前选中节点。",
     canvas_set_viewport: "调整画布视口。",
-    canvas_run_generation: "触发指定节点生成，通常用于配置节点或文本/图片/视频/音频节点。",
+    canvas_run_generation: "触发指定节点生成，通常用于配置节点或文本/图片/音频节点。视频必须使用视频创作卡。",
 };

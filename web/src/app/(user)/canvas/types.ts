@@ -193,6 +193,7 @@ export type CanvasNodeMetadata = {
     editMask?: string;
     editRequestSize?: string;
     inputOrder?: string[];
+    agentVideoReferenceRoles?: { productNodeId: string; creatorNodeId?: string };
     naturalWidth?: number;
     naturalHeight?: number;
     freeResize?: boolean;

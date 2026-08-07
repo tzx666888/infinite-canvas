@@ -34,14 +34,14 @@ const ONLINE_AGENT_MAX_STEPS = 12;
 const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用户在画布上创建电商产品素材。
 
 你可以执行以下画布操作：
-- add_node：新增节点（图片/文本/音频/配置；视频仅作为用户已有素材节点）
+- add_node：新增节点（图片/文本/音频/配置；视频节点只由视频创作卡创建）
 - update_node：更新节点内容
 - delete_node：删除节点
 - connect_nodes：连接两个节点
 - delete_connections：删除连线
 - select_nodes：选择节点
 - set_viewport：调整画布视图
-- run_generation：触发节点生成图片/文本/音频/视频
+- run_generation：触发节点生成图片/文本/音频
 
 电商通用知识：
 - 先判断用户要商品展示、生活方式、教程还是明确带货；只有明确带货时才按 Hook→Pain→Demo→CTA 组织，不得给普通视频强加事故、痛点或夸张反应。
@@ -70,7 +70,7 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 
 输出规则：
 - 面向用户的解释和规划说明默认用中文；图片提示词默认中文；视频反推提示词只用英文；带货视频提示词由 SOP 编译器产出中文正文与当地语言口播，Agent 不自己写视频提示词。
-- 用户要求用画布上已有图片生成带货视频时，只能调用 canvas_request_video_options 弹出选择卡片，禁止创建分镜文本节点、禁止回填视频提示词、禁止创建生成配置节点。用户明确要求“做分镜”“出 12 宫格”“写视频提示词”时才走原来的分镜链路。
+- 用户要求生成任何视频（商品展示、人物、带货、口播、生活方式或教程）时，必须且只能单独调用 canvas_request_video_options 弹出视频创作卡片；不得调用 canvas_run_generation，不得用 canvas_apply_ops 的 run_generation 生成视频，不得创建视频节点或视频生成配置节点。若已能确认画布图片角色，传 references.productNodeId 和 / 或 references.creatorNodeId；角色不明确时留空，由用户在卡片选择。用户明确要求“做分镜”“出 12 宫格”“写视频提示词”时，可走分镜或文本链路，但仍不得直接生成视频。
 - 需要读取画布时调用 canvas_get_state 或 canvas_get_selection。
 - 审阅分镜图（review-sheet）只能作为用户审阅和关键帧生成方向参考；视频参考只能使用干净关键帧。
 - 视频分镜 beat 描述必须用英文，中文只用于客户阅读说明。
@@ -80,9 +80,14 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 const JSON_RECORD_SCHEMA = { type: "object", additionalProperties: true };
 const POSITION_SCHEMA = { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"], additionalProperties: false };
 const VIEWPORT_SCHEMA = { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, k: { type: "number" } }, required: ["x", "y", "k"], additionalProperties: false };
-const NODE_TYPE_SCHEMA = { type: "string", enum: ["image", "text", "config", "video", "audio"] };
+const NODE_TYPE_SCHEMA = { type: "string", enum: ["image", "text", "config", "audio"] };
 const GENERATION_MODE_SCHEMA = { type: "string", enum: ["text", "image", "audio"] };
-const RUN_GENERATION_MODE_SCHEMA = { type: "string", enum: ["text", "image", "audio", "video"] };
+const RUN_GENERATION_MODE_SCHEMA = GENERATION_MODE_SCHEMA;
+const VIDEO_REFERENCE_ROLES_SCHEMA = {
+    type: "object",
+    properties: { productNodeId: { type: "string" }, creatorNodeId: { type: "string" } },
+    additionalProperties: false,
+};
 const GENERATION_OPTION_PROPERTIES = {
     model: { type: "string" },
     size: { type: "string" },
@@ -160,7 +165,7 @@ const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = [
     ),
     toolDefinition(
         "canvas_create_node",
-        "创建节点：text、image、config、audio；video 仅用于已有视频素材占位，不用于生成。适合创建占位图、媒体占位、配置节点或自定义 metadata 节点。",
+        "创建节点：text、image、config、audio。适合创建占位图、媒体占位、配置节点或自定义 metadata 节点；视频必须使用视频创作卡。",
         { nodeType: NODE_TYPE_SCHEMA, title: { type: "string" }, x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" }, metadata: JSON_RECORD_SCHEMA },
         ["nodeType"],
     ),
@@ -209,9 +214,8 @@ const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = [
     generationToolDefinition("canvas_generate_audio", "创建通用音频生成流程并立即触发生成。", "audio"),
     toolDefinition(
         "canvas_request_video_options",
-        "用户要求用画布上已有的图片生成带货视频时调用。只弹出剧情/市场/模型/尺寸选择卡片，不创建任何节点、不输出提示词、不做分镜。",
-        { imageNodeIds: { type: "array", items: { type: "string" } }, userIntent: { type: "string" } },
-        ["imageNodeIds"],
+        "用户要求生成任何视频时调用。只弹出产品/人物/剧情/市场/模型/尺寸选择卡片，不创建任何节点、不提交生成、不输出提示词、不做分镜。角色可确认时传 references.productNodeId 或 references.creatorNodeId，不确定时留空让用户选择。",
+        { references: VIDEO_REFERENCE_ROLES_SCHEMA, userIntent: { type: "string" } },
     ),
     toolDefinition("canvas_update_node", "更新节点基础字段或 metadata。", { id: { type: "string" }, patch: JSON_RECORD_SCHEMA, metadata: JSON_RECORD_SCHEMA }, ["id"]),
     toolDefinition("canvas_update_node_text", "更新文本节点内容和标题。", { id: { type: "string" }, text: { type: "string" }, title: { type: "string" } }, ["id", "text"]),
@@ -237,7 +241,7 @@ const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = [
     ),
     toolDefinition("canvas_select_nodes", "设置当前选中节点。", { ids: { type: "array", items: { type: "string" } } }, ["ids"]),
     toolDefinition("canvas_set_viewport", "调整画布视口。", { viewport: VIEWPORT_SCHEMA }, ["viewport"]),
-    toolDefinition("canvas_run_generation", "触发指定节点生成图片、文本、音频或视频。", { nodeId: { type: "string" }, mode: RUN_GENERATION_MODE_SCHEMA, prompt: { type: "string" } }, ["nodeId"]),
+    toolDefinition("canvas_run_generation", "触发指定节点生成图片、文本或音频。视频必须使用 canvas_request_video_options。", { nodeId: { type: "string" }, mode: RUN_GENERATION_MODE_SCHEMA, prompt: { type: "string" } }, ["nodeId"]),
 ];
 const ONLINE_AGENT_TOOL_SCHEMAS = new Map(ONLINE_AGENT_TOOLS.map((tool) => [tool.function.name, tool.function.parameters]));
 type OnlineAgentTab = "setup" | "chat" | "history" | "log";
@@ -271,7 +275,7 @@ type CanvasAssistantPanelProps = {
     canUndoOps: boolean;
     onUndoOps: () => CanvasAgentSnapshot | null;
     onPasteImage: (file: File) => void;
-    onGenerateVideoFromReference: (imageNodeIds: string[], options: GenerateAgentVideoOptions) => Promise<GenerateAgentVideoResult>;
+    onGenerateVideoFromReference: (options: GenerateAgentVideoOptions) => Promise<GenerateAgentVideoResult>;
     agentMode: CanvasAgentMode;
     onAgentModeChange: (mode: CanvasAgentMode) => void;
     closing: boolean;
@@ -632,20 +636,13 @@ export function CanvasAssistantPanel({
                 return { ok: true, message: `当前选中 ${ids.size} 个节点。`, data: { nodes: compactSnapshot({ ...current, nodes: current.nodes.filter((node) => ids.has(node.id)) }).nodes } };
             }
             if (name === "canvas_request_video_options") {
-                const imageNodeIds = requireStringArray(args.imageNodeIds, "imageNodeIds");
-                if (!imageNodeIds.length) return { ok: false, message: "imageNodeIds 不能为空，请从当前画布 JSON 选择真实的图片节点 id 后重试。", errorKind: "invalid_args" };
-                if (new Set(imageNodeIds).size !== imageNodeIds.length) return { ok: false, message: "imageNodeIds 包含重复节点 id，请去重后重试。", errorKind: "invalid_args" };
-                if (imageNodeIds.length !== 1) return { ok: false, message: "带货视频卡片一次只接收一张产品参考图；达人图请在卡片中另行选择或上传。", errorKind: "invalid_args" };
-                const nodeById = new Map(current.nodes.map((node) => [node.id, node]));
-                const missingIds = imageNodeIds.filter((id) => !nodeById.has(id));
-                if (missingIds.length) return { ok: false, message: `没有找到图片节点：${missingIds.join("、")}。请使用当前画布 JSON 中真实存在的 image 节点 id 重试。`, errorKind: "missing_node_id" };
-                const nonImageIds = imageNodeIds.filter((id) => nodeById.get(id)?.type !== CanvasNodeType.Image);
-                if (nonImageIds.length) return { ok: false, message: `节点不是图片类型：${nonImageIds.join("、")}。请改用含图片内容的 image 节点 id 重试。`, errorKind: "invalid_args" };
-                const emptyImageIds = imageNodeIds.filter((id) => !nodeById.get(id)?.metadata?.content?.trim());
-                if (emptyImageIds.length) return { ok: false, message: `图片节点没有可用图片内容：${emptyImageIds.join("、")}。请选择已有图片内容的节点重试。`, errorKind: "invalid_args" };
-                return { ok: true, message: "已打开带货视频选项，请选择后生成。", data: { kind: "video-options", imageNodeIds, userIntent: stringOptional(args.userIntent).trim() || "用所选图片生成带货视频" } };
+                const references = readVideoReferenceRoles(args.references);
+                const referenceError = validateVideoReferenceRoles(current, references);
+                if (referenceError) return referenceError;
+                return { ok: true, message: "已打开视频创作选项，请选择产品、人物和模型后生成。", data: { kind: "video-options", references, userIntent: stringOptional(args.userIntent).trim() || "基于参考产品生成真实视频" } };
             }
             const ops = markAgentPromptOps(onlineToolToOps(name, args, current, effectiveConfig));
+            if (ops.some(isAgentVideoCreationOp)) return { ok: false, message: "Agent 不能直接创建或触发视频生成，请使用视频创作卡选择产品、人物和模型。", errorKind: "invalid_args" };
             const result = executeOps(ops);
             return { ok: result.changed, message: result.changed ? summarizeCanvasAgentOps(ops) || "画布操作已执行。" : result.noopReason, data: result };
         } catch (error) {
@@ -994,7 +991,7 @@ export function CanvasAssistantPanel({
                         </Tooltip>
                     </div>
                 </header>
-                {agentMode === "local" ? <CanvasLocalAgentPanel embedded snapshot={snapshot} canUndoOps={canUndoOps} onApplyOps={onApplyOps} onUndoOps={onUndoOps} /> : onlineContent}
+                {agentMode === "local" ? <CanvasLocalAgentPanel embedded snapshot={snapshot} canUndoOps={canUndoOps} onApplyOps={onApplyOps} onUndoOps={onUndoOps} onGenerateVideoFromReference={onGenerateVideoFromReference} /> : onlineContent}
             </motion.aside>
         </motion.div>
     );
@@ -1245,6 +1242,38 @@ function objectDetail(value: unknown) {
     return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
+function readVideoReferenceRoles(value: unknown) {
+    const input = objectDetail(value);
+    const productNodeId = stringOptional(input.productNodeId).trim();
+    const creatorNodeId = stringOptional(input.creatorNodeId).trim();
+    return { ...(productNodeId ? { productNodeId } : {}), ...(creatorNodeId ? { creatorNodeId } : {}) };
+}
+
+function validateVideoReferenceRoles(snapshot: CanvasAgentSnapshot, references: { productNodeId?: string; creatorNodeId?: string }): OnlineToolResult | undefined {
+    if (references.productNodeId && references.creatorNodeId && references.productNodeId === references.creatorNodeId)
+        return { ok: false, message: "产品参考图和人物参考图不能是同一张图片，请只传已确认的角色或留空让用户在卡片选择。", errorKind: "invalid_args" };
+    const ids = [references.productNodeId, references.creatorNodeId].filter((id): id is string => Boolean(id));
+    const nodeById = new Map(snapshot.nodes.map((node) => [node.id, node]));
+    const missingIds = ids.filter((id) => !nodeById.has(id));
+    if (missingIds.length) return { ok: false, message: `没有找到图片节点：${missingIds.join("、")}。请使用当前画布中真实存在的图片节点 id，或留空让用户选择。`, errorKind: "missing_node_id" };
+    const nonImageIds = ids.filter((id) => nodeById.get(id)?.type !== CanvasNodeType.Image);
+    if (nonImageIds.length) return { ok: false, message: `节点不是图片类型：${nonImageIds.join("、")}。请改用图片节点或留空让用户选择。`, errorKind: "invalid_args" };
+    const emptyImageIds = ids.filter((id) => !nodeById.get(id)?.metadata?.content?.trim());
+    if (emptyImageIds.length) return { ok: false, message: `图片节点没有可用图片内容：${emptyImageIds.join("、")}。请改用有内容的图片节点或留空让用户选择。`, errorKind: "invalid_args" };
+    return undefined;
+}
+
+function isAgentVideoCreationOp(op: CanvasAgentOp) {
+    if (op.type === "run_generation") return String(op.mode) === "video";
+    const metadata = op.type === "add_node" || op.type === "update_node" ? objectDetail(op.metadata) : {};
+    const patch = op.type === "update_node" ? objectDetail(op.patch) : {};
+    const patchMetadata = objectDetail(patch.metadata);
+    return (
+        (op.type === "add_node" && (op.nodeType === CanvasNodeType.Video || metadata.generationMode === "video")) ||
+        (op.type === "update_node" && (patch.type === CanvasNodeType.Video || metadata.generationMode === "video" || patchMetadata.generationMode === "video"))
+    );
+}
+
 function successfulVideoOptionsResult(results: OnlineExecutedToolCall[]) {
     return results.find((item) => item.name === "canvas_request_video_options" && item.result.ok && objectDetail(item.result.data).kind === "video-options");
 }
@@ -1413,27 +1442,16 @@ function configNodeOp(id: string, input: Record<string, unknown>, x: number, y: 
     };
 }
 
-function runGenerationOp(nodeId: string, mode: "text" | "image" | "audio" | "video", prompt?: string): CanvasAgentOp {
+function runGenerationOp(nodeId: string, mode: "text" | "image" | "audio", prompt?: string): CanvasAgentOp {
     return { type: "run_generation", nodeId, mode, prompt };
 }
 
 function isWritableToolCall(call: ResponseToolCall) {
-    return !ONLINE_READ_TOOLS.has(call.function.name);
+    return !ONLINE_READ_TOOLS.has(call.function.name) && call.function.name !== "canvas_request_video_options";
 }
 
 function shouldConfirmOnlineToolCalls(confirmTools: boolean, calls: ResponseToolCall[]) {
-    return (confirmTools && calls.some(isWritableToolCall)) || calls.some(isVideoGenerationToolCall);
-}
-
-function isVideoGenerationToolCall(call: ResponseToolCall) {
-    try {
-        const input = prepareToolArguments(call.function.arguments, ONLINE_AGENT_TOOL_SCHEMAS.get(call.function.name)).args;
-        if (call.function.name === "canvas_run_generation") return input.mode === "video";
-        if (call.function.name !== "canvas_apply_ops" || !Array.isArray(input.ops)) return false;
-        return input.ops.some((value) => objectDetail(value).type === "run_generation" && objectDetail(value).mode === "video");
-    } catch {
-        return false;
-    }
+    return confirmTools && calls.some(isWritableToolCall);
 }
 
 function toolCallsFromDetail(detail: Record<string, unknown>): ResponseToolCall[] {
@@ -1468,7 +1486,7 @@ function toolCallLabel(name: string) {
     if (name === "canvas_generate_text") return "生成文本";
     if (name === "canvas_generate_image") return "生成图片";
     if (name === "canvas_generate_audio") return "生成音频";
-    if (name === "canvas_request_video_options") return "选择带货视频参数";
+    if (name === "canvas_request_video_options") return "选择视频创作参数";
     if (name === "canvas_update_node") return "更新节点";
     if (name === "canvas_update_node_text") return "更新文本";
     if (name === "canvas_move_nodes") return "移动节点";
@@ -1598,8 +1616,8 @@ function requireNumber(value: unknown, field: string) {
 }
 
 function requireNodeType(value: unknown): CanvasNodeType {
-    if (Object.values(CanvasNodeType).includes(value as CanvasNodeType)) return value as CanvasNodeType;
-    throw new Error("节点类型必须是 text、image、config、video 或 audio");
+    if ([CanvasNodeType.Text, CanvasNodeType.Image, CanvasNodeType.Config, CanvasNodeType.Audio].includes(value as CanvasNodeType)) return value as CanvasNodeType;
+    throw new Error("Agent 节点类型必须是 text、image、config 或 audio；视频请使用视频创作卡。");
 }
 
 function requireViewport(value: unknown) {
@@ -1631,14 +1649,13 @@ function generationMode(value: unknown): "text" | "image" | "audio" {
     return value === "text" || value === "audio" ? value : "image";
 }
 
-function runGenerationMode(value: unknown): "text" | "image" | "audio" | "video" {
-    return value === "text" || value === "audio" || value === "video" ? value : "image";
+function runGenerationMode(value: unknown): "text" | "image" | "audio" {
+    return value === "text" || value === "audio" ? value : "image";
 }
 
-function generationTitle(mode: "text" | "image" | "audio" | "video") {
+function generationTitle(mode: "text" | "image" | "audio") {
     if (mode === "text") return "文本生成";
     if (mode === "audio") return "音频生成";
-    if (mode === "video") return "视频生成";
     return "图片生成";
 }
 

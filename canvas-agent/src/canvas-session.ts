@@ -55,6 +55,7 @@ export class CanvasSession {
             const ids = new Set(this.canvasState?.selectedNodeIds || []);
             return { nodes: (this.canvasState?.nodes || []).filter((node) => ids.has(node.id)).map(compactNode) };
         }
+        if (tool === "canvas_request_video_options") return await this.requestCanvasTool(tool, input);
         if (tool === "canvas_create_node") {
             const data = input as { nodeType: CanvasNodeType; title?: string; x?: number; y?: number; width?: number; height?: number; metadata?: Record<string, unknown> };
             input = { ops: [{ type: "add_node", nodeType: data.nodeType, title: data.title, position: { x: data.x ?? nextCanvasX(this.canvasState), y: data.y ?? 0 }, width: data.width, height: data.height, metadata: data.metadata }] };
@@ -93,7 +94,7 @@ export class CanvasSession {
             input = { ops: generationFlowOps(input as Record<string, unknown>, this.canvasState) };
             tool = "canvas_apply_ops";
         }
-        if (tool === "canvas_generate_text" || tool === "canvas_generate_image" || tool === "canvas_generate_video" || tool === "canvas_generate_audio") {
+        if (tool === "canvas_generate_text" || tool === "canvas_generate_image" || tool === "canvas_generate_audio") {
             input = { ops: generationFlowOps({ ...(input as Record<string, unknown>), mode: tool.replace("canvas_generate_", ""), autoRun: true }, this.canvasState) };
             tool = "canvas_apply_ops";
         }
@@ -224,17 +225,16 @@ function generationFlowOps(input: Record<string, unknown>, state: CanvasSnapshot
     ];
 }
 
-function runGenerationOp(nodeId: string, mode: "text" | "image" | "video" | "audio", prompt?: string) {
+function runGenerationOp(nodeId: string, mode: "text" | "image" | "audio", prompt?: string) {
     return { type: "run_generation", nodeId, mode, prompt };
 }
 
-function generationMode(value: unknown): "text" | "image" | "video" | "audio" {
-    return value === "text" || value === "video" || value === "audio" ? value : "image";
+function generationMode(value: unknown): "text" | "image" | "audio" {
+    return value === "text" || value === "audio" ? value : "image";
 }
 
-function generationTitle(mode: "text" | "image" | "video" | "audio") {
+function generationTitle(mode: "text" | "image" | "audio") {
     if (mode === "text") return "文本生成";
-    if (mode === "video") return "视频生成";
     if (mode === "audio") return "音频生成";
     return "图片生成";
 }

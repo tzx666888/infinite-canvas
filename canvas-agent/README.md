@@ -69,6 +69,9 @@ default_tools_approval_mode = "approve"
 - `canvas_apply_ops`
 - `canvas_create_text_node`
 - `canvas_create_image_prompt_flow`
+- `canvas_request_video_options`
+
+视频请求统一使用 `canvas_request_video_options` 打开网页中的视频创作卡。卡片由用户选择产品、人物、市场和模型后才会提交生成；本地 Agent 不再直接创建或触发视频任务。
 
 `canvas_apply_ops` 示例：
 

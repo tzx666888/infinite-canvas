@@ -1114,9 +1114,11 @@ function InfiniteCanvasPage() {
         [connections, currentProject?.title, nodes, projectId, selectedNodeIds, viewport],
     );
     const applyAgentOps = useCallback(
-        (ops?: CanvasAgentOp[]) => {
+        (ops?: CanvasAgentOp[], options?: { allowVideoCard?: boolean }) => {
             const safeOps = Array.isArray(ops) ? ops.filter((op) => op?.type) : [];
             const before = { projectId, title: currentProject?.title || "未命名画布", nodes: nodesRef.current, connections: connectionsRef.current, selectedNodeIds: Array.from(selectedNodeIdsRef.current), viewport: viewportRef.current };
+            if (!options?.allowVideoCard && hasDirectAgentVideoGeneration(safeOps, before))
+                throw new Error("Agent 不能直接生成视频，请使用视频创作卡选择产品、人物和模型。");
             const generationOps = safeOps.filter((op): op is Extract<CanvasAgentOp, { type: "run_generation" }> => op.type === "run_generation" && Boolean(op.nodeId));
             const next = applyCanvasAgentOps(
                 before,
@@ -4483,18 +4485,18 @@ function InfiniteCanvasPage() {
     );
 
     const handleGenerateVideoFromReference = useCallback(
-        async (imageNodeIds: string[], options: GenerateAgentVideoOptions): Promise<GenerateAgentVideoResult> => {
-            let creatorNodeId = options.creatorNodeId;
+        async (options: GenerateAgentVideoOptions): Promise<GenerateAgentVideoResult> => {
+            let creatorNodeId = options.references.creatorNodeId;
             try {
                 const preset = AGENT_VIDEO_PRESETS[options.presetId];
                 const market = AGENT_VIDEO_MARKETS[options.market];
                 const modelOption = availableAgentVideoModels(effectiveConfig, options.size, preset.referenceImages).find((item) => item.value === options.model);
-                const productNodeIds = Array.from(new Set(imageNodeIds));
-                if (productNodeIds.length !== 1) return { ok: false, error: "请选择一张产品参考图后再生成。", errorKind: "invalid_args" };
+                const productNodeId = options.references.productNodeId;
+                if (!productNodeId) return { ok: false, error: "请选择一张产品参考图后再生成。", errorKind: "invalid_args" };
                 if (!preset || !market?.enabled) return { ok: false, error: "当前剧情或市场尚未开放。", errorKind: "invalid_args" };
                 if (!modelOption || !modelMatchesCapability(options.model, "video")) return { ok: false, error: "当前令牌未开放所选视频模型，请重新选择。", errorKind: "invalid_args" };
 
-                const productNode = nodesRef.current.find((node) => node.id === productNodeIds[0] && node.type === CanvasNodeType.Image && node.metadata?.content);
+                const productNode = nodesRef.current.find((node) => node.id === productNodeId && node.type === CanvasNodeType.Image && node.metadata?.content);
                 if (!productNode) return { ok: false, error: "产品参考图已不存在或内容已丢失，请重新选择。", errorKind: "missing_node_id" };
 
                 let creatorNode: CanvasNodeData | undefined;
@@ -4536,7 +4538,7 @@ function InfiniteCanvasPage() {
                     videoModel: options.model,
                     size: options.size,
                     videoSeconds: String(modelOption.durationSeconds),
-                    vquality: selectionPatch.vquality || modelOption.resolution,
+                    vquality: modelOption.resolution || selectionPatch.vquality,
                     videoGenerateAudio: selectionPatch.generateAudio || String(modelOption.hasAudio),
                 };
                 const referenceImages =
@@ -4635,11 +4637,12 @@ function InfiniteCanvasPage() {
                         watermark: resolvedConfig.videoWatermark,
                         productScaleMode: resolvedConfig.videoProductScaleMode,
                         inputOrder: orderedReferenceNodeIds,
+                        agentVideoReferenceRoles: { productNodeId: productNode.id, ...(creatorNodeId ? { creatorNodeId } : {}) },
                     },
                 });
                 orderedReferenceNodeIds.forEach((fromNodeId) => ops.push({ type: "connect_nodes", fromNodeId, toNodeId: videoId }));
                 ops.push({ type: "select_nodes", ids: [videoId] });
-                applyAgentOps(ops);
+                applyAgentOps(ops, { allowVideoCard: true });
 
                 options.onStage?.("generating");
                 await handleGenerateNode(videoId, "video", generationPrompt, provenance);
@@ -7006,6 +7009,17 @@ function sourceNodeReferenceImages(node: CanvasNodeData | null) {
 
 function isAudioFile(file: File) {
     return file.type.startsWith("audio/") || /\.(mp3|wav)$/i.test(file.name);
+}
+
+function hasDirectAgentVideoGeneration(ops: CanvasAgentOp[], snapshot: CanvasAgentSnapshot) {
+    const next = applyCanvasAgentOps(snapshot, ops.filter((op) => op.type !== "run_generation"));
+    return ops.some((op) => {
+        if (op.type === "add_node") return op.nodeType === CanvasNodeType.Video || op.metadata?.generationMode === "video";
+        if (op.type === "update_node") return op.patch?.type === CanvasNodeType.Video || op.metadata?.generationMode === "video" || op.patch?.metadata?.generationMode === "video";
+        if (op.type !== "run_generation") return false;
+        const target = next.nodes.find((node) => node.id === op.nodeId);
+        return (op.mode || target?.metadata?.generationMode || (target?.type === CanvasNodeType.Video ? "video" : "")) === "video";
+    });
 }
 
 function isHiddenBatchChild(node: CanvasNodeData, nodes: CanvasNodeData[], collapsingBatchIds?: Set<string>) {

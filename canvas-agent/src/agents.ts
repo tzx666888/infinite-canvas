@@ -430,8 +430,8 @@ function toolName(name: string) {
     if (name === "canvas_create_generation_flow") return "创建生成流程";
     if (name === "canvas_generate_text") return "生成文本";
     if (name === "canvas_generate_image") return "生成图片";
-    if (name === "canvas_generate_video") return "生成视频";
     if (name === "canvas_generate_audio") return "生成音频";
+    if (name === "canvas_request_video_options") return "选择视频创作参数";
     if (name === "canvas_run_generation") return "触发生成";
     return name;
 }

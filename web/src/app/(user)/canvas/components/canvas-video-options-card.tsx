@@ -20,13 +20,18 @@ import { CanvasNodeType, type CanvasNodeData } from "../types";
 
 export type AgentVideoGenerationStage = "reading" | "compiling" | "generating";
 
+export type AgentVideoReferenceRoles = {
+    productNodeId: string;
+    creatorNodeId?: string;
+};
+
 export type GenerateAgentVideoOptions = {
+    references: AgentVideoReferenceRoles;
     presetId: AgentVideoPresetId;
     market: AgentVideoMarket;
     model: string;
     size: string;
     userIntent: string;
-    creatorNodeId?: string;
     creatorFile?: File;
     withSubtitle?: boolean;
     compileOnly?: boolean;
@@ -50,7 +55,7 @@ type CanvasVideoOptionsCardProps = {
     detail: unknown;
     nodes: CanvasNodeData[];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    onGenerateVideoFromReference: (imageNodeIds: string[], options: GenerateAgentVideoOptions) => Promise<GenerateAgentVideoResult>;
+    onGenerateVideoFromReference: (options: GenerateAgentVideoOptions) => Promise<GenerateAgentVideoResult>;
 };
 
 const VIDEO_SIZE_OPTIONS = sizeOptions.filter((item) => item.value === "720x1280" || item.value === "1280x720");
@@ -60,16 +65,16 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
     const config = useEffectiveConfig();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const detailRecord = objectRecord(detail);
-    const userIntent = typeof detailRecord.userIntent === "string" ? detailRecord.userIntent : "用所选图片生成带货视频";
-    const requestedIds = Array.isArray(detailRecord.imageNodeIds) ? detailRecord.imageNodeIds.filter((id): id is string => typeof id === "string") : [];
-    const productNodes = requestedIds.map((id) => nodes.find((node) => node.id === id && node.type === CanvasNodeType.Image && node.metadata?.content)).filter((node): node is CanvasNodeData => Boolean(node));
-    const productNode = productNodes.length === 1 ? productNodes[0] : undefined;
-    const [presetId, setPresetId] = useState<AgentVideoPresetId>("handsfree");
+    const userIntent = typeof detailRecord.userIntent === "string" ? detailRecord.userIntent : "基于参考产品生成真实视频";
+    const requestedRoles = videoReferenceRoles(detailRecord.references);
+    const legacyProductNodeId = Array.isArray(detailRecord.imageNodeIds) ? detailRecord.imageNodeIds.find((id): id is string => typeof id === "string") || "" : "";
+    const [presetId, setPresetId] = useState<AgentVideoPresetId>(requestedRoles.creatorNodeId ? "creator" : "handsfree");
     const [market, setMarket] = useState<AgentVideoMarket>("ph");
     const [model, setModel] = useState<string>(AGENT_VIDEO_DEFAULT_MODEL_ID);
     const [size, setSize] = useState(DEFAULT_VIDEO_SIZE);
     const [withSubtitle, setWithSubtitle] = useState(false);
-    const [creatorNodeId, setCreatorNodeId] = useState("");
+    const [productNodeId, setProductNodeId] = useState(requestedRoles.productNodeId || legacyProductNodeId);
+    const [creatorNodeId, setCreatorNodeId] = useState(requestedRoles.creatorNodeId || "");
     const [creatorFile, setCreatorFile] = useState<File>();
     const [creatorPreviewUrl, setCreatorPreviewUrl] = useState("");
     const [running, setRunning] = useState(false);
@@ -81,10 +86,13 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
     const availableModels = useMemo(() => availableAgentVideoModels(config, size, preset.referenceImages), [config, preset.referenceImages, size]);
     const selectedModel = selectedAgentVideoModel(availableModels, model);
     const selectedModelSpec = availableModels.find((item) => item.value === selectedModel);
-    const creatorCandidates = nodes.filter((node) => node.type === CanvasNodeType.Image && node.metadata?.content && !requestedIds.includes(node.id));
+    const imageCandidates = nodes.filter((node) => node.type === CanvasNodeType.Image && node.metadata?.content);
+    const productCandidates = imageCandidates.filter((node) => node.id !== creatorNodeId);
+    const creatorCandidates = imageCandidates.filter((node) => node.id !== productNodeId);
+    const productNode = productCandidates.find((node) => node.id === productNodeId) || imageCandidates.find((node) => node.id === productNodeId);
     const creatorNode = creatorCandidates.find((node) => node.id === creatorNodeId);
     const marketConfig = AGENT_VIDEO_MARKETS[market];
-    const creatorReady = presetId !== "creator" || Boolean(creatorNode || creatorFile);
+    const creatorReady = presetId !== "creator" || Boolean((creatorNode && creatorNode.id !== productNode?.id) || creatorFile);
     const canGenerate = Boolean(productNode && selectedModel && marketConfig.enabled && creatorReady && !running);
     const retryModel = feedback?.retryModelId ? availableModels.find((item) => item.value === feedback.retryModelId) : undefined;
     const promptCacheKey = JSON.stringify({ presetId, market, model: selectedModel, size, withSubtitle, userIntent, productNodeId: productNode?.id, creatorNodeId: creatorNode?.id, creatorFile: creatorFile ? [creatorFile.name, creatorFile.size, creatorFile.lastModified] : undefined });
@@ -130,13 +138,13 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
         setFeedback(undefined);
         setStage("reading");
         try {
-            const result = await onGenerateVideoFromReference([productNode.id], {
+            const result = await onGenerateVideoFromReference({
+                references: { productNodeId: productNode.id, ...(presetId === "creator" && creatorNode ? { creatorNodeId: creatorNode.id } : {}) },
                 presetId,
                 market,
                 model: targetModel,
                 size,
                 userIntent,
-                creatorNodeId: presetId === "creator" ? creatorNode?.id : undefined,
                 creatorFile: presetId === "creator" && !creatorNode ? creatorFile : undefined,
                 withSubtitle,
                 compileOnly,
@@ -171,20 +179,26 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                     <Video className="size-4" />
                 </span>
                 <div className="min-w-0">
-                    <div className="text-sm font-semibold">带货视频</div>
-                    <div className="text-xs" style={{ color: theme.node.muted }}>确认参考图与生成参数</div>
+                    <div className="text-sm font-semibold">视频创作</div>
+                    <div className="text-xs" style={{ color: theme.node.muted }}>选择参考产品、人物与生成参数</div>
                 </div>
             </div>
 
-            <CardField label="参考图" theme={theme}>
-                <div className="flex gap-2 overflow-x-auto">
-                    {productNodes.map((node) => (
-                        <div key={node.id} className="size-16 shrink-0 overflow-hidden rounded-lg border" style={{ borderColor: theme.node.stroke }} title={node.title}>
-                            <img src={node.metadata?.content} alt={node.title || "产品参考图"} className="size-full object-cover" />
-                        </div>
-                    ))}
-                    {!productNodes.length ? <span className="text-xs" style={{ color: theme.node.muted }}>参考图已丢失</span> : null}
-                </div>
+            <CardField label="参考产品（必填）" theme={theme}>
+                <CanvasImageReferencePicker
+                    value={productNodeId}
+                    nodes={productCandidates}
+                    selectedNode={productNode}
+                    theme={theme}
+                    disabled={running}
+                    placeholder="从画布选择产品图"
+                    emptyText="请选择画布中的产品图"
+                    onChange={(value) => {
+                        setProductNodeId(value || "");
+                        if (value && value === creatorNodeId) setCreatorNodeId("");
+                        invalidatePromptPreview();
+                    }}
+                />
             </CardField>
 
             <div className="grid grid-cols-2 gap-3">
@@ -239,7 +253,7 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                 />
                 {selectedModelSpec && selectedModelSpec.durationSeconds < 15 ? (
                     <div className="mt-1 text-[11px] leading-4" style={{ color: theme.node.muted }}>
-                        当前模型固定 {selectedModelSpec.durationSeconds} 秒，已自动精简为 3–4 镜；要完整五镜分镜请选 Seedance 15 秒（无声）。
+                        当前模型固定 {selectedModelSpec.durationSeconds} 秒，已自动精简为 3–4 镜；要完整五镜分镜请选择可用的 15 秒模型。
                     </div>
                 ) : selectedModelSpec && !selectedModelSpec.hasAudio ? (
                     <div className="mt-1 text-[11px] leading-4" style={{ color: theme.node.muted }}>该模型固定输出无声视频。</div>
@@ -276,44 +290,41 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
             </CardField>
 
             {presetId === "creator" ? (
-                <CardField label="第二张达人图" theme={theme}>
-                    <div className="flex items-center gap-2">
-                        <div className="size-14 shrink-0 overflow-hidden rounded-lg border" style={{ borderColor: theme.node.stroke }}>
-                            {creatorNode?.metadata?.content || creatorPreviewUrl ? <img src={creatorNode?.metadata?.content || creatorPreviewUrl} alt="达人参考图" className="size-full object-cover" /> : <span className="grid size-full place-items-center" style={{ color: theme.node.muted }}><ImagePlus className="size-4" /></span>}
-                        </div>
-                        <div className="min-w-0 flex-1 space-y-2">
-                            <Select
-                                className="w-full"
-                                allowClear
-                                value={creatorNodeId || undefined}
-                                disabled={running}
-                                placeholder="从画布选择达人图"
-                                onChange={(value) => {
-                                    setCreatorNodeId(value || "");
-                                    if (value) setCreatorFile(undefined);
+                <CardField label="参考人物（达人模式，必填）" theme={theme}>
+                    <div className="space-y-2">
+                        <CanvasImageReferencePicker
+                            value={creatorNodeId}
+                            nodes={creatorCandidates}
+                            selectedNode={creatorNode}
+                            previewUrl={creatorPreviewUrl}
+                            theme={theme}
+                            disabled={running}
+                            placeholder="从画布选择人物图"
+                            emptyText="请选择画布中的人物图，或上传人物图"
+                            onChange={(value) => {
+                                setCreatorNodeId(value || "");
+                                if (value) setCreatorFile(undefined);
+                                invalidatePromptPreview();
+                            }}
+                        />
+                        <input
+                            ref={fileInputRef}
+                            hidden
+                            type="file"
+                            accept="image/*"
+                            onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                if (file) {
+                                    setCreatorFile(file);
+                                    setCreatorNodeId("");
                                     invalidatePromptPreview();
-                                }}
-                                options={creatorCandidates.map((node) => ({ value: node.id, label: node.title || node.id }))}
-                            />
-                            <input
-                                ref={fileInputRef}
-                                hidden
-                                type="file"
-                                accept="image/*"
-                                onChange={(event) => {
-                                    const file = event.target.files?.[0];
-                                    if (file) {
-                                        setCreatorFile(file);
-                                        setCreatorNodeId("");
-                                        invalidatePromptPreview();
-                                    }
-                                    event.target.value = "";
-                                }}
-                            />
-                            <Button size="small" disabled={running} icon={<ImagePlus className="size-3.5" />} onClick={() => fileInputRef.current?.click()}>上传达人图</Button>
-                        </div>
+                                }
+                                event.target.value = "";
+                            }}
+                        />
+                        <Button size="small" disabled={running} icon={<ImagePlus className="size-3.5" />} onClick={() => fileInputRef.current?.click()}>上传人物图</Button>
                     </div>
-                    {!creatorReady ? <div className="mt-1 text-xs text-red-600">请上传达人参考图</div> : null}
+                    {!creatorReady ? <div className="mt-1 text-xs text-red-600">请选择或上传人物参考图</div> : null}
                 </CardField>
             ) : null}
 
@@ -393,6 +404,57 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
     );
 }
 
+function CanvasImageReferencePicker({
+    value,
+    nodes,
+    selectedNode,
+    previewUrl,
+    theme,
+    disabled,
+    placeholder,
+    emptyText,
+    onChange,
+}: {
+    value: string;
+    nodes: CanvasNodeData[];
+    selectedNode?: CanvasNodeData;
+    previewUrl?: string;
+    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    disabled: boolean;
+    placeholder: string;
+    emptyText: string;
+    onChange: (value: string | undefined) => void;
+}) {
+    const preview = selectedNode?.metadata?.content || previewUrl;
+    return (
+        <div className="flex items-center gap-2">
+            <div className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-lg border" style={{ borderColor: theme.node.stroke }}>
+                {preview ? <img src={preview} alt={selectedNode?.title || "参考图"} className="size-full object-cover" /> : <ImagePlus className="size-4" style={{ color: theme.node.muted }} />}
+            </div>
+            <div className="min-w-0 flex-1">
+                <Select
+                    className="w-full"
+                    allowClear
+                    value={value || undefined}
+                    disabled={disabled}
+                    placeholder={placeholder}
+                    onChange={onChange}
+                    options={nodes.map((node) => ({
+                        value: node.id,
+                        label: (
+                            <span className="flex min-w-0 items-center gap-2">
+                                <img src={node.metadata?.content} alt="" className="size-6 shrink-0 rounded object-cover" />
+                                <span className="truncate">{node.title || node.id}</span>
+                            </span>
+                        ),
+                    }))}
+                />
+                {!selectedNode && !previewUrl ? <div className="mt-1 text-[11px]" style={{ color: theme.node.muted }}>{emptyText}</div> : null}
+            </div>
+        </div>
+    );
+}
+
 function CardField({ label, theme, children }: { label: string; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; children: ReactNode }) {
     return (
         <div className="mt-3">
@@ -404,6 +466,14 @@ function CardField({ label, theme, children }: { label: string; theme: (typeof c
 
 function objectRecord(value: unknown) {
     return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function videoReferenceRoles(value: unknown) {
+    const record = objectRecord(value);
+    return {
+        productNodeId: typeof record.productNodeId === "string" ? record.productNodeId : "",
+        creatorNodeId: typeof record.creatorNodeId === "string" ? record.creatorNodeId : "",
+    };
 }
 
 function promptEditorRows(value: string) {

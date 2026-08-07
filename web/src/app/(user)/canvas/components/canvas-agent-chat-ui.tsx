@@ -36,7 +36,7 @@ export function AgentChatMessage({
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     user: LocalUser | null;
     nodes?: CanvasNodeData[];
-    onGenerateVideoFromReference?: (imageNodeIds: string[], options: GenerateAgentVideoOptions) => Promise<GenerateAgentVideoResult>;
+    onGenerateVideoFromReference?: (options: GenerateAgentVideoOptions) => Promise<GenerateAgentVideoResult>;
     onRejectTool?: (id: string) => void;
     onApproveTool?: (id: string) => void;
 }) {

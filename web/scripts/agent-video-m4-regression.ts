@@ -8,7 +8,6 @@ import { availableAgentVideoModels, selectedAgentVideoModel } from "../src/app/(
 import { resolveReferenceImageVideoConfig } from "../src/app/(user)/canvas/utils/video-reference-model.ts";
 import {
     AGENT_VIDEO_CREATOR_FIRST_LINE,
-    AGENT_VIDEO_EXCLUDED_MODEL_IDS,
     AGENT_VIDEO_MARKETS,
     AGENT_VIDEO_PRESETS,
     AGENT_VIDEO_PRODUCT_CONSISTENCY_TAIL,
@@ -114,9 +113,18 @@ const landscapeDefault = selectedAgentVideoModel(landscapeModels, portraitDefaul
 assert.equal(modelOptionName(portraitDefault), "omni_portrait");
 assert.equal(modelOptionName(landscapeDefault), "omni");
 assert.ok(portraitModels.some((item) => googleVideoEntryMode(item.value) === "veo-r2v"));
+assert.equal(portraitModels.find((item) => googleVideoEntryMode(item.value) === "veo-r2v")?.resolution, "720p");
 assert.equal(googleVideoEntryMode(portraitDefault), "omni");
 assert.ok(portraitModels.some((item) => modelOptionName(item.value).toLowerCase() === "seedance 2.0-fast-720p"));
-assert.ok(portraitModels.every((item) => !(AGENT_VIDEO_EXCLUDED_MODEL_IDS as readonly string[]).includes(modelOptionName(item.value).toLowerCase())));
+const qyStandard = portraitModels.find((item) => modelOptionName(item.value).toLowerCase() === "qy-seedance-2.0");
+const qyFast = portraitModels.find((item) => modelOptionName(item.value).toLowerCase() === "qy-seedance-2.0-fast");
+assert.deepEqual(
+    [qyStandard && { durationSeconds: qyStandard.durationSeconds, resolution: qyStandard.resolution, hasAudio: qyStandard.hasAudio }, qyFast && { durationSeconds: qyFast.durationSeconds, resolution: qyFast.resolution, hasAudio: qyFast.hasAudio }],
+    [
+        { durationSeconds: 15, resolution: "1080p", hasAudio: true },
+        { durationSeconds: 15, resolution: "720p", hasAudio: true },
+    ],
+);
 assert.equal(resolveGoogleVideoRouteModelId("omni_portrait", 1, "16:9"), "omni");
 assert.equal(resolveGoogleVideoRouteModelId("veo_3_1_i2v_s_fast_portrait_fl", 1, "16:9"), "veo_3_1_i2v_s_fast_fl");
 assert.equal(resolveGoogleVideoRouteModelId("veo_3_1_r2v_fast_portrait", 2, "16:9"), "veo_3_1_r2v_fast_landscape");
@@ -133,6 +141,24 @@ const resolvedLandscapeConfig = resolveReferenceImageVideoConfig(
 );
 assert.equal(modelOptionName(resolvedLandscapeConfig.videoModel), "omni");
 assert.equal(resolvedLandscapeConfig.size, "1280x720");
+const resolvedQyStandardConfig = resolveReferenceImageVideoConfig(
+    { ...defaultConfig, model: qyStandard!.value, videoModel: qyStandard!.value, size: "720x1280", videoSeconds: "15", vquality: qyStandard!.resolution, videoGenerateAudio: String(qyStandard!.hasAudio) },
+    2,
+);
+const resolvedQyFastConfig = resolveReferenceImageVideoConfig(
+    { ...defaultConfig, model: qyFast!.value, videoModel: qyFast!.value, size: "720x1280", videoSeconds: "15", vquality: qyFast!.resolution, videoGenerateAudio: String(qyFast!.hasAudio) },
+    2,
+);
+assert.deepEqual(
+    [
+        { seconds: resolvedQyStandardConfig.videoSeconds, quality: resolvedQyStandardConfig.vquality, audio: resolvedQyStandardConfig.videoGenerateAudio },
+        { seconds: resolvedQyFastConfig.videoSeconds, quality: resolvedQyFastConfig.vquality, audio: resolvedQyFastConfig.videoGenerateAudio },
+    ],
+    [
+        { seconds: "15", quality: "1080p", audio: "true" },
+        { seconds: "15", quality: "720p", audio: "true" },
+    ],
+);
 const portraitOnlyModels = defaultConfig.videoModels.filter((model) => modelOptionName(model).toLowerCase() === "omni_portrait");
 assert.deepEqual(availableAgentVideoModels({ ...defaultConfig, models: portraitOnlyModels, videoModels: portraitOnlyModels }, "1280x720").map((item) => item.value), []);
 assert.throws(
@@ -253,7 +279,8 @@ console.log(
                 portraitDefault: modelOptionName(portraitDefault),
                 landscapeDefault: modelOptionName(landscapeDefault),
                 entries: portraitModels.map((item) => modelOptionName(item.value)),
-                excluded: AGENT_VIDEO_EXCLUDED_MODEL_IDS,
+                qySeedance: [modelOptionName(qyStandard!.value), modelOptionName(qyFast!.value)],
+                veoMultiReferenceResolution: portraitModels.find((item) => googleVideoEntryMode(item.value) === "veo-r2v")?.resolution,
                 configuredIntersection: "PASS",
                 unintegratedFutureModelHidden: "PASS",
                 landscapeResolvedRequest: { model: modelOptionName(resolvedLandscapeConfig.videoModel), size: resolvedLandscapeConfig.size },
