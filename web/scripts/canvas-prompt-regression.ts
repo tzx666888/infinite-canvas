@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 
-import { buildIdentityPreservingImageEditPrompt, buildIndependentImageStyleVariantPrompt, isVagueStyleChangeRequest, requestsMultiPanelImage } from "../src/lib/image-reference-prompt.ts";
+import {
+    buildCommerceDetailSetVariantPrompt,
+    buildIdentityPreservingImageEditPrompt,
+    buildIndependentImageStyleVariantPrompt,
+    isCommerceDetailSetRequest,
+    isReferenceDerivedImageGenerationRequest,
+    isVagueStyleChangeRequest,
+    requestsMultiPanelImage,
+} from "../src/lib/image-reference-prompt.ts";
 import { composePromptWithUpstreamText } from "../src/app/(user)/canvas/utils/prompt-composition.ts";
 import { selectLeafFailureIds } from "../src/app/(user)/canvas/utils/retry-selection.ts";
 import { isContentPolicyErrorMessage } from "../src/lib/content-policy-error.ts";
@@ -39,6 +47,30 @@ assert.match(secondStyleVariant, /independent style result 2 of 4/i);
 assert.match(firstStyleVariant, /one standalone full-frame image/i);
 assert.notEqual(firstStyleVariant, secondStyleVariant);
 assert.equal(buildIndependentImageStyleVariantPrompt(differentStyleEdit, "改成黑白风格", 0, 4), differentStyleEdit);
+
+assert.equal(isCommerceDetailSetRequest("生成一组不同场景电商详情图"), true);
+assert.equal(isCommerceDetailSetRequest("生成不同场景详情图"), true);
+assert.equal(isCommerceDetailSetRequest("帮我生成一张电商详情图"), false);
+assert.equal(isReferenceDerivedImageGenerationRequest("生成一组不同场景电商详情图"), true);
+assert.equal(isReferenceDerivedImageGenerationRequest("生成电商白底图"), true);
+assert.equal(isReferenceDerivedImageGenerationRequest("把背景改成白色"), false);
+assert.equal(isReferenceDerivedImageGenerationRequest("不同风格"), false);
+
+const commerceDetailEdit = buildIdentityPreservingImageEditPrompt("生成一组不同场景电商详情图", true, targetReference);
+assert.match(commerceDetailEdit, /authoritative product or subject identity reference/i);
+assert.match(commerceDetailEdit, /not a composition template/i);
+assert.doesNotMatch(commerceDetailEdit, /preserve its composition/i);
+assert.doesNotMatch(commerceDetailEdit, /never create a collage/i);
+assert.equal(requestsMultiPanelImage("生成一组不同场景电商详情图"), true);
+
+const firstCommerceDetail = buildCommerceDetailSetVariantPrompt(commerceDetailEdit, "生成一组不同场景电商详情图", 0, 4);
+const secondCommerceDetail = buildCommerceDetailSetVariantPrompt(commerceDetailEdit, "生成一组不同场景电商详情图", 1, 4);
+assert.match(firstCommerceDetail, /complete standalone e-commerce detail board/i);
+assert.match(firstCommerceDetail, /clean 2x2 layout with exactly four coherent panels/i);
+assert.match(firstCommerceDetail, /independent detail-board result 1 of 4/i);
+assert.match(secondCommerceDetail, /independent detail-board result 2 of 4/i);
+assert.notEqual(firstCommerceDetail, secondCommerceDetail);
+assert.equal(buildCommerceDetailSetVariantPrompt(differentStyleEdit, "不同风格", 0, 4), differentStyleEdit);
 
 assert.deepEqual(
     selectLeafFailureIds(
