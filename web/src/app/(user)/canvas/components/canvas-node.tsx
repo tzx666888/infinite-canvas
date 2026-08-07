@@ -751,7 +751,19 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
 
     return (
         <div className="relative h-full w-full">
-            <video ref={videoRef} src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom />
+            <video
+                ref={videoRef}
+                src={node.metadata.content}
+                controls
+                draggable={false}
+                onPointerDownCapture={(event) => {
+                    event.currentTarget.draggable = false;
+                }}
+                onDragStartCapture={(event) => event.preventDefault()}
+                onDragStart={(event) => event.preventDefault()}
+                className="h-full w-full select-none rounded-[18px] bg-black object-contain [-webkit-user-drag:none]"
+                data-canvas-no-zoom
+            />
             {durationLabel ? <span className="pointer-events-none absolute bottom-1 left-2 rounded bg-black/60 px-1 py-px text-[6px] tabular-nums text-white/80">{durationLabel}</span> : null}
         </div>
     );
