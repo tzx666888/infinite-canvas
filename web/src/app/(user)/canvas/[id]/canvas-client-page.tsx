@@ -98,6 +98,7 @@ import { composePromptWithUpstreamText } from "../utils/prompt-composition";
 import { selectLeafFailureIds } from "../utils/retry-selection";
 import { canvasNodeErrorMessage } from "../utils/node-error-display";
 import { canvasVideoModelSelectionPatch, resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
+import { imageJobFailureMetadata, isCanvasImageJobResultUrl, shouldRecoverCanvasImageJob, stageCanvasImageJobResult } from "../utils/image-job-recovery";
 import { AGENT_VIDEO_MARKETS, AGENT_VIDEO_PRESETS } from "../utils/agent-video-presets";
 import { agentVideoFallbackModel, availableAgentVideoModels } from "../utils/agent-video-models";
 import { compileAgentVideoPrompt, prepareAgentVideoPromptForGeneration } from "../utils/agent-video-sop";
@@ -482,6 +483,7 @@ function InfiniteCanvasPage() {
     const [collapsingBatchIds, setCollapsingBatchIds] = useState<Set<string>>(new Set());
     const [openingBatchIds, setOpeningBatchIds] = useState<Set<string>>(new Set());
     const [isNodeDragging, setIsNodeDragging] = useState(false);
+    const [imageRecoveryWakeVersion, setImageRecoveryWakeVersion] = useState(0);
 
     const nodesRef = useRef(nodes);
     const connectionsRef = useRef(connections);
@@ -495,6 +497,7 @@ function InfiniteCanvasPage() {
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
     const recoveringImageJobIdsRef = useRef(new Set<string>());
+    const attemptedImageJobRecoveryIdsRef = useRef(new Set<string>());
     const undoNotificationKeysRef = useRef<Set<string>>(new Set());
     const telemetrySeenConnectionIdsRef = useRef<{ projectId: string; ids: Set<string> } | null>(null);
 
@@ -519,7 +522,10 @@ function InfiniteCanvasPage() {
 
     const finishGenerationRequest = useCallback((targetNodeId: string, controller: AbortController) => {
         const request = generationRequestsRef.current.get(targetNodeId);
-        if (request?.controller === controller) generationRequestsRef.current.delete(targetNodeId);
+        if (request?.controller === controller) {
+            generationRequestsRef.current.delete(targetNodeId);
+            setImageRecoveryWakeVersion((version) => version + 1);
+        }
     }, []);
 
     const beginImageRequest = useCallback((config: AiConfig, targetNodeId: string, signal: AbortSignal) => {
@@ -539,7 +545,26 @@ function InfiniteCanvasPage() {
                 ),
             );
         }
-        return { signal, jobId };
+        return {
+            signal,
+            jobId,
+            onResultReady: jobId
+                ? (images: Array<{ dataUrl: string }>) => {
+                      const resultUrl = images[0]?.dataUrl;
+                      if (!resultUrl) return;
+                      setNodes((prev) =>
+                          prev.map((node) =>
+                              node.id === targetNodeId && node.metadata?.pendingImageJobId === jobId
+                                  ? {
+                                        ...node,
+                                        metadata: stageCanvasImageJobResult(node.metadata, resultUrl),
+                                    }
+                                  : node,
+                          ),
+                      );
+                  }
+                : undefined,
+        };
     }, []);
 
     const stopGenerationByRunningId = useCallback((runningId: string) => {
@@ -729,20 +754,56 @@ function InfiniteCanvasPage() {
     }, [nodes, connections, selectedNodeIds, viewport, connectingParams, connectionTargetNodeId, pendingConnectionCreate]);
 
     useEffect(() => {
+        const retryPendingJobs = (includeReadyResults: boolean) => {
+            let changed = false;
+            nodesRef.current.forEach((node) => {
+                const jobId = node.metadata?.pendingImageJobId;
+                if (!jobId || recoveringImageJobIdsRef.current.has(jobId) || generationRequestsRef.current.has(node.id) || (!includeReadyResults && isCanvasImageJobResultUrl(node.metadata?.content))) return;
+                changed = attemptedImageJobRecoveryIdsRef.current.delete(jobId) || changed;
+            });
+            if (changed) setImageRecoveryWakeVersion((version) => version + 1);
+        };
+        const onFocus = () => retryPendingJobs(false);
+        const onOnline = () => retryPendingJobs(true);
+        const onVisibilityChange = () => {
+            if (document.visibilityState === "visible") retryPendingJobs(false);
+        };
+        window.addEventListener("focus", onFocus);
+        window.addEventListener("online", onOnline);
+        document.addEventListener("visibilitychange", onVisibilityChange);
+        return () => {
+            window.removeEventListener("focus", onFocus);
+            window.removeEventListener("online", onOnline);
+            document.removeEventListener("visibilitychange", onVisibilityChange);
+        };
+    }, []);
+
+    useEffect(() => {
         if (!projectLoaded) return;
-        const pendingNodes = nodes.filter((node) => node.type === CanvasNodeType.Image && node.metadata?.status === NODE_STATUS_LOADING && Boolean(node.metadata.pendingImageJobId));
+        const pendingNodes = nodes.filter((node) => node.type === CanvasNodeType.Image && shouldRecoverCanvasImageJob(node.metadata));
         pendingNodes.forEach((pendingNode) => {
             const jobId = pendingNode.metadata?.pendingImageJobId;
-            if (!jobId || recoveringImageJobIdsRef.current.has(jobId)) return;
+            if (!jobId || recoveringImageJobIdsRef.current.has(jobId) || attemptedImageJobRecoveryIdsRef.current.has(jobId)) return;
             // Live submissions already own their controller. Recovery is only for jobs restored from storage.
             if (generationRequestsRef.current.has(pendingNode.id)) return;
+            attemptedImageJobRecoveryIdsRef.current.add(jobId);
             recoveringImageJobIdsRef.current.add(jobId);
             const runningId = pendingNode.metadata?.batchRootId || pendingNode.id;
             const controller = startGenerationRequest(pendingNode.id, runningId, runningId);
+            let stagedResultUrl = isCanvasImageJobResultUrl(pendingNode.metadata?.content) ? pendingNode.metadata?.content : undefined;
 
             void (async () => {
                 try {
-                    const image = await resumeCanvasImageJob(jobId, { signal: controller.signal }).then((items) => items[0]);
+                    const image = await resumeCanvasImageJob(jobId, {
+                        signal: controller.signal,
+                        onResultReady: (items) => {
+                            const resultUrl = items[0]?.dataUrl;
+                            if (!resultUrl) return;
+                            stagedResultUrl = resultUrl;
+                            setNodes((prev) => prev.map((node) => (node.id === pendingNode.id && node.metadata?.pendingImageJobId === jobId ? { ...node, metadata: stageCanvasImageJobResult(node.metadata, resultUrl) } : node)));
+                        },
+                    }).then((items) => items[0]);
+                    stagedResultUrl = image.dataUrl;
                     const uploaded = await uploadImage(image.dataUrl);
                     const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
                     const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
@@ -785,6 +846,7 @@ function InfiniteCanvasPage() {
                             return node;
                         });
                     });
+                    attemptedImageJobRecoveryIdsRef.current.delete(jobId);
                 } catch (error) {
                     if (isGenerationCanceled(error)) return;
                     const errorDetails = error instanceof Error ? error.message : "图片结果恢复失败";
@@ -792,20 +854,11 @@ function InfiniteCanvasPage() {
                     setNodes((prev) => {
                         const target = prev.find((node) => node.id === pendingNode.id);
                         const batchRootId = target?.metadata?.batchRootId;
-                        const next = prev.map((node) =>
-                            node.id === pendingNode.id
-                                ? {
-                                      ...node,
-                                      metadata: {
-                                          ...node.metadata,
-                                          status: NODE_STATUS_ERROR,
-                                          statusMessage: undefined,
-                                          errorDetails,
-                                          pendingImageJobId: terminal ? undefined : node.metadata?.pendingImageJobId,
-                                      },
-                                  }
-                                : node,
-                        );
+                        const next = prev.map((node) => {
+                            if (node.id !== pendingNode.id) return node;
+                            const metadata = stagedResultUrl && !isCanvasImageJobResultUrl(node.metadata?.content) ? stageCanvasImageJobResult(node.metadata, stagedResultUrl) : node.metadata;
+                            return { ...node, metadata: imageJobFailureMetadata(metadata, errorDetails, terminal) };
+                        });
                         if (!batchRootId) return next;
                         const root = next.find((node) => node.id === batchRootId);
                         const children = next.filter((node) => node.metadata?.batchRootId === batchRootId);
@@ -818,7 +871,7 @@ function InfiniteCanvasPage() {
                 }
             })();
         });
-    }, [finishGenerationRequest, nodes, projectLoaded, startGenerationRequest]);
+    }, [finishGenerationRequest, imageRecoveryWakeVersion, nodes, projectLoaded, startGenerationRequest]);
 
     useEffect(() => {
         if (!nodes.some((node) => node.metadata?.status === NODE_STATUS_LOADING)) return;
@@ -5938,13 +5991,7 @@ function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
 }
 
 function imageFailureMetadata(metadata: CanvasNodeMetadata | undefined, error: unknown, errorDetails: string): CanvasNodeMetadata {
-    return {
-        ...metadata,
-        status: NODE_STATUS_ERROR,
-        statusMessage: undefined,
-        errorDetails,
-        pendingImageJobId: isTerminalCanvasImageJobError(error) ? undefined : metadata?.pendingImageJobId,
-    };
+    return imageJobFailureMetadata(metadata, errorDetails, isTerminalCanvasImageJobError(error));
 }
 
 function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
@@ -6410,7 +6457,7 @@ function trackGenerationResult({
 function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
     const recoverableBatchRootIds = new Set(
         nodes
-            .filter((node) => node.metadata?.status === NODE_STATUS_LOADING && node.metadata.pendingImageJobId && node.metadata.batchRootId)
+            .filter((node) => node.metadata?.pendingImageJobId && node.metadata.batchRootId)
             .map((node) => node.metadata?.batchRootId)
             .filter((value): value is string => Boolean(value)),
     );

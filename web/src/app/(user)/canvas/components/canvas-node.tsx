@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { AlertTriangle, Box, ChevronRight, Image as ImageIcon, Music2, RefreshCw, Star, Video } from "lucide-react";
+import { AlertTriangle, Box, ChevronRight, Image as ImageIcon, Loader2, Music2, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -489,7 +489,8 @@ function NodeContent(props: NodeContentRendererProps): React.ReactElement | null
         return <>{props.renderNodeContent(props.node) ?? null}</>;
     }
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
-    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} label={props.node.metadata?.statusMessage} />;
+    const hasVisibleImageResult = props.node.type === CanvasNodeType.Image && Boolean(props.node.metadata?.content);
+    if (props.node.metadata?.status === "loading" && !hasVisibleImageResult) return <LoadingContent theme={props.theme} label={props.node.metadata?.statusMessage} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
 
     const Renderer = nodeContentRenderers[props.node.type];
@@ -835,6 +836,12 @@ function ImageContent({
                         <AlertTriangle className="size-6 text-amber-300" />
                         <div className="text-xs font-semibold">生成结果无法读取</div>
                         <div className="max-w-[160px] text-[10px] leading-snug text-white/55">此历史结果未能成功保存，请重新生成</div>
+                    </div>
+                ) : null}
+                {node.metadata?.pendingImageJobId && !imageLoadFailed ? (
+                    <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex items-center justify-center gap-1.5 rounded-md bg-black/65 px-2 py-1.5 text-[10px] font-medium text-white shadow-sm backdrop-blur-sm">
+                        {node.metadata.status === "loading" ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+                        <span className="truncate">{node.metadata.statusMessage || "图片已生成，等待本地保存"}</span>
                     </div>
                 ) : null}
             </div>

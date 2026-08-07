@@ -43,6 +43,7 @@ process.env.IMAGE_JOB_DIR = jobDirectory;
 process.env.TOKAXIS_INTERNAL_ORIGIN = `http://127.0.0.1:${address.port}`;
 
 const { cancelImageJob, collectImageJobOutputs, getImageJob, readImageJobResult, submitImageJob, toPublicImageJob } = await import("../src/server/image-job-store.ts");
+const { imageJobFailureMetadata, shouldRecoverCanvasImageJob, stageCanvasImageJobResult } = await import("../src/app/(user)/canvas/utils/image-job-recovery.ts");
 
 try {
     const nestedOutputs = collectImageJobOutputs({
@@ -134,10 +135,38 @@ try {
     const canvasClientSource = await readFile(path.join(import.meta.dirname, "../src/app/(user)/canvas/[id]/canvas-client-page.tsx"), "utf8");
     assert.match(canvasClientSource, /if \(generationRequestsRef\.current\.has\(pendingNode\.id\)\) return;/, "reload recovery must not take over and abort a live image submission");
     assert.match(canvasClientSource, /await runWithConcurrency\(\s*targetIds,\s*IMAGE_TASK_CONCURRENCY_LIMIT,\s*async \(targetId, targetIndex\) =>/, "generic image batches must allow all selected tasks while the API layer bounds uploads");
+    assert.match(canvasClientSource, /shouldRecoverCanvasImageJob\(node\.metadata\)/, "recovery must include every node that still owns a persisted image job id");
+    assert.match(canvasClientSource, /stageCanvasImageJobResult\(node\.metadata, resultUrl\)/, "a completed server result must be shown before browser persistence finishes");
 
     const imageApiSource = await readFile(path.join(import.meta.dirname, "../src/services/api/image.ts"), "utf8");
     assert.match(imageApiSource, /return status === 408 \|\| status >= 500;/, "gateway submit failures must be treated as ambiguous");
     assert.match(imageApiSource, /return resumeCanvasImageJobAfterAmbiguousSubmit\(jobId, submitError, options\);/, "ambiguous submissions must probe their persisted job before failing");
+    assert.match(imageApiSource, /while \(true\)[\s\S]*?fetch\(`\/api\/image-jobs\//, "a resumed tab must query the job before applying its local timeout");
+    assert.match(imageApiSource, /window\.addEventListener\("focus", onWake/, "returning to the canvas must wake image polling immediately");
+    assert.match(imageApiSource, /document\.addEventListener\("visibilitychange", onWake\)/, "visible tabs must wake image polling immediately");
+    assert.match(imageApiSource, /options\?\.onResultReady\?\.\(results\)/, "the canvas must be notified as soon as server results are ready");
+
+    const stagedMetadata = stageCanvasImageJobResult({ pendingImageJobId: jobId, status: "loading", storageKey: "image:old" }, publicJob.results![0]!.url!);
+    assert.equal(stagedMetadata.content, publicJob.results![0]!.url);
+    assert.equal(stagedMetadata.storageKey, undefined, "a new server result must never hydrate the previous stored image");
+    assert.equal(stagedMetadata.status, "loading");
+    assert.equal(shouldRecoverCanvasImageJob(stagedMetadata), true);
+
+    const recoverableSaveFailure = imageJobFailureMetadata(stagedMetadata, "temporary IndexedDB failure", false);
+    assert.equal(recoverableSaveFailure.status, "success", "a visible generated result must not be replaced by an error card when local persistence fails");
+    assert.equal(recoverableSaveFailure.pendingImageJobId, jobId, "the persisted job id must remain available for reload recovery");
+    assert.equal(shouldRecoverCanvasImageJob(recoverableSaveFailure), true);
+
+    const terminalFailure = imageJobFailureMetadata({ pendingImageJobId: jobId, status: "loading" }, "content rejected", true);
+    assert.equal(terminalFailure.status, "error");
+    assert.equal(terminalFailure.pendingImageJobId, undefined, "terminal upstream failures must not loop forever");
+
+    const imageStorageSource = await readFile(path.join(import.meta.dirname, "../src/services/image-storage.ts"), "utf8");
+    assert.match(imageStorageSource, /if \(!response\.ok\) throw new Error/, "result downloads must reject HTTP error bodies instead of storing them as images");
+    assert.match(imageStorageSource, /IMAGE_DOWNLOAD_ATTEMPTS = 3/, "result downloads must retry without creating another paid generation");
+
+    const imageNodeSource = await readFile(path.join(import.meta.dirname, "../src/app/(user)/canvas/components/canvas-node.tsx"), "utf8");
+    assert.match(imageNodeSource, /hasVisibleImageResult/, "completed pixels must remain visible while local persistence is still running");
 
     process.stdout.write("image job recovery regression passed\n");
 } finally {

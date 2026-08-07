@@ -111,7 +111,13 @@ type GeminiPayload = {
     promptFeedback?: { blockReason?: string };
 };
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
-export type RequestOptions = { signal?: AbortSignal; jobId?: string };
+export type GeneratedImage = { id: string; dataUrl: string };
+export type RequestOptions = {
+    signal?: AbortSignal;
+    jobId?: string;
+    onResultReady?: (images: GeneratedImage[]) => void;
+    pollTimeoutMs?: number;
+};
 
 type CanvasImageJobResponse = {
     id?: string;
@@ -177,11 +183,14 @@ export async function cancelCanvasImageJob(jobId: string) {
     }
 }
 
-export async function resumeCanvasImageJob(jobId: string, options?: Pick<RequestOptions, "signal">) {
+export async function resumeCanvasImageJob(jobId: string, options?: Pick<RequestOptions, "signal" | "onResultReady" | "pollTimeoutMs">) {
     const startedAt = Date.now();
+    const pollTimeoutMs = options?.pollTimeoutMs ?? CANVAS_IMAGE_JOB_TIMEOUT_MS;
     let consecutiveNetworkFailures = 0;
 
-    while (Date.now() - startedAt < CANVAS_IMAGE_JOB_TIMEOUT_MS) {
+    // Always query once after a suspended tab wakes up. A browser may pause timers
+    // beyond the nominal timeout while the server finishes the job successfully.
+    while (true) {
         if (options?.signal?.aborted) throw new DOMException("请求已取消", "AbortError");
         try {
             const response = await fetch(`/api/image-jobs/${encodeURIComponent(jobId)}`, {
@@ -202,6 +211,11 @@ export async function resumeCanvasImageJob(jobId: string, options?: Pick<Request
                     .sort((left, right) => (left.index || 0) - (right.index || 0))
                     .map((result) => ({ id: nanoid(), dataUrl: result.url }));
                 if (!results.length) throw new CanvasImageJobError("图片任务已完成，但结果文件不存在");
+                try {
+                    options?.onResultReady?.(results);
+                } catch (error) {
+                    console.warn("[canvas] failed to stage completed image result", error);
+                }
                 return results;
             }
         } catch (error) {
@@ -210,9 +224,9 @@ export async function resumeCanvasImageJob(jobId: string, options?: Pick<Request
             consecutiveNetworkFailures += 1;
             if (consecutiveNetworkFailures >= 8) throw new CanvasImageJobError("画布暂时无法查询图片任务，刷新页面后会继续恢复", false);
         }
+        if (Date.now() - startedAt >= pollTimeoutMs) throw new CanvasImageJobError("图片任务等待超时，请稍后重试", false);
         await waitForImageJobPoll(CANVAS_IMAGE_JOB_POLL_INTERVAL_MS, options?.signal);
     }
-    throw new CanvasImageJobError("图片任务等待超时，请稍后重试");
 }
 
 type ImageJobBodyFactory = () => Record<string, unknown> | FormData | Promise<Record<string, unknown> | FormData>;
@@ -254,7 +268,7 @@ function shouldRecoverCanvasImageJobSubmission(status: number) {
     return status === 408 || status >= 500;
 }
 
-async function resumeCanvasImageJobAfterAmbiguousSubmit(jobId: string, submitError: CanvasImageJobError, options: Pick<RequestOptions, "signal">) {
+async function resumeCanvasImageJobAfterAmbiguousSubmit(jobId: string, submitError: CanvasImageJobError, options: Pick<RequestOptions, "signal" | "onResultReady" | "pollTimeoutMs">) {
     for (let attempt = 0; attempt < CANVAS_IMAGE_JOB_SUBMIT_RECOVERY_ATTEMPTS; attempt += 1) {
         try {
             return await resumeCanvasImageJob(jobId, options);
@@ -282,15 +296,40 @@ function waitForImageJobPoll(delayMs: number, signal?: AbortSignal) {
             reject(new DOMException("请求已取消", "AbortError"));
             return;
         }
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const cleanup = () => {
+            if (timer) clearTimeout(timer);
+            signal?.removeEventListener("abort", onAbort);
+            if (typeof window !== "undefined") {
+                window.removeEventListener("focus", onWake);
+                window.removeEventListener("online", onWake);
+            }
+            if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onWake);
+        };
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve();
+        };
         const onAbort = () => {
-            clearTimeout(timer);
+            if (settled) return;
+            settled = true;
+            cleanup();
             reject(new DOMException("请求已取消", "AbortError"));
         };
-        const timer = setTimeout(() => {
-            signal?.removeEventListener("abort", onAbort);
-            resolve();
-        }, delayMs);
+        const onWake = () => {
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+            finish();
+        };
+        timer = setTimeout(finish, delayMs);
         signal?.addEventListener("abort", onAbort, { once: true });
+        if (typeof window !== "undefined") {
+            window.addEventListener("focus", onWake, { once: true });
+            window.addEventListener("online", onWake, { once: true });
+        }
+        if (typeof document !== "undefined") document.addEventListener("visibilitychange", onWake);
     });
 }
 
