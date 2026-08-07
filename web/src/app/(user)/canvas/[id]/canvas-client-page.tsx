@@ -31,7 +31,7 @@ import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { IMAGE_TASK_CONCURRENCY_LIMIT } from "@/lib/image-request-concurrency";
-import { isContentPolicyErrorMessage } from "@/lib/content-policy-error";
+import { isContentPolicyErrorMessage, isIdentifiablePersonReferenceErrorMessage } from "@/lib/content-policy-error";
 import { buildSceneAwareImageEditPrompt } from "@/lib/fusion-plan-prompt";
 import { resolveFusionReferenceRoles } from "@/lib/fusion-reference-roles";
 import { buildCommerceDetailSetVariantPrompt, buildIdentityPreservingImageEditPrompt, buildIndependentImageStyleVariantPrompt } from "@/lib/image-reference-prompt";
@@ -4707,13 +4707,18 @@ function InfiniteCanvasPage() {
                 const errorDetails = videoNode?.metadata?.errorDetails?.trim() || "";
                 if (videoNode?.metadata?.status === NODE_STATUS_SUCCESS && videoNode.metadata.content) return { ok: true, videoNodeId: videoId, creatorNodeId };
                 if (errorDetails) {
-                    const policyFailure = isContentPolicyErrorMessage(errorDetails) || /unsafe|content.?policy|copyright|infring|肖像|portrait.+protect|侵权|审核|安全过滤/iu.test(errorDetails);
+                    const personReferenceFailure = isIdentifiablePersonReferenceErrorMessage(errorDetails);
+                    const policyFailure = personReferenceFailure || isContentPolicyErrorMessage(errorDetails) || /unsafe|content.?policy|copyright|infring|肖像|portrait.+protect|侵权|审核|安全过滤/iu.test(errorDetails);
                     const retryModelId = agentVideoFallbackModel(availableAgentVideoModels(effectiveConfig, options.size, preset.referenceImages), options.model);
                     return {
                         ok: false,
                         videoNodeId: videoId,
                         creatorNodeId,
-                        error: policyFailure ? "当前模型因内容安全或肖像保护未能完成生成，你可以换一个模型后手动重试。" : "视频生成失败，请检查失败节点详情后重试。",
+                        error: personReferenceFailure
+                            ? "参考人物图未通过上游隐私审核，失败任务会自动退回额度。请更换已授权且合规的人物图，或改用 Omni / Veo 重试。"
+                            : policyFailure
+                              ? "当前模型因内容安全或肖像保护未能完成生成，失败任务会自动退回额度，你可以换一个模型后手动重试。"
+                              : "视频生成失败，请检查失败节点详情后重试。",
                         errorKind: policyFailure ? "content_policy" : generationTelemetryErrorKind(errorDetails),
                         retryModelId: policyFailure ? retryModelId : undefined,
                     };

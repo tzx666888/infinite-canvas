@@ -78,7 +78,7 @@ export const AGENT_VIDEO_MODEL_OPTIONS = [
         durationSeconds: 15,
         resolution: "1080p",
         hasAudio: true,
-        recommendation: "有声高清",
+        recommendation: "有声高清；真人图受隐私审核",
     },
     {
         id: "seedance-qy-fast",
@@ -87,7 +87,7 @@ export const AGENT_VIDEO_MODEL_OPTIONS = [
         durationSeconds: 15,
         resolution: "720p",
         hasAudio: true,
-        recommendation: "有声快速",
+        recommendation: "有声快速；真人图受隐私审核",
     },
 ] as const satisfies readonly AgentVideoModelOption[];
 export const AGENT_VIDEO_DEFAULT_MODEL_ID = "omni";

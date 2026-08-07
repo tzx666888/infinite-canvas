@@ -1,4 +1,4 @@
-import { isContentPolicyErrorMessage } from "../../../../lib/content-policy-error";
+import { isContentPolicyErrorMessage, isIdentifiablePersonReferenceErrorMessage } from "../../../../lib/content-policy-error";
 
 export type CanvasNodeErrorDisplay = {
     title: string;
@@ -44,6 +44,13 @@ export function describeCanvasNodeError(errorDetails?: string): CanvasNodeErrorD
         return {
             title: "音频生成被模型过滤",
             message: "模型没有通过音频安全或处理检查。请检查口播内容后手动重试。",
+        };
+    }
+
+    if (isIdentifiablePersonReferenceErrorMessage(text)) {
+        return {
+            title: "参考人物图未通过隐私审核",
+            message: "当前上游未接受这张可识别真人参考图，失败任务会自动退回额度。请更换已授权且合规的人物图，或在视频创作卡改用 Omni / Veo 后重试。",
         };
     }
 
