@@ -33,13 +33,22 @@ const COMMERCE_DETAIL_DIRECTIONS = [
     "lifestyle demonstration with an adult user, realistic environment, and unobstructed product visibility",
     "clean catalog presentation with front view, angled view, close detail, and package relationship",
 ];
+const COMMERCE_DETAIL_LAYOUT_DIRECTIONS = [
+    "a dominant product hero supported by a few organically sized detail zones",
+    "a full-bleed lifestyle composition with restrained supporting product details",
+    "an asymmetric editorial split that balances product, use context, and close detail",
+    "a clean catalog composition with varied image scales and generous spacing",
+    "a retail campaign composition with one strong focal area and secondary information zones",
+    "a layered product-story composition that moves naturally from hero to use to detail",
+    "a minimal premium composition with deliberate negative space and one carefully placed supporting detail",
+];
 
 export function imageReferenceLabel(index: number) {
     return `图片${index + 1}`;
 }
 
 export function requestsMultiPanelImage(prompt: string) {
-    return EXPLICIT_MULTI_PANEL_PATTERN.test(prompt.trim()) || isCommerceDetailSetRequest(prompt);
+    return EXPLICIT_MULTI_PANEL_PATTERN.test(prompt.trim());
 }
 
 export function isCommerceDetailSetRequest(prompt: string) {
@@ -79,21 +88,25 @@ export function buildCommerceDetailSetVariantPrompt(basePrompt: string, userProm
     if (!isCommerceDetailSetRequest(userPrompt)) return basePrompt;
     const count = Math.max(1, Math.min(15, Math.floor(Math.abs(variantCount)) || 1));
     const index = Math.max(0, Math.min(count - 1, Math.floor(Math.abs(variantIndex)) || 0));
+    const hasExplicitLayout = requestsMultiPanelImage(userPrompt);
     const rules = [
         basePrompt.trim(),
         "",
         "COMMERCE DETAIL SET INTERPRETATION:",
-        "- Create one complete standalone e-commerce detail board, not a lone hero poster.",
-        "- Use a clean 2x2 layout with exactly four coherent panels: product hero, real-world use or demonstration, close-up material/component detail, and packaging or included-item presentation.",
-        "- Every panel must show a genuinely different composition or viewing distance while preserving the exact same product identity, shape, color, parts, logo, and label layout.",
-        "- Keep the four panels visually coordinated as one retail-ready detail image. Do not add nested grids, inset comparisons, duplicated products within a panel, or unrelated decorative scenes.",
+        "- Create one standalone e-commerce detail image as one member of the requested set.",
+        "- Keep the exact product identity, shape, color, parts, logo, and label layout while creating a genuinely new scene and composition.",
+        hasExplicitLayout
+            ? "- Honor the exact layout and panel count explicitly requested by the user."
+            : "- The layout is intentionally flexible: it may be full-bleed, split, asymmetric, editorial, or multi-section according to the content. Never force a fixed grid, fixed panel count, or the same layout across the set.",
+        "- Do not combine all batch results into one contact sheet. Return only this result as one complete retail-ready image.",
         "- Do not invent claims, ingredients, certifications, prices, ratings, discounts, or testimonial text. Preserve only product wording visible in the reference or wording supplied by the user.",
     ];
     if (count > 1) {
         rules.push(
-            `- This is independent detail-board result ${index + 1} of ${count}. Return only this board and do not include the other results.`,
+            `- This is independent detail-image result ${index + 1} of ${count}. It must differ visibly from the other results in both scene and composition.`,
             `- Distinct scene direction for this result: ${COMMERCE_DETAIL_DIRECTIONS[index % COMMERCE_DETAIL_DIRECTIONS.length]}.`,
         );
+        if (!hasExplicitLayout) rules.push(`- Distinct layout direction for this result: ${COMMERCE_DETAIL_LAYOUT_DIRECTIONS[index % COMMERCE_DETAIL_LAYOUT_DIRECTIONS.length]}.`);
     }
     return rules.join("\n");
 }
@@ -106,6 +119,15 @@ function imageEditOutputLayoutRules(prompt: string) {
         "- OUTPUT LAYOUT LOCK: Return one continuous full-frame image containing one scene and one edited version of the subject.",
         "- Never create a collage, grid, split screen, contact sheet, before-and-after comparison, inset, multi-panel layout, or multiple style variations inside the image.",
         '- Phrases such as "different style", "another style", or "change the style" mean one alternative full-frame image, not several versions.',
+    ];
+}
+
+function referenceDerivedOutputLayoutRules(prompt: string) {
+    if (requestsMultiPanelImage(prompt)) return imageEditOutputLayoutRules(prompt);
+    if (!isCommerceDetailSetRequest(prompt)) return imageEditOutputLayoutRules(prompt);
+    return [
+        "- This commerce detail-set request creates a new retail composition rather than preserving Image 1's layout.",
+        "- Keep each output standalone, but allow the layout to be full-bleed, split, asymmetric, editorial, or multi-section as appropriate. Do not force a fixed grid or panel count.",
     ];
 }
 
@@ -129,7 +151,7 @@ export function buildIdentityPreservingImageEditPrompt(prompt: string, hasTarget
                 "- Create a new composition that fulfills the requested scene or commerce asset instead of preserving Image 1's original background, crop, camera, or layout.",
                 "- Preserve the exact subject identity, product silhouette, proportions, part count, part arrangement, materials, colors, logo, and label placement from Image 1.",
                 "- Keep the product fully recognizable and physically plausible in every requested scene.",
-                ...imageEditOutputLayoutRules(text),
+                ...referenceDerivedOutputLayoutRules(text),
                 "- Return only the newly composed image.",
             ].join("\n");
         }
