@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-    "version": "3.0.66",
+    "version": "3.0.67",
     "private": true,
     "type": "module",
     "scripts": {
@@ -20,6 +20,7 @@
         "test:google-image": "node --experimental-strip-types scripts/google-image-model-regression.ts",
         "test:image-concurrency": "node --experimental-strip-types scripts/image-concurrency-regression.ts",
         "test:image-jobs": "node --experimental-strip-types scripts/image-job-recovery-regression.ts",
+        "test:canvas-viewport": "node --experimental-strip-types scripts/canvas-viewport-regression.ts",
         "test:canvas-prompts": "node --experimental-strip-types scripts/canvas-prompt-regression.ts",
         "format": "prettier --write .",
         "format:check": "prettier --check ."
