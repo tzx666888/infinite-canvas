@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, utimes } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { NextRequest } from "next/server.js";
 
 import { GET, POST } from "../src/app/api/tokaxis/[...path]/route.ts";
+import { readTemporaryMedia } from "../src/lib/temporary-media.ts";
+
+const originalTemporaryMediaDirectory = process.env.VIDEO_REFERENCE_DIR;
+const temporaryMediaDirectory = await mkdtemp(join(tmpdir(), "tokaxis-h3-media-"));
+process.env.VIDEO_REFERENCE_DIR = temporaryMediaDirectory;
 
 const capturedBodies: Array<Record<string, unknown>> = [];
 const capturedUrls: string[] = [];
@@ -126,6 +134,23 @@ try {
     assert.deepEqual(capturedBodies.at(-1), h3Payload, "MiniMax H3 JSON must pass through without cross-vendor rewriting");
     assert.match(capturedUrls.at(-1) || "", /\/v1\/videos\/generations$/, "MiniMax H3 creation must use the plural async route");
 
+    const h3LocalImageResponse = await create({
+        ...h3Payload,
+        images: ["data:image/png;base64,iVBORw0KGgo="],
+    });
+    assert.equal(h3LocalImageResponse.status, 200);
+    const h3LocalImageBody = capturedBodies.at(-1)!;
+    const temporaryImageUrl = String((h3LocalImageBody.images as string[])[0]);
+    assert.match(temporaryImageUrl, /^http:\/\/localhost\/api\/tokaxis-media\/[a-f0-9]{48}\.png$/, "H3 local images must become public temporary URLs");
+    assert.doesNotMatch(temporaryImageUrl, /data:image|contract-test/, "temporary media URLs must not expose image data or the API key");
+    const temporaryImageName = new URL(temporaryImageUrl).pathname.split("/").at(-1)!;
+    const storedImage = await readTemporaryMedia(temporaryImageName);
+    assert.equal(storedImage?.mimeType, "image/png");
+    assert.ok(storedImage?.content.length, "temporary media must be readable before it expires");
+    const expiredAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    await utimes(join(temporaryMediaDirectory, temporaryImageName), expiredAt, expiredAt);
+    assert.equal(await readTemporaryMedia(temporaryImageName), null, "temporary media must be deleted after 24 hours");
+
     const seedancePollRequest = new NextRequest("http://localhost/api/tokaxis/v1/videos/generations/task_seedance_contract", {
         method: "GET",
         headers: { Authorization: "Bearer contract-test" },
@@ -191,4 +216,7 @@ try {
     console.log("video proxy contract regression: passed");
 } finally {
     globalThis.fetch = originalFetch;
+    if (originalTemporaryMediaDirectory === undefined) delete process.env.VIDEO_REFERENCE_DIR;
+    else process.env.VIDEO_REFERENCE_DIR = originalTemporaryMediaDirectory;
+    await rm(temporaryMediaDirectory, { recursive: true, force: true });
 }

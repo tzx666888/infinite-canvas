@@ -2,6 +2,8 @@ import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { NextRequest } from "next/server";
 
+import { storeTemporaryMediaDataUrl } from "../../../../lib/temporary-media.ts";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -19,22 +21,7 @@ const FORWARDED_PATHS = [
     /^v1\/contents\/generations\/tasks(?:\/[^/]+)?$/,
     /^v1\/models$/,
 ];
-const STRIPPED_REQUEST_HEADERS = [
-    "accept-encoding",
-    "authorization",
-    "x-tokaxis-api-key",
-    "cookie",
-    "host",
-    "content-length",
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-];
+const STRIPPED_REQUEST_HEADERS = ["accept-encoding", "authorization", "x-tokaxis-api-key", "cookie", "host", "content-length", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"];
 const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "content-length", "transfer-encoding", "x-oneapi-request-id", "x-oneapi-node", "x-oneapi-version"];
 const GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE = "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
 const TOKAXIS_ASYNC_VIDEO_MODELS = new Set(["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimax-h3-c4"]);
@@ -77,11 +64,12 @@ async function proxyTokaxis(request: NextRequest, context: RouteContext) {
     headers.set("Authorization", authorization);
     headers.set("Accept-Encoding", "identity");
 
+    let videoModel = "";
     if (request.method === "POST" && path === "v1/videos/generations") {
-        const model = await videoGenerationRequestModel(request);
-        if (!isTokaxisAsyncVideoModel(model)) {
-            if (isTokaxisLegacyGrokVideoModel(model)) return proxyLegacyGrokVideoGeneration(request, authorization);
-            return Response.json({ error: { code: "unsupported_video_model", message: `视频模型 ${model || "(空)"} 不支持 /v1/videos/generations，已阻止跨厂商路由` } }, { status: 400 });
+        videoModel = await videoGenerationRequestModel(request);
+        if (!isTokaxisAsyncVideoModel(videoModel)) {
+            if (isTokaxisLegacyGrokVideoModel(videoModel)) return proxyLegacyGrokVideoGeneration(request, authorization);
+            return Response.json({ error: { code: "unsupported_video_model", message: `视频模型 ${videoModel || "(空)"} 不支持 /v1/videos/generations，已阻止跨厂商路由` } }, { status: 400 });
         }
     }
     const legacyVideoTaskId = request.method === "GET" ? /^v1\/videos\/([^/]+)$/.exec(path)?.[1] : undefined;
@@ -89,7 +77,13 @@ async function proxyTokaxis(request: NextRequest, context: RouteContext) {
         return proxyLegacyGrokVideoPoll(upstreamUrl, authorization, legacyVideoTaskId);
     }
 
-    const body = request.method === "GET" ? undefined : await request.arrayBuffer();
+    let body: ArrayBuffer | undefined;
+    try {
+        body = request.method === "GET" ? undefined : isMiniMaxH3Model(videoModel) ? await prepareMiniMaxH3RequestBody(request) : await request.arrayBuffer();
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "MiniMax-H3-c4 参考素材处理失败";
+        return Response.json({ error: { code: "invalid_reference_media", message } }, { status: 400 });
+    }
     if (request.method === "POST" && LONG_RUNNING_IMAGE_PATH.test(path)) {
         return proxyLongRunningImage(upstreamUrl, headers, body);
     }
@@ -124,6 +118,31 @@ async function proxyTokaxis(request: NextRequest, context: RouteContext) {
     });
 }
 
+async function prepareMiniMaxH3RequestBody(request: NextRequest) {
+    const payload = (await request.json()) as Record<string, unknown>;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("MiniMax-H3-c4 视频请求必须是 JSON 对象");
+    const publicOrigin = process.env.CANVAS_PUBLIC_ORIGIN || request.nextUrl.origin;
+    for (const field of ["images", "reference_images", "reference_image_urls", "audios", "reference_audios"] as const) {
+        const value = payload[field];
+        if (value !== undefined) payload[field] = Array.isArray(value) ? await Promise.all(value.map((item) => materializeMiniMaxH3Media(item, publicOrigin))) : await materializeMiniMaxH3Media(value, publicOrigin);
+    }
+    for (const field of ["image", "first_image", "last_image", "start_frame", "end_frame", "input_reference"] as const) {
+        if (payload[field] !== undefined) payload[field] = await materializeMiniMaxH3Media(payload[field], publicOrigin);
+    }
+    return new Blob([JSON.stringify(payload)], { type: "application/json" }).arrayBuffer();
+}
+
+async function materializeMiniMaxH3Media(value: unknown, publicOrigin: string): Promise<unknown> {
+    if (typeof value === "string") return value.startsWith("data:") ? storeTemporaryMediaDataUrl(value, publicOrigin) : value;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    const record = { ...(value as Record<string, unknown>) };
+    if (typeof record.url === "string" && record.url.startsWith("data:")) record.url = await storeTemporaryMediaDataUrl(record.url, publicOrigin);
+    if (record.image_url && typeof record.image_url === "object" && !Array.isArray(record.image_url)) {
+        record.image_url = await materializeMiniMaxH3Media(record.image_url, publicOrigin);
+    }
+    return record;
+}
+
 async function videoGenerationRequestModel(request: NextRequest) {
     try {
         const payload = (await request.clone().json()) as { model?: unknown };
@@ -135,6 +154,10 @@ async function videoGenerationRequestModel(request: NextRequest) {
 
 function isTokaxisAsyncVideoModel(model: string) {
     return TOKAXIS_ASYNC_VIDEO_MODELS.has(model.trim().toLowerCase().split("::").at(-1) || "");
+}
+
+function isMiniMaxH3Model(model: string) {
+    return model.trim().toLowerCase().split("::").at(-1) === "minimax-h3-c4";
 }
 
 function isTokaxisLegacyGrokVideoModel(model: string) {
@@ -187,9 +210,7 @@ async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorizatio
                 });
             }
             const normalizedFailureText = normalizeLegacyVideoCreateFailureText(responseText);
-            const submissionUnknown =
-                !normalizedFailureText &&
-                (upstreamResponse.status === 408 || upstreamResponse.status === 409 || upstreamResponse.status === 425 || upstreamResponse.status >= 500);
+            const submissionUnknown = !normalizedFailureText && (upstreamResponse.status === 408 || upstreamResponse.status === 409 || upstreamResponse.status === 425 || upstreamResponse.status >= 500);
             if (submissionUnknown) return videoSubmissionUnknownResponse(upstreamResponse.status);
             const normalizedResponseText = normalizedFailureText || responseText;
             const taskId = readVideoTaskId(normalizedResponseText);
@@ -211,10 +232,7 @@ async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorizatio
 
 function videoSubmissionUnknownResponse(upstreamStatus?: number) {
     const message = "视频提交结果未知，系统没有自动重建任务；请先检查任务列表，避免重复生成和重复扣费";
-    return Response.json(
-        { error: { code: "video_submission_result_unknown", message, ...(upstreamStatus ? { upstream_status: upstreamStatus } : {}) } },
-        { status: 424 },
-    );
+    return Response.json({ error: { code: "video_submission_result_unknown", message, ...(upstreamStatus ? { upstream_status: upstreamStatus } : {}) } }, { status: 424 });
 }
 
 async function postLegacyGrokVideoJson(body: Record<string, unknown>, authorization: string) {
@@ -499,14 +517,7 @@ function proxyLongRunningImage(upstreamUrl: URL, headers: Headers, body: ArrayBu
     });
 }
 
-async function relayImageResponse(
-    upstreamUrl: URL,
-    headers: Headers,
-    body: ArrayBuffer | undefined,
-    signal: AbortSignal,
-    controller: ReadableStreamDefaultController<Uint8Array>,
-    onResponse: () => void,
-) {
+async function relayImageResponse(upstreamUrl: URL, headers: Headers, body: ArrayBuffer | undefined, signal: AbortSignal, controller: ReadableStreamDefaultController<Uint8Array>, onResponse: () => void) {
     const upstreamResponse = await requestLongRunningImage(upstreamUrl, headers, body, signal);
     onResponse();
     const contentType = String(upstreamResponse.headers["content-type"] || "");
