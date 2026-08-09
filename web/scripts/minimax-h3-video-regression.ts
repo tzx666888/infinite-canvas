@@ -41,10 +41,17 @@ assert.throws(() => buildTokaxisMiniMaxH3Payload({ prompt: "move", audios: ["aud
 const proxySource = readFileSync(new URL("../src/app/api/tokaxis/[...path]/route.ts", import.meta.url), "utf8");
 const serviceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
 const settingsSource = readFileSync(new URL("../src/lib/video-model-settings.ts", import.meta.url), "utf8");
+const configStoreSource = readFileSync(new URL("../src/stores/use-config-store.ts", import.meta.url), "utf8");
 assert.match(proxySource, /minimax-h3-c4/);
 assert.match(serviceSource, /createMiniMaxH3Task/);
 assert.match(serviceSource, /buildTokaxisMiniMaxH3Payload/);
 assert.match(settingsSource, /isTokaxisMiniMaxH3VideoModel/);
 assert.match(settingsSource, /return "1440"/);
+const fallbackModelsBlock =
+    configStoreSource.match(/const TOKAXIS_FALLBACK_MODELS = \[([\s\S]*?)\n\];/)?.[1] ?? "";
+
+assert.match(fallbackModelsBlock, /TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID/);
+assert.doesNotMatch(fallbackModelsBlock, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/);
+assert.match(configStoreSource, /\.\.\.TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS\.map\(\(model\) => model\.toLowerCase\(\)\)/);
 
 console.log("MiniMax H3 video regression checks passed");

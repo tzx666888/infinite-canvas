@@ -6,6 +6,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import { modelDisplayInfo } from "@/lib/model-display";
+import { TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
 import { TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS } from "@/lib/seedance-video";
 import { isTokaxisGoogleImageModel, TOKAXIS_GOOGLE_IMAGE_MODELS } from "@/lib/tokaxis-google-image";
 import { DEFAULT_GOOGLE_VIDEO_MODEL, GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-providers/google-video";
@@ -70,13 +71,13 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const TOKAXIS_CHANNEL_ID = "tokaxis";
 const TOKAXIS_BASE_URL = "/api/tokaxis";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-const TOKAXIS_DEFAULTS_VERSION = 20;
+const TOKAXIS_DEFAULTS_VERSION = 21;
 const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 20;
 const TOKAXIS_FALLBACK_MODELS = [
     "gpt-image-2",
     TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
     ...GOOGLE_VIDEO_MODEL_IDS,
-    ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS,
+    TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID,
     "gpt-5.6-sol",
     "gpt-5.5",
     "gpt-5.4",
@@ -86,8 +87,11 @@ const TOKAXIS_FALLBACK_MODELS = [
 ];
 const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
 const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["4K"]]);
-const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set<string>(GROK_DISABLED_VIDEO_MODEL_IDS);
-const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>([...GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase())]);
+const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set<string>([
+    ...GROK_DISABLED_VIDEO_MODEL_IDS,
+    ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()),
+]);
+const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>([...GOOGLE_VIDEO_MODEL_IDS, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID.toLowerCase()]);
 const TOKAXIS_FALLBACK_MODEL_OPTIONS = TOKAXIS_FALLBACK_MODELS.map((model) => encodeChannelModel(TOKAXIS_CHANNEL_ID, model));
 const TOKAXIS_IMAGE_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "image");
 const TOKAXIS_VIDEO_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "video");
