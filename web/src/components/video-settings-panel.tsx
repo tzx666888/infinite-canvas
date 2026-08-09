@@ -23,6 +23,7 @@ import { type CanvasTheme } from "@/lib/canvas-theme";
 import { normalizeVideoProductScaleMode, videoProductScaleOptions } from "@/lib/video-product-scale";
 import { fixedVideoDurationOptions, fixedVideoResolution, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
+import { isTokaxisMiniMaxH3VideoModel } from "@/lib/minimax-h3-video";
 
 const baseResolutionOptions = [
     { value: "720", label: "720p" },
@@ -54,12 +55,13 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
 
     const model = modelOptionName(config.videoModel || config.model);
     const googleVideo = isGoogleVideoModel(model);
+    const miniMaxH3 = isTokaxisMiniMaxH3VideoModel(model);
     const fixedSecondOptions = fixedVideoDurationOptions(model);
-    const secondOptions = fixedSecondOptions || defaultSecondOptions;
+    const secondOptions = fixedSecondOptions || (miniMaxH3 ? [5, 10, 15] : defaultSecondOptions);
     const seconds = normalizeModelVideoSeconds(config.videoSeconds || "6", model);
     const size = googleVideo && ["", "auto", "1:1"].includes(config.size) ? (model.toLowerCase().includes("portrait") ? "720x1280" : "1280x720") : normalizeVideoSizeValue(config.size);
     const dimensions = readSizeDimensions(size);
-    const availableSizeOptions = googleVideo ? sizeOptions.filter((item) => item.value === "1280x720" || item.value === "720x1280") : sizeOptions;
+    const availableSizeOptions = googleVideo || miniMaxH3 ? sizeOptions.filter((item) => item.value === "1280x720" || item.value === "720x1280") : sizeOptions;
     const fixedResolution = fixedVideoResolution(model, seconds);
     const resolutionOptions = fixedResolution ? [{ value: fixedResolution, label: `${fixedResolution}p` }] : baseResolutionOptions;
     const resolution = normalizeVideoResolutionValue(config.vquality, model, seconds);
@@ -85,14 +87,14 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </div>
                 </SettingGroup>
                 <SettingGroup title="尺寸" color={theme.node.muted}>
-                    {googleVideo ? null : (
+                    {googleVideo || miniMaxH3 ? null : (
                         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
                             <DimensionInput prefix="W" value={dimensions.width} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("width", value)} />
                             <span className="text-lg opacity-45">↔</span>
                             <DimensionInput prefix="H" value={dimensions.height} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("height", value)} />
                         </div>
                     )}
-                    <div className={`grid gap-2.5 ${googleVideo ? "grid-cols-2" : "grid-cols-3"}`}>
+                    <div className={`grid gap-2.5 ${googleVideo || miniMaxH3 ? "grid-cols-2" : "grid-cols-3"}`}>
                         {availableSizeOptions.map((item) => (
                             <button
                                 key={item.value}
@@ -125,7 +127,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                                 {googleVideo ? googleVideoDurationOptionLabel(value, model) : `${value}s`}
                             </OptionPill>
                         ))}
-                        {fixedSecondOptions ? null : <NumberInput value={seconds} min={1} max={20} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
+                        {fixedSecondOptions ? null : <NumberInput value={seconds} min={miniMaxH3 ? 5 : 1} max={miniMaxH3 ? 15 : 20} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
                     </div>
                 </SettingGroup>
             </div>

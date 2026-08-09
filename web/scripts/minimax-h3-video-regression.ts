@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+import {
+    buildTokaxisMiniMaxH3Payload,
+    isTokaxisMiniMaxH3VideoModel,
+    normalizeMiniMaxH3AspectRatio,
+    normalizeMiniMaxH3Duration,
+    TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID,
+} from "../src/lib/minimax-h3-video.ts";
+
+assert.equal(isTokaxisMiniMaxH3VideoModel("tokaxis::MiniMax-H3-c4"), true);
+assert.equal(normalizeMiniMaxH3Duration(4), 5);
+assert.equal(normalizeMiniMaxH3Duration(11.8), 11);
+assert.equal(normalizeMiniMaxH3Duration(16), 15);
+assert.equal(normalizeMiniMaxH3AspectRatio("720x1280"), "9:16");
+assert.equal(normalizeMiniMaxH3AspectRatio("1280x720"), "16:9");
+
+assert.deepEqual(
+    buildTokaxisMiniMaxH3Payload({
+        prompt: "cinematic sunrise",
+        images: ["image"],
+        audios: ["audio"],
+        duration: "7",
+        size: "720x1280",
+        generateAudio: true,
+    }),
+    {
+        model: TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID,
+        prompt: "cinematic sunrise",
+        images: ["image"],
+        audios: ["audio"],
+        duration: 7,
+        resolution: "1440P",
+        aspect_ratio: "9:16",
+        generate_audio: true,
+    },
+);
+assert.throws(() => buildTokaxisMiniMaxH3Payload({ prompt: "move", audios: ["audio"], duration: 5, size: "16:9", generateAudio: true }), /需要同时提供参考图/);
+
+const proxySource = readFileSync(new URL("../src/app/api/tokaxis/[...path]/route.ts", import.meta.url), "utf8");
+const serviceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
+const settingsSource = readFileSync(new URL("../src/lib/video-model-settings.ts", import.meta.url), "utf8");
+assert.match(proxySource, /minimax-h3-c4/);
+assert.match(serviceSource, /createMiniMaxH3Task/);
+assert.match(serviceSource, /buildTokaxisMiniMaxH3Payload/);
+assert.match(settingsSource, /isTokaxisMiniMaxH3VideoModel/);
+assert.match(settingsSource, /return "1440"/);
+
+console.log("MiniMax H3 video regression checks passed");

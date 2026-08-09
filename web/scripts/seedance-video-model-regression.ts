@@ -128,7 +128,7 @@ const settingsRouteSource = readFileSync(new URL("../src/app/api/settings/route.
 
 assert.match(serviceSource, /\/videos\/generations/, "TokAxis Seedance must use the plural async route");
 assert.match(serviceSource, /buildTokaxisSeedanceVideoPayload/, "TokAxis Seedance requests must use the model-specific payload builder");
-assert.match(proxySource, /isTokaxisSeedanceVideoModel/, "the proxy must isolate Seedance from the legacy Grok rewrite");
+assert.match(proxySource, /isTokaxisAsyncVideoModel/, "the proxy must isolate async TokAxis video models from the legacy Grok rewrite");
 assert.match(proxySource, /videos\\\/generations\(\?:\\\/\[\^\/\]\+\)\?/, "the proxy must allow Seedance polling paths");
 assert.match(configSource, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/, "the client model registry must expose all Seedance models");
 assert.match(settingsRouteSource, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/, "the server fallback registry must expose all Seedance models");

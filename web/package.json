@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-    "version": "3.0.67",
+    "version": "3.0.68",
     "private": true,
     "type": "module",
     "scripts": {
@@ -13,6 +13,7 @@
         "test:grok-video": "node --experimental-strip-types scripts/grok-video-model-regression.ts",
         "test:google-video": "node --experimental-strip-types scripts/google-video-model-regression.ts",
         "test:seedance-video": "node --experimental-strip-types scripts/seedance-video-model-regression.ts",
+        "test:minimax-h3-video": "node --experimental-strip-types scripts/minimax-h3-video-regression.ts",
         "test:video-proxy": "node --experimental-strip-types scripts/video-proxy-contract-regression.ts",
         "test:video-providers": "node --experimental-strip-types scripts/video-provider-isolation-regression.ts",
         "test:model-isolation": "node --experimental-strip-types scripts/model-parameter-isolation-regression.ts",

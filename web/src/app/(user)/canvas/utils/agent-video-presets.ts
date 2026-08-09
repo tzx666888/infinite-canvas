@@ -31,7 +31,7 @@ export type AgentVideoModelOption = {
     modelIds: readonly string[];
     label: string;
     durationSeconds: 8 | 10 | 15;
-    resolution: "720p" | "1080p";
+    resolution: "720p" | "1080p" | "1440p";
     hasAudio: boolean;
     recommendation: string;
 };
@@ -88,6 +88,15 @@ export const AGENT_VIDEO_MODEL_OPTIONS = [
         resolution: "720p",
         hasAudio: true,
         recommendation: "有声快速；真人图受隐私审核",
+    },
+    {
+        id: "minimax-h3-c4",
+        modelIds: ["minimax-h3-c4"],
+        label: "MiniMax H3 C4",
+        durationSeconds: 10,
+        resolution: "1440p",
+        hasAudio: true,
+        recommendation: "1440p 有声视频",
     },
 ] as const satisfies readonly AgentVideoModelOption[];
 export const AGENT_VIDEO_DEFAULT_MODEL_ID = "omni";

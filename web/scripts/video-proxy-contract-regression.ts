@@ -113,6 +113,19 @@ try {
     assert.deepEqual(capturedBodies.at(-1), seedancePayload, "Seedance JSON must pass through without Grok wire-format rewriting");
     assert.match(capturedUrls.at(-1) || "", /\/v1\/videos\/generations$/, "Seedance creation must use the plural async route");
 
+    const h3Payload = {
+        model: "MiniMax-H3-c4",
+        prompt: "A calm sunrise over a still lake.",
+        duration: 5,
+        resolution: "1440P",
+        aspect_ratio: "16:9",
+        generate_audio: false,
+    };
+    const h3Response = await create(h3Payload);
+    assert.equal(h3Response.status, 200);
+    assert.deepEqual(capturedBodies.at(-1), h3Payload, "MiniMax H3 JSON must pass through without cross-vendor rewriting");
+    assert.match(capturedUrls.at(-1) || "", /\/v1\/videos\/generations$/, "MiniMax H3 creation must use the plural async route");
+
     const seedancePollRequest = new NextRequest("http://localhost/api/tokaxis/v1/videos/generations/task_seedance_contract", {
         method: "GET",
         headers: { Authorization: "Bearer contract-test" },

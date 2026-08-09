@@ -3,11 +3,21 @@ import { resolveConfiguredGoogleVideoModel } from "@/lib/google-video-routing";
 import { defaultGoogleVideoEntrySettings, fixedGoogleVideoResolution, isGoogleVideoModel, normalizeGoogleVideoSeconds } from "@/lib/video-providers/google-video";
 import { isSeedanceVideoModel, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceSupportsGeneratedAudio } from "@/lib/seedance-video";
 import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
+import { isTokaxisMiniMaxH3VideoModel, normalizeMiniMaxH3Duration } from "@/lib/minimax-h3-video";
 
 export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImageCount: number): AiConfig {
     const model = selectReferenceImageVideoModel(config, referenceImageCount);
     const nextConfig = model && (model !== config.model || model !== config.videoModel) ? { ...config, model, videoModel: model } : config;
     const modelName = model || nextConfig.model;
+    if (isTokaxisMiniMaxH3VideoModel(modelName)) {
+        return {
+            ...nextConfig,
+            videoSeconds: String(normalizeMiniMaxH3Duration(nextConfig.videoSeconds)),
+            vquality: "1440P",
+            size: videoAspectRatioForSize(nextConfig.size) === "9:16" ? "720x1280" : "1280x720",
+            videoGenerateAudio: String(nextConfig.videoGenerateAudio !== "false"),
+        };
+    }
     if (isSeedanceVideoModel(modelName)) {
         return {
             ...nextConfig,
@@ -35,6 +45,7 @@ export function selectReferenceImageVideoModel(config: AiConfig, referenceImageC
 export function canvasVideoModelSelectionPatch(model: string) {
     const defaults = defaultGoogleVideoEntrySettings(model);
     if (defaults) return { model, seconds: defaults.videoSeconds, vquality: defaults.vquality };
+    if (isTokaxisMiniMaxH3VideoModel(model)) return { model, seconds: "10", vquality: "1440P", generateAudio: "true" };
     if (isSeedanceVideoModel(model)) {
         return {
             model,

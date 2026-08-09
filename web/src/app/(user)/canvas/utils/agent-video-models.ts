@@ -9,7 +9,7 @@ export type AvailableAgentVideoModel = {
     value: string;
     spec?: AgentVideoModelOption;
     durationSeconds: number;
-    resolution: "720p" | "1080p";
+    resolution: "720p" | "1080p" | "1440p";
     hasAudio: boolean;
     recommendation: string;
 };
@@ -26,7 +26,7 @@ export function availableAgentVideoModels(config: AiConfig, size: string, refere
                 value,
                 spec,
                 durationSeconds: spec?.durationSeconds || durationOptions?.at(-1) || 10,
-                resolution: spec?.resolution || (fixedResolution === "1080" ? "1080p" : "720p"),
+                resolution: spec?.resolution || (fixedResolution === "1440" ? "1440p" : fixedResolution === "1080" ? "1080p" : "720p"),
                 hasAudio: spec?.hasAudio ?? (!isSeedanceVideoModel(value) || seedanceSupportsGeneratedAudio(value)),
                 recommendation: spec?.recommendation || "",
                 originalIndex,

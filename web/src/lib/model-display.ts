@@ -25,6 +25,7 @@ export function modelDisplayInfo(model: string): ModelDisplayInfo {
     if (lower === "seedance 2.0-fast-720p") return { label: "Seedance 2.0 Fast 720p", description: "文字或 1–9 张参考图；5/10/15 秒；固定 720p；无生成声音", badge: "Seedance" };
     if (lower === "qy-seedance-2.0") return { label: "Seedance 2.0", description: "图/视频/音频多参考；5/10/15 秒；最高 1080p；支持声音；可识别真人图受上游隐私审核", badge: "Seedance" };
     if (lower === "qy-seedance-2.0-fast") return { label: "Seedance 2.0 Fast", description: "图/视频/音频多参考；5/10/15 秒；最高 720p；支持声音；可识别真人图受上游隐私审核", badge: "Seedance" };
+    if (lower === "minimax-h3-c4") return { label: "MiniMax H3 C4", description: "文字或最多 5 张参考图；5–15 秒；固定 1440p；横屏/竖屏；支持声音", badge: "MiniMax" };
     if (lower === "grok-imagine-video-1.5-fast") return { label: "Grok Fast 视频", description: "无参考/单图 6、10、15 秒；2–7 图 6、10 秒；720p", badge: "Grok" };
     if (lower === "grok-imagine-video-1.5-preview") return { label: "Grok Preview 视频", description: "1–7 张参考图；6、10 秒；720p", badge: "Grok" };
     if (lower === "grok-imagine-video-1.5-1080p") return { label: "Grok 1080p 视频", description: "仅 1 张参考图；6、10 秒；固定 1080p", badge: "Grok" };
