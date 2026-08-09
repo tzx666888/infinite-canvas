@@ -358,87 +358,91 @@ export const CanvasNode = React.memo(function CanvasNode({
                 transition: "box-shadow 200ms ease",
                 contain: "layout style",
             }}
-            onMouseEnter={() => {
-                setHovered(true);
-                onHoverStart(data.id);
-            }}
-            onMouseLeave={() => {
-                setHovered(false);
-                onHoverEnd(data.id);
-            }}
             onContextMenu={(event) => onContextMenu(event, data.id)}
         >
             <div
-                className="relative h-full w-full overflow-visible rounded-3xl border-2"
-                style={{
-                    background: hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
-                    borderColor: hasImageContent ? imageBorderColor : isActive ? selectionBlue : isRelated ? theme.node.muted : theme.node.stroke,
-                    boxShadow: isActive ? `0 0 0 1px ${selectionBlue}55` : isRelated && !isBatchChild ? `0 0 0 1px ${theme.node.muted}55, 0 18px 48px rgba(0,0,0,.14)` : undefined,
+                className="relative h-full w-full"
+                onMouseEnter={() => {
+                    setHovered(true);
+                    onHoverStart(data.id);
                 }}
-                onMouseDown={(event) => onMouseDown(event, data.id)}
-                onDoubleClick={(event) => {
-                    if (isBatchRoot) {
-                        event.stopPropagation();
-                        onToggleBatch?.(data.id);
-                        return;
-                    }
-                    if (data.type === CanvasNodeType.Image && hasImageContent) {
-                        event.stopPropagation();
-                        onViewImage?.(data);
-                        return;
-                    }
-                    if (data.type !== CanvasNodeType.Text) return;
-                    event.stopPropagation();
-                    setIsEditingContent(true);
+                onMouseLeave={() => {
+                    setHovered(false);
+                    onHoverEnd(data.id);
                 }}
             >
                 <div
-                    className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot ? "overflow-visible" : "overflow-hidden"}`}
-                    style={
-                        {
-                            background: hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
-                            "--batch-from-x": `${batchMotion?.x || 0}px`,
-                            "--batch-from-y": `${batchMotion?.y || 0}px`,
-                            "--batch-from-rotate": `${6 + (batchMotion?.index || 0) * 4}deg`,
-                            animation: data.metadata?.batchRootId ? (batchClosing ? "canvas-batch-child-out 260ms cubic-bezier(.4,0,.2,1) both" : "canvas-batch-child-in 340ms cubic-bezier(.2,.85,.18,1) both") : undefined,
-                            animationDelay: data.metadata?.batchRootId ? `${batchClosing ? 0 : 45 + (batchMotion?.index || 0) * 24}ms` : undefined,
-                        } as React.CSSProperties
-                    }
+                    className="relative h-full w-full overflow-visible rounded-3xl border-2"
+                    style={{
+                        background: hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
+                        borderColor: hasImageContent ? imageBorderColor : isActive ? selectionBlue : isRelated ? theme.node.muted : theme.node.stroke,
+                        boxShadow: isActive ? `0 0 0 1px ${selectionBlue}55` : isRelated && !isBatchChild ? `0 0 0 1px ${theme.node.muted}55, 0 18px 48px rgba(0,0,0,.14)` : undefined,
+                    }}
+                    onMouseDown={(event) => onMouseDown(event, data.id)}
+                    onDoubleClick={(event) => {
+                        if (isBatchRoot) {
+                            event.stopPropagation();
+                            onToggleBatch?.(data.id);
+                            return;
+                        }
+                        if (data.type === CanvasNodeType.Image && hasImageContent) {
+                            event.stopPropagation();
+                            onViewImage?.(data);
+                            return;
+                        }
+                        if (data.type !== CanvasNodeType.Text) return;
+                        event.stopPropagation();
+                        setIsEditingContent(true);
+                    }}
                 >
-                    <NodeContent
-                        node={data}
-                        theme={theme}
-                        isEditingContent={isEditingContent}
-                        textareaRef={textareaRef}
-                        isBatchRoot={isBatchRoot}
-                        batchCount={batchCount}
-                        batchExpanded={batchExpanded}
-                        batchOpening={batchOpening}
-                        batchRecovering={batchRecovering}
-                        renderNodeContent={renderNodeContent}
-                        mentionReferences={mentionReferences}
-                        onContentChange={onContentChange}
-                        onStopEditing={() => setIsEditingContent(false)}
-                        onRetry={onRetry}
-                        onGenerateImage={onGenerateImage}
-                        onToggleBatch={() => onToggleBatch?.(data.id)}
-                        onSetBatchPrimary={() => onSetBatchPrimary?.(data)}
-                    />
+                    <div
+                        className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot ? "overflow-visible" : "overflow-hidden"}`}
+                        style={
+                            {
+                                background: hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
+                                "--batch-from-x": `${batchMotion?.x || 0}px`,
+                                "--batch-from-y": `${batchMotion?.y || 0}px`,
+                                "--batch-from-rotate": `${6 + (batchMotion?.index || 0) * 4}deg`,
+                                animation: data.metadata?.batchRootId ? (batchClosing ? "canvas-batch-child-out 260ms cubic-bezier(.4,0,.2,1) both" : "canvas-batch-child-in 340ms cubic-bezier(.2,.85,.18,1) both") : undefined,
+                                animationDelay: data.metadata?.batchRootId ? `${batchClosing ? 0 : 45 + (batchMotion?.index || 0) * 24}ms` : undefined,
+                            } as React.CSSProperties
+                        }
+                    >
+                        <NodeContent
+                            node={data}
+                            theme={theme}
+                            isEditingContent={isEditingContent}
+                            textareaRef={textareaRef}
+                            isBatchRoot={isBatchRoot}
+                            batchCount={batchCount}
+                            batchExpanded={batchExpanded}
+                            batchOpening={batchOpening}
+                            batchRecovering={batchRecovering}
+                            renderNodeContent={renderNodeContent}
+                            mentionReferences={mentionReferences}
+                            onContentChange={onContentChange}
+                            onStopEditing={() => setIsEditingContent(false)}
+                            onRetry={onRetry}
+                            onGenerateImage={onGenerateImage}
+                            onToggleBatch={() => onToggleBatch?.(data.id)}
+                            onSetBatchPrimary={() => onSetBatchPrimary?.(data)}
+                        />
+                    </div>
+
+                    {showImageInfo && hasImageContent ? <ImageInfoBar node={data} /> : null}
+                    {resourceLabel ? <ResourceLabelBadge reference={resourceLabel} /> : null}
+
+                    {!hasImageContent && !hasVideoContent && !hasAudioContent ? <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12" style={{ background: `linear-gradient(to top, ${theme.canvas.background}66, transparent)` }} /> : null}
+
+                    <ResizeHandle corner="top-left" onMouseDown={handleResizeMouseDown} />
+                    <ResizeHandle corner="top-right" onMouseDown={handleResizeMouseDown} />
+                    <ResizeHandle corner="bottom-left" onMouseDown={handleResizeMouseDown} />
+                    <ResizeHandle corner="bottom-right" onMouseDown={handleResizeMouseDown} />
                 </div>
 
-                {showImageInfo && hasImageContent ? <ImageInfoBar node={data} /> : null}
-                {resourceLabel ? <ResourceLabelBadge reference={resourceLabel} /> : null}
-
-                {!hasImageContent && !hasVideoContent && !hasAudioContent ? <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12" style={{ background: `linear-gradient(to top, ${theme.canvas.background}66, transparent)` }} /> : null}
-
-                <ResizeHandle corner="top-left" onMouseDown={handleResizeMouseDown} />
-                <ResizeHandle corner="top-right" onMouseDown={handleResizeMouseDown} />
-                <ResizeHandle corner="bottom-left" onMouseDown={handleResizeMouseDown} />
-                <ResizeHandle corner="bottom-right" onMouseDown={handleResizeMouseDown} />
+                <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onPointerDown={(event) => onConnectStart(event, data.id, "target")} />
+                <ConnectionHandleDot side="right" visible={data.type !== CanvasNodeType.Config && (hovered || isSelected || isConnecting)} onPointerDown={(event) => onConnectStart(event, data.id, "source")} />
             </div>
-
-            <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onPointerDown={(event) => onConnectStart(event, data.id, "target")} />
-            <ConnectionHandleDot side="right" visible={data.type !== CanvasNodeType.Config && (hovered || isSelected || isConnecting)} onPointerDown={(event) => onConnectStart(event, data.id, "source")} />
 
             {showPanel && renderPanel ? (
                 <div className="absolute top-full z-[70] -translate-x-1/2 pt-4" style={{ left: `calc(50% + ${panelOffsetX}px)`, width: panelWidth, "--canvas-prompt-textarea-height": `${panelTextareaHeight}px` } as React.CSSProperties}>
