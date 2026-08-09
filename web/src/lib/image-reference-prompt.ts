@@ -2,10 +2,6 @@ import type { ReferenceImage } from "@/types/image";
 
 const EXPLICIT_MULTI_PANEL_PATTERN =
     /(?:\b(?:collage|contact[ -]?sheet|storyboard|split[ -]?screen|multi[ -]?panel|diptych|triptych|before[ -]and[ -]after)\b|(?:^|[^\d])(?:2\s*[x×]\s*2|3\s*[x×]\s*3|4\s*[x×]\s*4)(?:[^\d]|$)|宫格|拼图|分屏|多面板|多格(?:布局|排版)?|联系表|分镜(?:板|表|图)|前后对比|对比图|四联画|九联画|多视图)/i;
-const COMMERCE_DETAIL_SET_PATTERN =
-    /(?:(?:一组|一套|整套|系列|多张|多个|若干|不同场景).{0,18}(?:电商|商品|产品)?(?:详情图|详情页|详情素材)|(?:电商|商品|产品)?(?:详情图|详情页|详情素材).{0,18}(?:一组|一套|整套|系列|多张|多个|若干|不同场景)|\b(?:set|series|multiple|different scenes?)\b.{0,40}\b(?:e-?commerce|product)\s+(?:detail|listing)\s+(?:images?|boards?|pages?)\b)/i;
-const REFERENCE_DERIVED_IMAGE_PATTERN =
-    /(?:(?:生成|制作|创建|设计|扩展|拓展|出|做成?).{0,20}(?:一组|一套|整套|系列|多张|多个|若干|不同场景|白底图|主图|详情图|详情页|海报|场景图|展示图|广告图|素材)|\b(?:generate|create|design|make|produce)\b.{0,50}\b(?:set|series|multiple|different scenes?|white background|hero image|listing image|detail board|product poster|campaign visual)\b)/i;
 const VAGUE_STYLE_CHANGE_PATTERN =
     /^(?:(?:请|帮我)?(?:(?:换|改)(?:成|个|一个|一种)?(?:不同|另一种|其他|新)?(?:的)?(?:风格|样式|效果)|(?:生成|做成?)?(?:一个|一种)?(?:不同|另一种|其他|新)(?:的)?(?:风格|样式|效果))(?:看看|试试)?[。！？!?]*|(?:please\s+)?(?:(?:make|use|try|create|change(?:\s+it)?(?:\s+to)?)\s+)?(?:a|an)?\s*(?:different|another|new|other)\s+(?:style|look|aesthetic)(?:\s+version)?[.!?]*)$/i;
 const INDEPENDENT_STYLE_DIRECTIONS = [
@@ -25,23 +21,6 @@ const INDEPENDENT_STYLE_DIRECTIONS = [
     "polished luxury-editorial treatment with elegant lighting, rich materials, and controlled color",
     "experimental contemporary treatment with an unexpected palette, dynamic framing, and cohesive art direction",
 ];
-const COMMERCE_DETAIL_DIRECTIONS = [
-    "premium hero presentation with packaging, recognizable silhouette, and controlled studio highlights",
-    "real-world use context with natural hand interaction, believable scale, and a clear product focal point",
-    "material and construction study with macro texture, component detail, and faithful label placement",
-    "retail-ready presentation with product, package, included items, and clean shelf or countertop context",
-    "lifestyle demonstration with an adult user, realistic environment, and unobstructed product visibility",
-    "clean catalog presentation with front view, angled view, close detail, and package relationship",
-];
-const COMMERCE_DETAIL_LAYOUT_DIRECTIONS = [
-    "a dominant product hero supported by a few organically sized detail zones",
-    "a full-bleed lifestyle composition with restrained supporting product details",
-    "an asymmetric editorial split that balances product, use context, and close detail",
-    "a clean catalog composition with varied image scales and generous spacing",
-    "a retail campaign composition with one strong focal area and secondary information zones",
-    "a layered product-story composition that moves naturally from hero to use to detail",
-    "a minimal premium composition with deliberate negative space and one carefully placed supporting detail",
-];
 
 export function imageReferenceLabel(index: number) {
     return `图片${index + 1}`;
@@ -49,15 +28,6 @@ export function imageReferenceLabel(index: number) {
 
 export function requestsMultiPanelImage(prompt: string) {
     return EXPLICIT_MULTI_PANEL_PATTERN.test(prompt.trim());
-}
-
-export function isCommerceDetailSetRequest(prompt: string) {
-    return COMMERCE_DETAIL_SET_PATTERN.test(prompt.trim().replace(/\s+/g, " "));
-}
-
-export function isReferenceDerivedImageGenerationRequest(prompt: string) {
-    const text = prompt.trim().replace(/\s+/g, " ");
-    return isCommerceDetailSetRequest(text) || REFERENCE_DERIVED_IMAGE_PATTERN.test(text);
 }
 
 export function isVagueStyleChangeRequest(prompt: string) {
@@ -84,33 +54,6 @@ export function buildIndependentImageStyleVariantPrompt(basePrompt: string, user
     return rules.join("\n");
 }
 
-export function buildCommerceDetailSetVariantPrompt(basePrompt: string, userPrompt: string, variantIndex: number, variantCount: number) {
-    if (!isCommerceDetailSetRequest(userPrompt)) return basePrompt;
-    const count = Math.max(1, Math.min(15, Math.floor(Math.abs(variantCount)) || 1));
-    const index = Math.max(0, Math.min(count - 1, Math.floor(Math.abs(variantIndex)) || 0));
-    const hasExplicitLayout = requestsMultiPanelImage(userPrompt);
-    const rules = [
-        basePrompt.trim(),
-        "",
-        "COMMERCE DETAIL SET INTERPRETATION:",
-        "- Create one standalone e-commerce detail image as one member of the requested set.",
-        "- Keep the exact product identity, shape, color, parts, logo, and label layout while creating a genuinely new scene and composition.",
-        hasExplicitLayout
-            ? "- Honor the exact layout and panel count explicitly requested by the user."
-            : "- The layout is intentionally flexible: it may be full-bleed, split, asymmetric, editorial, or multi-section according to the content. Never force a fixed grid, fixed panel count, or the same layout across the set.",
-        "- Do not combine all batch results into one contact sheet. Return only this result as one complete retail-ready image.",
-        "- Do not invent claims, ingredients, certifications, prices, ratings, discounts, or testimonial text. Preserve only product wording visible in the reference or wording supplied by the user.",
-    ];
-    if (count > 1) {
-        rules.push(
-            `- This is independent detail-image result ${index + 1} of ${count}. It must differ visibly from the other results in both scene and composition.`,
-            `- Distinct scene direction for this result: ${COMMERCE_DETAIL_DIRECTIONS[index % COMMERCE_DETAIL_DIRECTIONS.length]}.`,
-        );
-        if (!hasExplicitLayout) rules.push(`- Distinct layout direction for this result: ${COMMERCE_DETAIL_LAYOUT_DIRECTIONS[index % COMMERCE_DETAIL_LAYOUT_DIRECTIONS.length]}.`);
-    }
-    return rules.join("\n");
-}
-
 function imageEditOutputLayoutRules(prompt: string) {
     if (requestsMultiPanelImage(prompt)) {
         return ["- The user explicitly requested a multi-panel composition. Honor only the requested layout and panel count."];
@@ -119,15 +62,6 @@ function imageEditOutputLayoutRules(prompt: string) {
         "- OUTPUT LAYOUT LOCK: Return one continuous full-frame image containing one scene and one edited version of the subject.",
         "- Never create a collage, grid, split screen, contact sheet, before-and-after comparison, inset, multi-panel layout, or multiple style variations inside the image.",
         '- Phrases such as "different style", "another style", or "change the style" mean one alternative full-frame image, not several versions.',
-    ];
-}
-
-function referenceDerivedOutputLayoutRules(prompt: string) {
-    if (requestsMultiPanelImage(prompt)) return imageEditOutputLayoutRules(prompt);
-    if (!isCommerceDetailSetRequest(prompt)) return imageEditOutputLayoutRules(prompt);
-    return [
-        "- This commerce detail-set request creates a new retail composition rather than preserving Image 1's layout.",
-        "- Keep each output standalone, but allow the layout to be full-bleed, split, asymmetric, editorial, or multi-section as appropriate. Do not force a fixed grid or panel count.",
     ];
 }
 
@@ -142,19 +76,6 @@ export function buildIdentityPreservingImageEditPrompt(prompt: string, hasTarget
     const text = prompt.trim();
     if (!hasTargetImage || !references.length) return text;
     if (references.length === 1) {
-        if (isReferenceDerivedImageGenerationRequest(text)) {
-            return [
-                text,
-                "",
-                "REFERENCE-DERIVED IMAGE GENERATION:",
-                "- Image 1 is the authoritative product or subject identity reference, not a composition template.",
-                "- Create a new composition that fulfills the requested scene or commerce asset instead of preserving Image 1's original background, crop, camera, or layout.",
-                "- Preserve the exact subject identity, product silhouette, proportions, part count, part arrangement, materials, colors, logo, and label placement from Image 1.",
-                "- Keep the product fully recognizable and physically plausible in every requested scene.",
-                ...referenceDerivedOutputLayoutRules(text),
-                "- Return only the newly composed image.",
-            ].join("\n");
-        }
         return [
             text,
             "",

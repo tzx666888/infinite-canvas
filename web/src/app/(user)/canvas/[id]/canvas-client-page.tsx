@@ -34,7 +34,7 @@ import { IMAGE_TASK_CONCURRENCY_LIMIT } from "@/lib/image-request-concurrency";
 import { isContentPolicyErrorMessage, isIdentifiablePersonReferenceErrorMessage } from "@/lib/content-policy-error";
 import { buildSceneAwareImageEditPrompt } from "@/lib/fusion-plan-prompt";
 import { resolveFusionReferenceRoles } from "@/lib/fusion-reference-roles";
-import { buildCommerceDetailSetVariantPrompt, buildIdentityPreservingImageEditPrompt, buildIndependentImageStyleVariantPrompt } from "@/lib/image-reference-prompt";
+import { buildIdentityPreservingImageEditPrompt, buildIndependentImageStyleVariantPrompt } from "@/lib/image-reference-prompt";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { isGoogleVideoModel, normalizeModelVideoSeconds, selectVideoReferenceImagesWithPriority, videoAspectRatioForSize } from "@/lib/video-model-settings";
@@ -4066,8 +4066,7 @@ function InfiniteCanvasPage() {
                         try {
                             const imageRequestConfig = { ...generationConfig, count: "1" };
                             const imageRequestOptions = beginImageRequest(imageRequestConfig, targetId, controller.signal);
-                            const styleVariantPrompt = buildIndependentImageStyleVariantPrompt(requestPrompt, effectivePrompt, targetIndex, targetIds.length);
-                            const targetRequestPrompt = buildCommerceDetailSetVariantPrompt(styleVariantPrompt, effectivePrompt, targetIndex, targetIds.length);
+                            const targetRequestPrompt = buildIndependentImageStyleVariantPrompt(requestPrompt, effectivePrompt, targetIndex, targetIds.length);
                             const image = requestReferenceImages.length
                                 ? await requestEdit(imageRequestConfig, targetRequestPrompt, requestReferenceImages, undefined, imageRequestOptions).then((items) => items[0])
                                 : await requestGeneration(imageRequestConfig, targetRequestPrompt, imageRequestOptions).then((items) => items[0]);

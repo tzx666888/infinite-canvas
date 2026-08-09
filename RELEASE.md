@@ -1,12 +1,12 @@
-# Infinite Canvas v3.0.59
+# Infinite Canvas v3.0.69
 
-This release keeps customer-facing generation failures business-safe and aligns the canvas video controls with the capabilities that are currently usable upstream.
+This release restores the image-generation prompt behavior used by v3.0.53 while retaining the reliability improvements added since that release.
 
-- Canvas nodes no longer expose provider service names, project IDs, media paths or raw upstream payloads.
-- Veo multi-reference remains fixed at 8 seconds but now sends the available 720p route instead of an unavailable 1080p variant.
-- All Seedance entries submit only 5, 10 or 15 seconds and reject reference images above the provider's 12MB limit before a paid request.
-- Regression coverage verifies the public error presentation and the real Veo/Seedance capability contracts.
+- Requests such as `生成一组不同场景电商详情图` no longer receive a forced per-result scene or standalone-layout compiler.
+- The selected result count still creates the same number of independent single-image requests, allowing each output to form a complete, information-rich commerce board naturally.
+- Background job recovery, successful-result writeback, download retries, concurrency controls and model parameter isolation remain unchanged.
+- Video models, video prompts, routing and billing are unchanged.
 
-Rollback source is tag `v3.0.58`: check it out, rebuild the v3.0.58 image manually, then run `docker-compose down` followed by `docker-compose up -d`. Do not restore `.bak` files.
+Rollback source is tag `v3.0.68`: check it out, rebuild the v3.0.68 image, then redeploy with Docker Compose. Do not restore `.bak` files.
 
-Production image: `infinite-canvas:v3.0.59`.
+Production image: `infinite-canvas:v3.0.69`.
