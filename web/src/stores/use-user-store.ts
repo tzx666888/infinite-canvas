@@ -12,7 +12,7 @@ type UserStore = {
     isReady: boolean;
     isLoading: boolean;
     hydrateUser: () => Promise<void>;
-    login: (input: { username: string; password: string }) => Promise<LocalUser>;
+    login: (input: { username: string; password: string; code?: string }) => Promise<LocalUser>;
     register: (input: { username: string; password: string; inviteCode: string }) => Promise<LocalUser>;
     logout: () => Promise<void>;
     clearSession: () => void;

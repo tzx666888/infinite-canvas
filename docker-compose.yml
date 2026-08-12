@@ -5,6 +5,7 @@ services:
     network_mode: host
     env_file:
       - /opt/infinite-canvas-secrets/tokaxis-canvas-proxy.env
+      - /opt/infinite-canvas-secrets/canvas-auth.env
     environment:
       PORT: "3100"
       TOKAXIS_INTERNAL_ORIGIN: "http://127.0.0.1:3000"

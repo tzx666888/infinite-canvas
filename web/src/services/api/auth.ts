@@ -2,6 +2,18 @@ import type { AuthUser, InviteSummary } from "@/lib/auth/types";
 
 type AuthResponse = { user: AuthUser };
 
+export class AuthRequestError extends Error {
+    status: number;
+    code?: string;
+
+    constructor(message: string, status: number, code?: string) {
+        super(message);
+        this.name = "AuthRequestError";
+        this.status = status;
+        this.code = code;
+    }
+}
+
 async function requestAuth<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(path, {
         credentials: "same-origin",
@@ -11,8 +23,8 @@ async function requestAuth<T>(path: string, init?: RequestInit): Promise<T> {
             ...(init?.headers || {}),
         },
     });
-    const payload = (await response.json().catch(() => null)) as { message?: string } & T;
-    if (!response.ok) throw new Error(payload?.message || "账户请求失败");
+    const payload = (await response.json().catch(() => null)) as { message?: string; code?: string } & T;
+    if (!response.ok) throw new AuthRequestError(payload?.message || "账户请求失败", response.status, payload?.code);
     return payload;
 }
 
@@ -21,7 +33,7 @@ export async function fetchCurrentUser() {
     return result.user;
 }
 
-export async function loginAccount(input: { username: string; password: string }) {
+export async function loginAccount(input: { username: string; password: string; code?: string }) {
     return requestAuth<AuthResponse>("/api/auth/login", { method: "POST", body: JSON.stringify(input) });
 }
 

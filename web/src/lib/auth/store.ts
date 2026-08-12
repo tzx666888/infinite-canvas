@@ -13,6 +13,8 @@ type AccountRecord = {
     displayName: string;
     avatarUrl: string;
     role: AuthUser["role"];
+    provider: "local" | "tokaxis";
+    externalId: string | null;
     passwordHash: string;
     createdAt: string;
     updatedAt: string;
@@ -52,16 +54,6 @@ function authDataDirectory() {
 
 function databasePath() {
     return join(authDataDirectory(), "accounts.json");
-}
-
-function rootUsername() {
-    return validateUsername(process.env.CANVAS_ROOT_USERNAME?.trim() || "root");
-}
-
-function rootPassword() {
-    const value = process.env.CANVAS_ROOT_PASSWORD?.trim();
-    if (!value || value.length < 12) throw new AuthError("账户服务尚未配置 root 初始密码", 503);
-    return value;
 }
 
 function now() {
@@ -143,35 +135,19 @@ async function mutateDatabase<T>(handler: (database: AuthDatabase) => Promise<{ 
     return operation;
 }
 
-async function ensureRootAccount(database: AuthDatabase) {
-    const existing = database.accounts.find((account) => account.role === "root");
-    if (existing) return { account: existing, changed: false };
-
-    const createdAt = now();
-    const account: AccountRecord = {
-        id: randomUUID(),
-        username: rootUsername(),
-        displayName: "Root",
-        avatarUrl: "",
-        role: "root",
-        passwordHash: await hashPassword(rootPassword()),
-        createdAt,
-        updatedAt: createdAt,
-        lastLoginAt: null,
-    };
-    database.accounts.push(account);
-    return { account, changed: true };
-}
-
 function toAuthUser(account: AccountRecord): AuthUser {
     return {
         id: account.id,
         username: account.username,
         displayName: account.displayName,
         avatarUrl: account.avatarUrl,
-        role: account.role,
+        role: account.provider === "tokaxis" && account.role === "root" ? "root" : "member",
         createdAt: account.createdAt,
     };
+}
+
+function isTokaxisRoot(account: AccountRecord) {
+    return account.provider === "tokaxis" && account.role === "root";
 }
 
 function inviteStatus(invite: InviteRecord): InviteSummary["status"] {
@@ -194,14 +170,52 @@ function toInviteSummary(invite: InviteRecord): InviteSummary {
     };
 }
 
-export async function authenticateUser(input: { username: string; password: string }) {
-    const username = validateUsername(input.username);
+export async function authenticateLocalUser(input: { username: string; password: string }) {
+    let username: string;
+    try {
+        username = validateUsername(input.username);
+    } catch {
+        return null;
+    }
     return mutateDatabase(async (database) => {
-        await ensureRootAccount(database);
-        const account = database.accounts.find((item) => item.username === username);
-        if (!account || !(await verifyPassword(input.password, account.passwordHash))) throw new AuthError("用户名或密码错误", 401);
+        const account = database.accounts.find((item) => item.provider !== "tokaxis" && item.username === username);
+        if (!account || !account.passwordHash || !(await verifyPassword(input.password, account.passwordHash))) return { value: null, changed: false };
         account.lastLoginAt = now();
         account.updatedAt = account.lastLoginAt;
+        return { value: toAuthUser(account), changed: true };
+    });
+}
+
+export async function upsertTokaxisAccount(input: { id: number; username: string; displayName: string; role: number }) {
+    const externalId = `tokaxis:${input.id}`;
+    const username = input.username.trim() || externalId;
+    const displayName = input.displayName.trim() || username;
+    const role: AuthUser["role"] = input.role >= 100 ? "root" : "member";
+    return mutateDatabase(async (database) => {
+        const timestamp = now();
+        const existing = database.accounts.find((account) => account.provider === "tokaxis" && account.externalId === externalId);
+        if (existing) {
+            existing.username = username;
+            existing.displayName = displayName;
+            existing.role = role;
+            existing.updatedAt = timestamp;
+            existing.lastLoginAt = timestamp;
+            return { value: toAuthUser(existing), changed: true };
+        }
+        const account: AccountRecord = {
+            id: externalId,
+            username,
+            displayName,
+            avatarUrl: "",
+            role,
+            provider: "tokaxis",
+            externalId,
+            passwordHash: "",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            lastLoginAt: timestamp,
+        };
+        database.accounts.push(account);
         return { value: toAuthUser(account), changed: true };
     });
 }
@@ -213,8 +227,7 @@ export async function registerWithInvite(input: { username: string; password: st
     if (!normalizeInviteCode(input.inviteCode)) throw new AuthError("请输入邀请码");
 
     return mutateDatabase(async (database) => {
-        await ensureRootAccount(database);
-        if (database.accounts.some((account) => account.username === username)) throw new AuthError("该用户名已被使用", 409);
+        if (database.accounts.some((account) => account.username.toLowerCase() === username)) throw new AuthError("该用户名已被使用", 409);
         const invite = database.invites.find((item) => item.codeHash === codeHash);
         if (!invite || inviteStatus(invite) !== "active") throw new AuthError("邀请码无效、已过期或已使用", 403);
 
@@ -225,6 +238,8 @@ export async function registerWithInvite(input: { username: string; password: st
             displayName: username,
             avatarUrl: "",
             role: "member",
+            provider: "local",
+            externalId: null,
             passwordHash: await hashPassword(password),
             createdAt,
             updatedAt: createdAt,
@@ -249,8 +264,7 @@ export async function createInvite(input: { rootUserId: string; label?: string; 
     const expiresInDays = requestedDays === null ? null : Math.max(1, Math.min(90, Math.floor(Number.isFinite(requestedDays) ? requestedDays : 7)));
 
     return mutateDatabase(async (database) => {
-        await ensureRootAccount(database);
-        const root = database.accounts.find((account) => account.id === input.rootUserId && account.role === "root");
+        const root = database.accounts.find((account) => account.id === input.rootUserId && isTokaxisRoot(account));
         if (!root) throw new AuthError("没有管理邀请码的权限", 403);
         const createdAt = now();
         const code = createInviteCode();
@@ -272,14 +286,14 @@ export async function createInvite(input: { rootUserId: string; label?: string; 
 
 export async function listInvites(rootUserId: string) {
     const database = await readDatabase();
-    const root = database.accounts.find((account) => account.id === rootUserId && account.role === "root");
+    const root = database.accounts.find((account) => account.id === rootUserId && isTokaxisRoot(account));
     if (!root) throw new AuthError("没有查看邀请码的权限", 403);
     return database.invites.map(toInviteSummary);
 }
 
 export async function revokeInvite(input: { rootUserId: string; inviteId: string }) {
     return mutateDatabase(async (database) => {
-        const root = database.accounts.find((account) => account.id === input.rootUserId && account.role === "root");
+        const root = database.accounts.find((account) => account.id === input.rootUserId && isTokaxisRoot(account));
         if (!root) throw new AuthError("没有管理邀请码的权限", 403);
         const invite = database.invites.find((item) => item.id === input.inviteId);
         if (!invite) throw new AuthError("邀请码不存在", 404);

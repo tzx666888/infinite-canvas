@@ -6,9 +6,10 @@ import { KeyRound, LockKeyhole, UserRound } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { BrandMark } from "@/components/brand/brand-mark";
+import { AuthRequestError } from "@/services/api/auth";
 import { useUserStore } from "@/stores/use-user-store";
 
-type FormValues = { username: string; password: string; confirmPassword?: string; inviteCode?: string };
+type FormValues = { username: string; password: string; confirmPassword?: string; inviteCode?: string; code?: string };
 
 function safeRedirect(value: string | null) {
     return value && value.startsWith("/") && !value.startsWith("//") ? value : "/";
@@ -25,6 +26,7 @@ export default function LoginPage() {
     const login = useUserStore((state) => state.login);
     const register = useUserStore((state) => state.register);
     const [mode, setMode] = useState<"login" | "register">("login");
+    const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
     const redirect = useMemo(() => safeRedirect(searchParams.get("redirect")), [searchParams]);
 
     useEffect(() => {
@@ -45,11 +47,16 @@ export default function LoginPage() {
                 await register({ username: values.username, password: values.password, inviteCode: values.inviteCode || "" });
                 message.success("账号已开通");
             } else {
-                await login({ username: values.username, password: values.password });
+                await login({ username: values.username, password: values.password, code: values.code });
                 message.success("登录成功");
             }
             router.replace(redirect);
         } catch (error) {
+            if (error instanceof AuthRequestError && error.code === "two_factor_required") {
+                setRequiresTwoFactor(true);
+                message.info("请输入中转站动态验证码或备用码");
+                return;
+            }
             message.error(error instanceof Error ? error.message : "账户操作失败");
         }
     };
@@ -61,7 +68,7 @@ export default function LoginPage() {
                 <div className="mb-9 text-center">
                     <BrandMark className="mx-auto mb-6 [&>img]:size-14" />
                     <h1 className="text-3xl font-semibold text-stone-950 dark:text-stone-100">进入视觉画布</h1>
-                    <p className="mt-3 text-sm leading-6 text-stone-500 dark:text-stone-400">账号仅通过邀请码开通，不开放公开注册。</p>
+                    <p className="mt-3 text-sm leading-6 text-stone-500 dark:text-stone-400">已有中转站账号可直接登录；新账号仅通过邀请码开通。</p>
                 </div>
 
                 <Form<FormValues> layout="vertical" size="large" requiredMark={false} onFinish={submit}>
@@ -69,15 +76,18 @@ export default function LoginPage() {
                         <Segmented
                             block
                             value={mode}
-                            onChange={(value) => setMode(value as "login" | "register")}
+                            onChange={(value) => {
+                                setMode(value as "login" | "register");
+                                setRequiresTwoFactor(false);
+                            }}
                             options={[
-                                { label: "登录", value: "login" },
+                                { label: "中转站账号登录", value: "login" },
                                 { label: "邀请码注册", value: "register" },
                             ]}
                         />
                     </Form.Item>
-                    <Form.Item name="username" label="用户名" rules={[{ required: true, message: "请输入用户名" }]}>
-                        <Input prefix={<UserRound className="size-4" />} autoComplete="username" placeholder="3-32 位小写字母、数字或 _ -" />
+                    <Form.Item name="username" label={mode === "login" ? "用户名或邮箱" : "用户名"} rules={[{ required: true, message: "请输入用户名" }]}>
+                        <Input prefix={<UserRound className="size-4" />} autoComplete="username" placeholder={mode === "login" ? "输入中转站用户名或邮箱" : "3-32 位小写字母、数字或 _ -"} />
                     </Form.Item>
                     <Form.Item name="password" label="密码" rules={[{ required: true, message: "请输入密码" }]}>
                         <Input.Password prefix={<LockKeyhole className="size-4" />} autoComplete={mode === "register" ? "new-password" : "current-password"} placeholder="至少 12 位" />
@@ -91,6 +101,10 @@ export default function LoginPage() {
                                 <Input prefix={<KeyRound className="size-4" />} autoComplete="off" placeholder="VC-XXXX-XXXX-XXXX-XXXX" />
                             </Form.Item>
                         </>
+                    ) : requiresTwoFactor ? (
+                        <Form.Item name="code" label="动态验证码或备用码" rules={[{ required: true, message: "请输入验证码" }]}>
+                            <Input prefix={<KeyRound className="size-4" />} autoComplete="one-time-code" placeholder="6 位动态码或备用码" />
+                        </Form.Item>
                     ) : null}
                     <Button type="primary" block htmlType="submit" loading={isLoading}>
                         {mode === "login" ? "登录" : "开通账号"}
