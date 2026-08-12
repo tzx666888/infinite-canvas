@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-    "version": "3.0.74",
+    "version": "3.0.75",
     "private": true,
     "type": "module",
     "scripts": {
@@ -23,6 +23,7 @@
         "test:image-jobs": "node --experimental-strip-types scripts/image-job-recovery-regression.ts",
         "test:canvas-viewport": "node --experimental-strip-types scripts/canvas-viewport-regression.ts",
         "test:canvas-prompts": "node --experimental-strip-types scripts/canvas-prompt-regression.ts",
+        "test:auth-bridge": "node --experimental-strip-types scripts/auth-bridge-regression.ts",
         "format": "prettier --write .",
         "format:check": "prettier --check ."
     },

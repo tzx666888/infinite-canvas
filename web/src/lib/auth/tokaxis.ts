@@ -1,11 +1,7 @@
 import { AuthError } from "@/lib/auth/auth-error";
+import { parseTokaxisIdentity, type TokaxisIdentity } from "@/lib/auth/tokaxis-identity";
 
-export type TokaxisIdentity = {
-    id: number;
-    username: string;
-    displayName: string;
-    role: number;
-};
+export type { TokaxisIdentity } from "@/lib/auth/tokaxis-identity";
 
 export type TokaxisAuthResult =
     | { status: "authenticated"; identity: TokaxisIdentity }
@@ -21,14 +17,6 @@ function tokaxisOrigin() {
 function sharedSecret() {
     const value = process.env.CANVAS_AUTH_SHARED_SECRET?.trim();
     return value && value.length >= 32 ? value : null;
-}
-
-function isIdentity(value: unknown): value is TokaxisIdentity {
-    if (!value || typeof value !== "object") return false;
-    const identity = value as Partial<TokaxisIdentity>;
-    const id = identity.id;
-    const role = identity.role;
-    return typeof id === "number" && Number.isInteger(id) && id > 0 && typeof identity.username === "string" && typeof identity.displayName === "string" && typeof role === "number" && Number.isInteger(role);
 }
 
 export async function verifyTokaxisCredentials(input: { username: string; password: string; code?: string }): Promise<TokaxisAuthResult> {
@@ -49,7 +37,8 @@ export async function verifyTokaxisCredentials(input: { username: string; passwo
             signal: controller.signal,
         });
         const payload = (await response.json().catch(() => null)) as { success?: boolean; data?: unknown; message?: string } | null;
-        if (response.ok && payload?.success && isIdentity(payload.data)) return { status: "authenticated", identity: payload.data };
+        const identity = payload?.success ? parseTokaxisIdentity(payload.data) : null;
+        if (response.ok && identity) return { status: "authenticated", identity };
         const code = typeof (payload as { code?: unknown } | null)?.code === "string" ? (payload as { code: string }).code : "";
         if (response.status === 403 && code === "two_factor_required") return { status: "two_factor_required", message: payload?.message || "请输入动态验证码或备用码" };
         if (response.status === 401 && code === "invalid_two_factor") return { status: "blocked", message: payload?.message || "动态验证码或备用码错误" };
