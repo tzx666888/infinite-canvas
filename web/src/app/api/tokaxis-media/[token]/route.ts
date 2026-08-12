@@ -6,11 +6,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
-    params: Promise<{ token: string }> | { token: string };
+    params: Promise<{ token: string }>;
 };
 
 export async function GET(_request: NextRequest, context: RouteContext) {
-    const { token } = await Promise.resolve(context.params);
+    const { token } = await context.params;
     const media = await readTemporaryMedia(token);
     if (!media) return Response.json({ error: { message: "参考素材已过期或不存在" } }, { status: 404 });
     return new Response(new Uint8Array(media.content), {

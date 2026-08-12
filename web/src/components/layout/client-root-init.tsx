@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { App } from "antd";
 
 import { createModelChannel, useConfigStore } from "@/stores/use-config-store";
+import { useUserStore } from "@/stores/use-user-store";
 
 const TOKAXIS_PROXY_BASE_URL = "/api/tokaxis";
 const APP_BUILD_ID = process.env.NEXT_PUBLIC_APP_BUILD_ID || process.env.NEXT_PUBLIC_APP_VERSION || "dev";
@@ -20,6 +21,13 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const config = useConfigStore((state) => state.config);
     const syncModelsFromKey = useConfigStore((state) => state.syncModelsFromKey);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
+    const user = useUserStore((state) => state.user);
+    const authReady = useUserStore((state) => state.isReady);
+    const hydrateUser = useUserStore((state) => state.hydrateUser);
+
+    useEffect(() => {
+        void hydrateUser();
+    }, [hydrateUser]);
 
     useEffect(() => {
         try {
@@ -87,6 +95,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     useEffect(() => {
         const promptForMissingKey = () => {
             if (promptedForMissingKey.current) return;
+            if (!authReady || !user) return;
             const searchParams = new URLSearchParams(window.location.search);
             if (searchParams.get("apiKey") || searchParams.get("apikey")) return;
             const channel = useConfigStore.getState().config.channels[0];
@@ -97,7 +106,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
 
         if (useConfigStore.persist.hasHydrated()) promptForMissingKey();
         return useConfigStore.persist.onFinishHydration(promptForMissingKey);
-    }, [openConfigDialog]);
+    }, [authReady, openConfigDialog, user]);
 
     return <>{children}</>;
 }

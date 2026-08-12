@@ -29,7 +29,7 @@ const TOKAXIS_LEGACY_GROK_VIDEO_MODELS = new Set(["grok-imagine-video-1.5-fast",
 const legacyGrokVideoTaskIds = new Set<string>();
 
 type RouteContext = {
-    params: Promise<{ path?: string[] }> | { path?: string[] };
+    params: Promise<{ path?: string[] }>;
 };
 
 export async function GET(request: NextRequest, context: RouteContext) {
@@ -45,7 +45,7 @@ export function OPTIONS() {
 }
 
 async function proxyTokaxis(request: NextRequest, context: RouteContext) {
-    const params = await Promise.resolve(context.params);
+    const params = await context.params;
     const path = (params.path || []).join("/");
     if (!FORWARDED_PATHS.some((pattern) => pattern.test(path))) {
         return Response.json({ error: { message: "TokAxis proxy path is not allowed" } }, { status: 404 });

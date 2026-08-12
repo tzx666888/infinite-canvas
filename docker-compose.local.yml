@@ -6,4 +6,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    environment:
+      AUTH_DATA_DIR: "/app/data/auth"
+    volumes:
+      - ./data/auth:/app/data/auth
     restart: unless-stopped

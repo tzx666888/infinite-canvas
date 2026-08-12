@@ -6,11 +6,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
-    params: Promise<{ jobId: string }> | { jobId: string };
+    params: Promise<{ jobId: string }>;
 };
 
 export async function POST(request: NextRequest, context: RouteContext) {
-    const { jobId } = await Promise.resolve(context.params);
+    const { jobId } = await context.params;
     if (!isValidImageJobId(jobId)) return Response.json({ error: { message: "图片任务 ID 不合法" } }, { status: 400 });
 
     const operation = request.nextUrl.searchParams.get("operation") || "";
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 }
 
 export async function GET(_request: NextRequest, context: RouteContext) {
-    const { jobId } = await Promise.resolve(context.params);
+    const { jobId } = await context.params;
     if (!isValidImageJobId(jobId)) return Response.json({ error: { message: "图片任务 ID 不合法" } }, { status: 400 });
 
     const job = await getImageJob(jobId);
@@ -50,7 +50,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {
-    const { jobId } = await Promise.resolve(context.params);
+    const { jobId } = await context.params;
     if (!isValidImageJobId(jobId)) return Response.json({ error: { message: "图片任务 ID 不合法" } }, { status: 400 });
 
     const job = await cancelImageJob(jobId);

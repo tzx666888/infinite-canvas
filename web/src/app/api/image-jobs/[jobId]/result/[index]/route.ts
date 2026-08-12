@@ -6,11 +6,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
-    params: Promise<{ jobId: string; index: string }> | { jobId: string; index: string };
+    params: Promise<{ jobId: string; index: string }>;
 };
 
 export async function GET(_request: NextRequest, context: RouteContext) {
-    const { jobId, index: rawIndex } = await Promise.resolve(context.params);
+    const { jobId, index: rawIndex } = await context.params;
     const index = Number(rawIndex);
     if (!isValidImageJobId(jobId) || !Number.isInteger(index) || index < 0) return Response.json({ error: { message: "图片结果地址不合法" } }, { status: 400 });
 

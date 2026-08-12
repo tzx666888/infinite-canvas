@@ -1,12 +1,17 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { Keyboard, Settings2 } from "lucide-react";
+import { Avatar, Dropdown } from "antd";
+import { Keyboard, KeyRound, LogIn, LogOut, Settings2 } from "lucide-react";
+import type { ItemType } from "antd/es/menu/interface";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { useUserStore } from "@/stores/use-user-store";
 
 type UserStatusActionsProps = {
     showConfig?: boolean;
@@ -18,9 +23,31 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
     const theme = useThemeStore((state) => state.theme);
     const setTheme = useThemeStore((state) => state.setTheme);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
+    const router = useRouter();
+    const user = useUserStore((state) => state.user);
+    const isReady = useUserStore((state) => state.isReady);
+    const logout = useUserStore((state) => state.logout);
     const canvasTheme = canvasThemes[theme];
     const naturalIconClass = "inline-flex size-7 shrink-0 items-center justify-center text-stone-600 transition hover:text-stone-950 dark:text-stone-300 dark:hover:text-white [&_svg]:size-4";
     const iconStyle: CSSProperties | undefined = variant === "canvas" ? { color: canvasTheme.node.text } : undefined;
+    const userName = user?.displayName || user?.username || "用户";
+    const avatarText = (userName.trim()[0] || "U").toUpperCase();
+    const menuItems: ItemType[] = user
+        ? [
+              { key: "user", disabled: true, label: <span className="font-medium text-current">{userName}</span> },
+              ...(user.role === "root" ? [{ key: "invitations", icon: <KeyRound className="size-4" />, label: <Link href="/admin/invitations">邀请码管理</Link> }] : []),
+              ...(onOpenShortcuts ? [{ key: "shortcuts", icon: <Keyboard className="size-4" />, label: "快捷键", onClick: onOpenShortcuts }] : []),
+              { type: "divider" },
+              {
+                  key: "logout",
+                  icon: <LogOut className="size-4" />,
+                  label: "退出登录",
+                  onClick: () => {
+                      void logout().finally(() => router.replace("/"));
+                  },
+              },
+          ]
+        : [];
 
     return (
         <div className="inline-flex shrink-0 items-center gap-1">
@@ -34,6 +61,27 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
                 <button type="button" className={naturalIconClass} style={iconStyle} onClick={onOpenShortcuts} aria-label="快捷键" title="快捷键">
                     <Keyboard className="size-4" />
                 </button>
+            ) : null}
+            {isReady ? (
+                user ? (
+                    <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: menuItems }}>
+                        <button
+                            type="button"
+                            className="flex size-8 shrink-0 items-center justify-center rounded-full border border-stone-300 bg-transparent text-xs font-semibold text-stone-800 transition hover:border-stone-500 dark:border-stone-700 dark:text-stone-100 dark:hover:border-stone-400"
+                            style={variant === "canvas" ? { borderColor: canvasTheme.toolbar.border, color: canvasTheme.node.text } : undefined}
+                            aria-label="账户菜单"
+                        >
+                            <Avatar size={24} className="!bg-transparent !text-current">
+                                {avatarText}
+                            </Avatar>
+                        </button>
+                    </Dropdown>
+                ) : (
+                    <Link href="/login" className="inline-flex h-8 items-center gap-1.5 px-2 text-xs font-medium text-stone-700 transition hover:text-stone-950 dark:text-stone-300 dark:hover:text-white" style={iconStyle}>
+                        <LogIn className="size-4" />
+                        登录
+                    </Link>
+                )
             ) : null}
         </div>
     );

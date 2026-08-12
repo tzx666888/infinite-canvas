@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 
 import { AppTopNav } from "@/components/layout/app-top-nav";
+import { AuthGate } from "@/components/auth/auth-gate";
 import { resolveVisibleViewportFrame } from "@/utils/visible-viewport";
 
 export default function UserLayout({ children }: { children: ReactNode }) {
+    const pathname = usePathname();
     const [viewportStyle, setViewportStyle] = useState<CSSProperties>();
 
     useEffect(() => {
@@ -42,7 +45,7 @@ export default function UserLayout({ children }: { children: ReactNode }) {
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground" style={viewportStyle} data-visible-viewport-height={viewportStyle?.height || "css-fallback"}>
             <AppTopNav />
-            <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+            <div className="min-h-0 flex-1 overflow-hidden">{pathname === "/" ? children : <AuthGate>{children}</AuthGate>}</div>
         </div>
     );
 }

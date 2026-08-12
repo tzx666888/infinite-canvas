@@ -1,6 +1,6 @@
 services:
   app:
-    image: infinite-canvas:v3.0.72
+    image: infinite-canvas:v3.0.73
     container_name: infinite-canvas
     network_mode: host
     env_file:
@@ -12,10 +12,12 @@ services:
       TELEMETRY_DIR: "/app/data/telemetry"
       IMAGE_JOB_DIR: "/app/data/image-jobs"
       VIDEO_REFERENCE_DIR: "/app/data/video-references"
+      AUTH_DATA_DIR: "/app/data/auth"
       CANVAS_PUBLIC_ORIGIN: "https://gptimg.tokaxis.com"
     volumes:
       - /opt/infinite-canvas-data/prompt-cache:/app/data/prompt-cache
       - /opt/infinite-canvas-data/telemetry:/app/data/telemetry
       - /opt/infinite-canvas-data/image-jobs:/app/data/image-jobs
       - /opt/infinite-canvas-data/video-references:/app/data/video-references
+      - /opt/infinite-canvas-data/auth:/app/data/auth
     restart: unless-stopped
