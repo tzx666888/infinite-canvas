@@ -162,7 +162,7 @@ export function supportsResumableImageJobs(config: AiConfig) {
     if (isTokaxisProxyBaseUrl(requestConfig.baseUrl)) return true;
     try {
         const base = new URL(requestConfig.baseUrl, typeof window === "undefined" ? "https://canvas.invalid" : window.location.origin);
-        return /^\/api\/tokaxis(?:\/v1)?\/?$/i.test(base.pathname);
+        return /^\/api\/(?:gateway|tokaxis)(?:\/v1)?\/?$/i.test(base.pathname);
     } catch {
         return false;
     }

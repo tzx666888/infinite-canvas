@@ -69,29 +69,14 @@ export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const TOKAXIS_CHANNEL_ID = "tokaxis";
-const TOKAXIS_BASE_URL = "/api/tokaxis";
+const TOKAXIS_BASE_URL = "/api/gateway";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const TOKAXIS_DEFAULTS_VERSION = 22;
 const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 20;
-const TOKAXIS_FALLBACK_MODELS = [
-    "gpt-image-2",
-    TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
-    ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS,
-    TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID,
-    "gpt-5.6-sol",
-    "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-4o-mini-tts",
-    "tts-1",
-];
+const TOKAXIS_FALLBACK_MODELS = ["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["4K"], ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID, "gpt-5.6-sol", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-4o-mini-tts", "tts-1"];
 const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
 const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["4K"]]);
-const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set<string>([
-    ...GROK_DISABLED_VIDEO_MODEL_IDS,
-    ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()),
-    ...GOOGLE_VEO_MODEL_IDS.map((model) => model.toLowerCase()),
-]);
+const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set<string>([...GROK_DISABLED_VIDEO_MODEL_IDS, ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()), ...GOOGLE_VEO_MODEL_IDS.map((model) => model.toLowerCase())]);
 const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>([...GOOGLE_VIDEO_MODEL_IDS, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID.toLowerCase()]);
 const TOKAXIS_FALLBACK_MODEL_OPTIONS = TOKAXIS_FALLBACK_MODELS.map((model) => encodeChannelModel(TOKAXIS_CHANNEL_ID, model));
 const TOKAXIS_IMAGE_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "image");
@@ -108,7 +93,7 @@ export const defaultConfig: AiConfig = {
     channels: [
         {
             id: TOKAXIS_CHANNEL_ID,
-            name: "TokAxis",
+            name: "平台模型",
             baseUrl: TOKAXIS_BASE_URL,
             apiKey: "",
             apiFormat: "openai",
@@ -257,11 +242,15 @@ export const useConfigStore = create<ConfigStore>()(
                         const response = await fetch(buildApiUrl(TOKAXIS_BASE_URL, "/models"), {
                             headers: { Authorization: `Bearer ${authApiKey}` },
                         });
-                        if (!response.ok) throw new Error(`TokAxis models sync failed: ${response.status}`);
+                        if (!response.ok) {
+                            const payload = (await response.json().catch(() => null)) as { error?: { message?: string }; message?: string } | null;
+                            throw new Error(payload?.error?.message || payload?.message || `模型列表同步失败：${response.status}`);
+                        }
                         const payload = (await response.json()) as { data?: Array<{ id?: unknown }> };
                         syncedModels = sanitizeTokaxisModels((payload.data || []).map((item) => (typeof item.id === "string" ? item.id : "")));
                     } catch (error) {
-                        console.warn("[TokAxis] model sync failed, using fallback models", error);
+                        console.warn("[platform-models] sync failed", error);
+                        throw error;
                     }
                 }
 
@@ -410,7 +399,7 @@ export function resolveModelChannel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
     const model = decoded?.model || value;
     const matched = decoded ? config.channels.find((channel) => channel.id === decoded.channelId) : config.channels.find((channel) => channel.models.includes(model));
-    return matched || config.channels[0] || createModelChannel({ id: TOKAXIS_CHANNEL_ID, name: "TokAxis", baseUrl: config.baseUrl, apiKey: config.apiKey, apiFormat: config.apiFormat, models: config.models.map(modelOptionName) });
+    return matched || config.channels[0] || createModelChannel({ id: TOKAXIS_CHANNEL_ID, name: "平台模型", baseUrl: config.baseUrl, apiKey: config.apiKey, apiFormat: config.apiFormat, models: config.models.map(modelOptionName) });
 }
 
 export function resolveModelRequestConfig(config: AiConfig, value: string) {
@@ -426,7 +415,7 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
 
 export function isTokaxisProxyBaseUrl(baseUrl: string) {
     const value = baseUrl.trim().replace(/\/+$/, "");
-    return value === TOKAXIS_BASE_URL;
+    return value === TOKAXIS_BASE_URL || value === "/api/tokaxis";
 }
 
 export function requiresClientApiKey(baseUrl: string) {
@@ -464,14 +453,12 @@ function normalizeTokaxisChannels(config: AiConfig) {
     const modelSource = persistedModels.length ? persistedModels : config.models?.map(modelOptionName) || [];
     const shouldMigrateModels = (config.tokaxisDefaultsVersion || 0) < TOKAXIS_DEFAULTS_VERSION;
     const models = sanitizeTokaxisModels(
-        modelSource.length
-            ? [...modelSource, ...(shouldMigrateModels ? ["gpt-5.6-sol", ...Object.values(TOKAXIS_GOOGLE_IMAGE_MODELS), ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID] : [])]
-            : TOKAXIS_FALLBACK_MODELS,
+        modelSource.length ? [...modelSource, ...(shouldMigrateModels ? ["gpt-5.6-sol", ...Object.values(TOKAXIS_GOOGLE_IMAGE_MODELS), ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID] : [])] : TOKAXIS_FALLBACK_MODELS,
     );
     return [
         createModelChannel({
             id: TOKAXIS_CHANNEL_ID,
-            name: "TokAxis",
+            name: "平台模型",
             baseUrl: TOKAXIS_BASE_URL,
             apiKey: first?.apiKey || config.apiKey || "",
             apiFormat: "openai",
@@ -505,7 +492,7 @@ function buildTokaxisConfigWithModels(config: AiConfig, apiKey: string, rawModel
     const models = sanitizeTokaxisModels(rawModels);
     const channel = createModelChannel({
         id: TOKAXIS_CHANNEL_ID,
-        name: "TokAxis",
+        name: "平台模型",
         baseUrl: TOKAXIS_BASE_URL,
         apiKey,
         apiFormat: "openai",
@@ -552,7 +539,7 @@ function sanitizeTokaxisModels(models: string[]) {
 function normalizeTokaxisApiKey(apiKey: string) {
     const value = apiKey.trim();
     if (!value) return "";
-    return value.startsWith("sk-") ? value : `sk-${value}`;
+    return value.startsWith("vc_live_") || value.startsWith("sk-") ? value : `sk-${value}`;
 }
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
@@ -586,6 +573,7 @@ export function buildApiUrl(baseUrl: string, path: string) {
 
 function normalizeTokaxisProxyBaseUrl(baseUrl: string) {
     const normalized = baseUrl.trim().replace(/\/+$/, "");
+    if (normalized === "/api/tokaxis") return TOKAXIS_BASE_URL;
     try {
         const url = new URL(normalized);
         if (url.hostname.toLowerCase() === "ai.tokaxis.com" && (url.pathname === "" || url.pathname === "/" || url.pathname === "/v1")) return TOKAXIS_BASE_URL;

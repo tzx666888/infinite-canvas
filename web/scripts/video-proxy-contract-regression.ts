@@ -5,12 +5,27 @@ import { join } from "node:path";
 
 import { NextRequest } from "next/server.js";
 
-import { GET, POST } from "../src/app/api/tokaxis/[...path]/route.ts";
 import { readTemporaryMedia } from "../src/lib/temporary-media.ts";
 
 const originalTemporaryMediaDirectory = process.env.VIDEO_REFERENCE_DIR;
+const originalAuthDataDirectory = process.env.AUTH_DATA_DIR;
 const temporaryMediaDirectory = await mkdtemp(join(tmpdir(), "tokaxis-h3-media-"));
+const temporaryAuthDirectory = await mkdtemp(join(tmpdir(), "canvas-video-proxy-auth-"));
 process.env.VIDEO_REFERENCE_DIR = temporaryMediaDirectory;
+process.env.AUTH_DATA_DIR = temporaryAuthDirectory;
+process.env.CANVAS_UPSTREAM_ORIGIN = "http://model-service.test";
+process.env.CANVAS_UPSTREAM_API_KEY = "contract-upstream-service-secret";
+process.env.CANVAS_SESSION_SECRET = "contract-session-secret-0123456789abcdef";
+process.env.CANVAS_API_KEY_PEPPER = "contract-key-pepper-0123456789abcdef";
+process.env.CANVAS_BOOTSTRAP_ROOT_USERNAME = "contract-root";
+process.env.CANVAS_BOOTSTRAP_ROOT_PASSWORD = "ContractRootPassword123!";
+process.env.CANVAS_BILLING_ENABLED = "false";
+
+const { GET, POST } = await import("../src/app/api/tokaxis/[...path]/route.ts");
+const { authenticateLocalUser, createCanvasApiKey } = await import("../src/lib/auth/store.ts");
+const root = await authenticateLocalUser({ username: "contract-root", password: "ContractRootPassword123!" });
+assert.ok(root, "contract test must create a real station account");
+const { key: canvasKey } = await createCanvasApiKey(root.id, "Video contract");
 
 const capturedBodies: Array<Record<string, unknown>> = [];
 const capturedUrls: string[] = [];
@@ -34,7 +49,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
 async function create(payload: Record<string, unknown>) {
     const request = new NextRequest("http://localhost/api/tokaxis/v1/videos/generations", {
         method: "POST",
-        headers: { Authorization: "Bearer contract-test", "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${canvasKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
     });
     return POST(request, { params: { path: ["v1", "videos", "generations"] } });
@@ -142,7 +157,7 @@ try {
     const h3LocalImageBody = capturedBodies.at(-1)!;
     const temporaryImageUrl = String((h3LocalImageBody.images as string[])[0]);
     assert.match(temporaryImageUrl, /^http:\/\/localhost\/api\/tokaxis-media\/[a-f0-9]{48}\.png$/, "H3 local images must become public temporary URLs");
-    assert.doesNotMatch(temporaryImageUrl, /data:image|contract-test/, "temporary media URLs must not expose image data or the API key");
+    assert.doesNotMatch(temporaryImageUrl, /data:image|vc_live_/, "temporary media URLs must not expose image data or the API key");
     const temporaryImageName = new URL(temporaryImageUrl).pathname.split("/").at(-1)!;
     const storedImage = await readTemporaryMedia(temporaryImageName);
     assert.equal(storedImage?.mimeType, "image/png");
@@ -153,7 +168,7 @@ try {
 
     const seedancePollRequest = new NextRequest("http://localhost/api/tokaxis/v1/videos/generations/task_seedance_contract", {
         method: "GET",
-        headers: { Authorization: "Bearer contract-test" },
+        headers: { Authorization: `Bearer ${canvasKey}` },
     });
     const seedancePollResponse = await GET(seedancePollRequest, { params: { path: ["v1", "videos", "generations", "task_seedance_contract"] } });
     assert.equal(seedancePollResponse.status, 200, "Seedance task polling path must be forwarded");
@@ -166,7 +181,7 @@ try {
 
     const ordinaryTaskRequest = new NextRequest("http://localhost/api/tokaxis/v1/videos/task_google_contract", {
         method: "GET",
-        headers: { Authorization: "Bearer contract-test" },
+        headers: { Authorization: `Bearer ${canvasKey}` },
     });
     const ordinaryTaskResponse = await GET(ordinaryTaskRequest, { params: { path: ["v1", "videos", "task_google_contract"] } });
     assert.equal(ordinaryTaskResponse.status, 200);
@@ -218,5 +233,8 @@ try {
     globalThis.fetch = originalFetch;
     if (originalTemporaryMediaDirectory === undefined) delete process.env.VIDEO_REFERENCE_DIR;
     else process.env.VIDEO_REFERENCE_DIR = originalTemporaryMediaDirectory;
+    if (originalAuthDataDirectory === undefined) delete process.env.AUTH_DATA_DIR;
+    else process.env.AUTH_DATA_DIR = originalAuthDataDirectory;
     await rm(temporaryMediaDirectory, { recursive: true, force: true });
+    await rm(temporaryAuthDirectory, { recursive: true, force: true });
 }

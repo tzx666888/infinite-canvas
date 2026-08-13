@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { refundCredits, settleCredits } from "../lib/auth/store.ts";
+import { sanitizeMessage } from "../lib/gateway/errors.ts";
+
 export const IMAGE_JOB_OPERATIONS = ["generations", "edits", "chat-completions"] as const;
 
 export type ImageJobOperation = (typeof IMAGE_JOB_OPERATIONS)[number];
@@ -21,8 +24,10 @@ export type StoredImageJob = {
     createdAt: number;
     updatedAt: number;
     workerId: string;
+    userId?: string;
     error?: string;
     results?: ImageJobResult[];
+    billingRequestId?: string;
 };
 
 export type PublicImageJob = {
@@ -45,6 +50,8 @@ type SubmitImageJobInput = {
     authorization: string;
     contentType: string;
     body: ArrayBuffer;
+    billingRequestId?: string;
+    userId: string;
 };
 
 type ImageOutputSource = {
@@ -108,7 +115,10 @@ async function submitImageJobOnce(input: SubmitImageJobInput) {
     void cleanupExpiredImageJobs().catch(() => undefined);
 
     const existing = await readStoredImageJob(input.id);
-    if (existing) return existing;
+    if (existing) {
+        if (existing.userId && existing.userId !== input.userId) throw new Error("图片任务不存在或已过期");
+        return existing;
+    }
 
     const now = Date.now();
     const job: StoredImageJob = {
@@ -118,6 +128,8 @@ async function submitImageJobOnce(input: SubmitImageJobInput) {
         createdAt: now,
         updatedAt: now,
         workerId: runtime.workerId,
+        userId: input.userId,
+        billingRequestId: input.billingRequestId,
     };
     await writeStoredImageJob(job);
 
@@ -133,11 +145,12 @@ async function submitImageJobOnce(input: SubmitImageJobInput) {
     return job;
 }
 
-export async function getImageJob(jobId: string) {
+export async function getImageJob(jobId: string, userId?: string) {
     await ensureImageJobDirectory();
     void cleanupExpiredImageJobs().catch(() => undefined);
     const job = await readStoredImageJob(jobId);
     if (!job) return null;
+    if (userId && job.userId && job.userId !== userId) return null;
 
     if (job.status === "running" && job.workerId !== runtime.workerId) {
         return failImageJob(job, "图片任务因服务重启而中断，请重新生成");
@@ -161,7 +174,7 @@ export function toPublicImageJob(job: StoredImageJob): PublicImageJob {
     };
 }
 
-export async function cancelImageJob(jobId: string) {
+export async function cancelImageJob(jobId: string, userId?: string) {
     const active = runtime.active.get(jobId);
     if (active) {
         active.controller.abort(new DOMException("图片任务已取消", "AbortError"));
@@ -169,12 +182,13 @@ export async function cancelImageJob(jobId: string) {
     }
 
     const job = await readStoredImageJob(jobId);
+    if (userId && job?.userId && job.userId !== userId) return null;
     if (!job || job.status !== "running") return job;
     return failImageJob(job, "图片任务已取消");
 }
 
-export async function readImageJobResult(jobId: string, index: number) {
-    const job = await getImageJob(jobId);
+export async function readImageJobResult(jobId: string, index: number, userId?: string) {
+    const job = await getImageJob(jobId, userId);
     if (!job || job.status !== "succeeded") return null;
     const result = job.results?.find((item) => item.index === index);
     if (!result) return null;
@@ -238,7 +252,7 @@ async function executeImageJob(job: StoredImageJob, input: SubmitImageJobInput, 
             throw new Error("图片服务返回格式异常，请重试");
         }
         const upstreamError = objectErrorMessage(payload);
-        if (upstreamError) throw new Error(upstreamError);
+        if (upstreamError) throw new Error(sanitizeMessage(upstreamError));
 
         const outputs = collectImageJobOutputs(payload);
         if (!outputs.length) throw new Error("图片服务没有返回有效图片");
@@ -254,12 +268,14 @@ async function executeImageJob(job: StoredImageJob, input: SubmitImageJobInput, 
             results,
             error: undefined,
         });
+        if (job.billingRequestId) settleCredits(job.billingRequestId);
     } finally {
         clearTimeout(timeout);
     }
 }
 
 async function failImageJob(job: StoredImageJob, error: string) {
+    if (job.billingRequestId) refundCredits(job.billingRequestId, "图片生成失败，积分退回");
     const failed: StoredImageJob = {
         ...job,
         status: "failed",
@@ -272,7 +288,8 @@ async function failImageJob(job: StoredImageJob, error: string) {
 }
 
 function imageJobUpstreamUrl(operation: ImageJobOperation) {
-    const origin = (process.env.TOKAXIS_INTERNAL_ORIGIN || "https://ai.tokaxis.com").replace(/\/+$/, "");
+    const origin = (process.env.CANVAS_UPSTREAM_ORIGIN || process.env.TOKAXIS_INTERNAL_ORIGIN || "").replace(/\/+$/, "");
+    if (!origin) throw new Error("模型服务尚未配置");
     const pathName = operation === "chat-completions" ? "chat/completions" : `images/${operation}`;
     return `${origin}/v1/${pathName}`;
 }
@@ -349,7 +366,7 @@ function imageExtension(mimeType: string) {
 
 function upstreamFailureMessage(text: string, status: number) {
     const parsed = parseJson(text);
-    return objectErrorMessage(parsed) || `图片服务请求失败（${status}）`;
+    return sanitizeMessage(objectErrorMessage(parsed) || `图片服务请求失败（${status}）`, status);
 }
 
 function objectErrorMessage(value: unknown): string | null {
@@ -375,7 +392,7 @@ function parseJson(value: string) {
 function imageJobErrorMessage(error: unknown) {
     if (error instanceof DOMException && error.name === "AbortError") return error.message.includes("取消") ? "图片任务已取消" : "图片生成超时，请重新生成";
     if (error instanceof DOMException && error.name === "TimeoutError") return "图片生成超时，请重新生成";
-    if (error instanceof Error) return error.message.trim().slice(0, 500) || "图片生成失败";
+    if (error instanceof Error) return sanitizeMessage(error.message.trim().slice(0, 500) || "图片生成失败");
     return "图片生成失败";
 }
 

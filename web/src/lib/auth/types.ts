@@ -6,6 +6,7 @@ export type AuthUser = {
     displayName: string;
     avatarUrl: string;
     role: AccountRole;
+    credits: number;
     createdAt: string;
 };
 
@@ -18,4 +19,25 @@ export type InviteSummary = {
     usedCount: number;
     revokedAt: string | null;
     status: "active" | "used" | "expired" | "revoked";
+};
+
+export type CanvasApiKeySummary = {
+    id: string;
+    name: string;
+    prefix: string;
+    lastFour: string;
+    createdAt: string;
+    lastUsedAt: string | null;
+    revokedAt: string | null;
+};
+
+export type CreditLedgerEntry = {
+    id: string;
+    type: "recharge" | "consume" | "refund" | "admin_adjust" | "registration_bonus" | "migration_credit";
+    amount: number;
+    balanceAfter: number;
+    model: string | null;
+    units: number | null;
+    remark: string;
+    createdAt: string;
 };

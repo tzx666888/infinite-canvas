@@ -68,12 +68,14 @@ const googleVideo = buildGoogleFlowVideoRequestBody({
 assert.deepEqual(Array.from(googleVideo.keys()).sort(), ["model", "preset", "prompt", "resolution_name", "seconds", "size"], "Google/Omni requests must contain only the Flow multipart contract");
 
 const imageServiceSource = readFileSync(new URL("../src/services/api/image.ts", import.meta.url), "utf8");
-const proxySource = readFileSync(new URL("../src/app/api/tokaxis/[...path]/route.ts", import.meta.url), "utf8");
+const proxySource = readFileSync(new URL("../src/app/api/gateway/[...path]/route.ts", import.meta.url), "utf8");
 const settingsSource = readFileSync(new URL("../src/app/api/settings/route.ts", import.meta.url), "utf8");
 const configSource = readFileSync(new URL("../src/stores/use-config-store.ts", import.meta.url), "utf8");
 
 assert.match(imageServiceSource, /buildTokaxisGoogleImageChatRequest/, "Google image requests must use their isolated body builder");
 assert.match(proxySource, /unsupported_video_model/, "unknown video models must be rejected at the canvas proxy");
+assert.match(proxySource, /CANVAS_UPSTREAM_API_KEY/, "the private gateway must use only its server-side service credential upstream");
+assert.match(configSource, /value\.startsWith\("vc_live_"\)/, "station Canvas keys must not be rewritten with a legacy sk- prefix before model sync");
 assert.doesNotMatch(settingsSource, /grok-imagine-image-lite/, "the server fallback must not expose an unavailable Grok image model");
 assert.doesNotMatch(configSource, /"grok-imagine-image-lite"/, "the client fallback must not expose an unavailable Grok image model");
 

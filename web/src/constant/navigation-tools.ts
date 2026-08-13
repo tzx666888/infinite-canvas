@@ -1,4 +1,4 @@
-import { BookOpen, FileText, ImagePlus, Images, Layers3, Maximize2, Video, Volume2 } from "lucide-react";
+import { BookOpen, FileText, ImagePlus, Images, Layers3, Maximize2, Video } from "lucide-react";
 
 export const navigationTools = [
     {
@@ -20,11 +20,6 @@ export const navigationTools = [
         slug: "video",
         label: "视频创作台",
         icon: Video,
-    },
-    {
-        slug: "tts",
-        label: "TTS配音",
-        icon: Volume2,
     },
     {
         slug: "prompts",

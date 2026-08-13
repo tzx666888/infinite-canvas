@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 
+import { currentAuthUser } from "@/lib/auth/route-utils";
 import { isValidImageJobId, readImageJobResult } from "@/server/image-job-store";
 
 export const runtime = "nodejs";
@@ -14,7 +15,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const index = Number(rawIndex);
     if (!isValidImageJobId(jobId) || !Number.isInteger(index) || index < 0) return Response.json({ error: { message: "图片结果地址不合法" } }, { status: 400 });
 
-    const result = await readImageJobResult(jobId, index);
+    const user = await currentAuthUser();
+    if (!user) return Response.json({ error: { message: "请先登录" } }, { status: 401 });
+    const result = await readImageJobResult(jobId, index, user.id);
     if (!result) return Response.json({ error: { message: "图片结果不存在或已过期" } }, { status: 404, headers: { "Cache-Control": "no-store" } });
     return new Response(new Uint8Array(result.bytes), {
         status: 200,

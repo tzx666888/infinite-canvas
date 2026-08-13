@@ -122,7 +122,7 @@ assert.deepEqual(parseSeedanceVideoTaskState({ id: "task-3", status: "failed", e
 });
 
 const serviceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
-const proxySource = readFileSync(new URL("../src/app/api/tokaxis/[...path]/route.ts", import.meta.url), "utf8");
+const proxySource = readFileSync(new URL("../src/app/api/gateway/[...path]/route.ts", import.meta.url), "utf8");
 const configSource = readFileSync(new URL("../src/stores/use-config-store.ts", import.meta.url), "utf8");
 const settingsRouteSource = readFileSync(new URL("../src/app/api/settings/route.ts", import.meta.url), "utf8");
 

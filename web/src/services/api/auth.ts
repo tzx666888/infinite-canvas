@@ -1,4 +1,4 @@
-import type { AuthUser, InviteSummary } from "@/lib/auth/types";
+import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary } from "@/lib/auth/types";
 
 type AuthResponse = { user: AuthUser };
 
@@ -55,4 +55,24 @@ export async function createInvitation(input: { label?: string; maxUses?: number
 
 export async function revokeInvitation(inviteId: string) {
     return requestAuth<{ invite: InviteSummary }>(`/api/admin/invitations/${encodeURIComponent(inviteId)}`, { method: "DELETE", body: "{}" });
+}
+
+export async function fetchCanvasApiKeys() {
+    return requestAuth<{ apiKeys: CanvasApiKeySummary[] }>("/api/account/keys");
+}
+
+export async function createCanvasApiKey(name?: string) {
+    return requestAuth<{ key: string; apiKey: CanvasApiKeySummary }>("/api/account/keys", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export async function revokeCanvasApiKey(keyId: string) {
+    return requestAuth<{ apiKey: CanvasApiKeySummary }>(`/api/account/keys/${encodeURIComponent(keyId)}`, { method: "DELETE", body: "{}" });
+}
+
+export async function fetchWallet() {
+    return requestAuth<{ credits: number; creditsPerYuan: number; ledger: CreditLedgerEntry[] }>("/api/account/wallet");
+}
+
+export async function adjustAccountCredits(input: { username: string; amount: number; remark?: string }) {
+    return requestAuth<{ user: AuthUser; credits: number }>("/api/admin/credits", { method: "POST", body: JSON.stringify(input) });
 }

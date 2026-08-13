@@ -64,6 +64,7 @@ try {
         authorization: "Bearer test",
         contentType: "application/json",
         body: new TextEncoder().encode(JSON.stringify({ model: "gpt-image-2", prompt: "test" })).buffer,
+        userId: "test-user",
     };
     await Promise.all([submitImageJob(firstSubmission), submitImageJob(firstSubmission)]);
 
@@ -90,6 +91,7 @@ try {
         authorization: "Bearer test",
         contentType: "application/json",
         body: new TextEncoder().encode("{}").buffer,
+        userId: "test-user",
     });
     assert.equal(upstreamCalls, 1, "re-submitting a persisted job id must not create a second paid request");
 
@@ -103,6 +105,7 @@ try {
         authorization: "Bearer test",
         contentType: "application/json",
         body: new TextEncoder().encode(JSON.stringify({ model: "gpt-image-2", prompt: "cancel-me" })).buffer,
+        userId: "test-user",
     });
     const canceledJob = await cancelImageJob(cancelJobId);
     assert.equal(canceledJob?.status, "failed", "explicit stop must cancel the server-side upstream request");
@@ -115,6 +118,7 @@ try {
         authorization: "Bearer test",
         contentType: "application/json",
         body: new TextEncoder().encode(JSON.stringify({ model: "gpt-image-2", prompt: "invalid-image" })).buffer,
+        userId: "test-user",
     });
     const invalidImageJob = await waitForTerminalJob(invalidImageJobId, getImageJob);
     assert.equal(invalidImageJob?.status, "failed");
@@ -127,10 +131,11 @@ try {
         authorization: "Bearer test",
         contentType: "application/json",
         body: new TextEncoder().encode(JSON.stringify({ model: "gpt-image-2", prompt: "content-moderated" })).buffer,
+        userId: "test-user",
     });
     const moderatedJob = await waitForTerminalJob(moderatedJobId, getImageJob);
     assert.equal(moderatedJob?.status, "failed");
-    assert.equal(moderatedJob?.error, "imagine:content-moderated", "content moderation must preserve the real upstream reason");
+    assert.equal(moderatedJob?.error, "提交的内容或参考素材未通过安全审核，请调整后重试", "content moderation must preserve the real reason without exposing an upstream implementation name");
 
     const canvasClientSource = await readFile(path.join(import.meta.dirname, "../src/app/(user)/canvas/[id]/canvas-client-page.tsx"), "utf8");
     assert.match(canvasClientSource, /if \(generationRequestsRef\.current\.has\(pendingNode\.id\)\) return;/, "reload recovery must not take over and abort a live image submission");

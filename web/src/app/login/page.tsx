@@ -54,7 +54,7 @@ export default function LoginPage() {
         } catch (error) {
             if (error instanceof AuthRequestError && error.code === "two_factor_required") {
                 setRequiresTwoFactor(true);
-                message.info("请输入中转站动态验证码或备用码");
+                message.info("请输入旧账户的动态验证码或备用码");
                 return;
             }
             message.error(error instanceof Error ? error.message : "账户操作失败");
@@ -68,7 +68,7 @@ export default function LoginPage() {
                 <div className="mb-9 text-center">
                     <BrandMark className="mx-auto mb-6 [&>img]:size-14" />
                     <h1 className="text-3xl font-semibold text-stone-950 dark:text-stone-100">进入视觉画布</h1>
-                    <p className="mt-3 text-sm leading-6 text-stone-500 dark:text-stone-400">已有中转站账号可直接登录；新账号仅通过邀请码开通。</p>
+                    <p className="mt-3 text-sm leading-6 text-stone-500 dark:text-stone-400">使用站内账号登录；新账号仅通过邀请码开通。</p>
                 </div>
 
                 <Form<FormValues> layout="vertical" size="large" requiredMark={false} onFinish={submit}>
@@ -81,13 +81,13 @@ export default function LoginPage() {
                                 setRequiresTwoFactor(false);
                             }}
                             options={[
-                                { label: "中转站账号登录", value: "login" },
+                                { label: "站内账号登录", value: "login" },
                                 { label: "邀请码注册", value: "register" },
                             ]}
                         />
                     </Form.Item>
-                    <Form.Item name="username" label={mode === "login" ? "用户名或邮箱" : "用户名"} rules={[{ required: true, message: "请输入用户名" }]}>
-                        <Input prefix={<UserRound className="size-4" />} autoComplete="username" placeholder={mode === "login" ? "输入中转站用户名或邮箱" : "3-20 位小写字母、数字或 _ -"} />
+                    <Form.Item name="username" label="用户名" rules={[{ required: true, message: "请输入用户名" }]}>
+                        <Input prefix={<UserRound className="size-4" />} autoComplete="username" placeholder={mode === "login" ? "输入用户名" : "3-32 位小写字母、数字或 _ -"} />
                     </Form.Item>
                     <Form.Item name="password" label="密码" rules={[{ required: true, message: "请输入密码" }]}>
                         <Input.Password prefix={<LockKeyhole className="size-4" />} autoComplete={mode === "register" ? "new-password" : "current-password"} placeholder="至少 12 位" />

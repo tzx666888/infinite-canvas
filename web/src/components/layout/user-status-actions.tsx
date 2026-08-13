@@ -34,7 +34,16 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
     const avatarText = (userName.trim()[0] || "U").toUpperCase();
     const menuItems: ItemType[] = user
         ? [
-              { key: "user", disabled: true, label: <span className="font-medium text-current">{userName}</span> },
+              {
+                  key: "user",
+                  disabled: true,
+                  label: (
+                      <span className="font-medium text-current">
+                          {userName} · {user.credits} 积分
+                      </span>
+                  ),
+              },
+              { key: "account", icon: <KeyRound className="size-4" />, label: <Link href="/account">账户与画布 Key</Link> },
               ...(user.role === "root" ? [{ key: "invitations", icon: <KeyRound className="size-4" />, label: <Link href="/admin/invitations">邀请码管理</Link> }] : []),
               ...(onOpenShortcuts ? [{ key: "shortcuts", icon: <Keyboard className="size-4" />, label: "快捷键", onClick: onOpenShortcuts }] : []),
               { type: "divider" },

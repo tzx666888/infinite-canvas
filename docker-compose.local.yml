@@ -5,9 +5,22 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "3101:3100"
     environment:
       AUTH_DATA_DIR: "/app/data/auth"
+      IMAGE_JOB_DIR: "/app/data/image-jobs"
+      CANVAS_UPSTREAM_ORIGIN: "http://host.docker.internal:3301"
+      CANVAS_UPSTREAM_API_KEY: "${CANVAS_UPSTREAM_API_KEY:-local-upstream-secret}"
+      CANVAS_LEGACY_AUTH_ENABLED: "false"
+      CANVAS_LEGACY_INITIAL_CREDITS: "${CANVAS_LEGACY_INITIAL_CREDITS:-0}"
+      CANVAS_SESSION_SECRET: "${CANVAS_SESSION_SECRET:-local-session-secret-change-before-production-0123456789}"
+      CANVAS_API_KEY_PEPPER: "${CANVAS_API_KEY_PEPPER:-local-key-pepper-change-before-production-0123456789}"
+      CANVAS_BOOTSTRAP_ROOT_USERNAME: "${CANVAS_BOOTSTRAP_ROOT_USERNAME:-root}"
+      CANVAS_BOOTSTRAP_ROOT_PASSWORD: "${CANVAS_BOOTSTRAP_ROOT_PASSWORD:-LocalRootPassword123!}"
+      CANVAS_BOOTSTRAP_ROOT_CREDITS: "${CANVAS_BOOTSTRAP_ROOT_CREDITS:-1000}"
+      CANVAS_INVITE_INITIAL_CREDITS: "${CANVAS_INVITE_INITIAL_CREDITS:-0}"
+      CANVAS_BILLING_ENABLED: "${CANVAS_BILLING_ENABLED:-true}"
+      CANVAS_MODEL_PRICES_JSON: "${CANVAS_MODEL_PRICES_JSON:-{}}"
     volumes:
-      - ./data/auth:/app/data/auth
+      - ./data:/app/data
     restart: unless-stopped

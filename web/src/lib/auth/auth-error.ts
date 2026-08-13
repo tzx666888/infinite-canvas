@@ -11,7 +11,11 @@ export class AuthError extends Error {
 }
 
 export function authErrorResponse(error: unknown) {
-    if (error instanceof AuthError) return Response.json({ message: error.message, ...(error.code ? { code: error.code } : {}) }, { status: error.status });
+    if (error instanceof AuthError) {
+        const code = error.code || "account_request_failed";
+        return Response.json({ message: error.message, code, error: { message: error.message, code } }, { status: error.status });
+    }
     console.error("Auth API failed", error);
-    return Response.json({ message: "账户服务暂时不可用，请稍后重试" }, { status: 500 });
+    const message = "账户服务暂时不可用，请稍后重试";
+    return Response.json({ message, code: "account_service_unavailable", error: { message, code: "account_service_unavailable" } }, { status: 500 });
 }

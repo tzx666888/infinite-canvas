@@ -1,7 +1,8 @@
 "use client";
 
 import { App, Button, Form, Input, Modal, Progress, Segmented, Select, Tabs } from "antd";
-import { Cloud, Database, HardDrive, RefreshCw, Trash2, Wifi } from "lucide-react";
+import { Cloud, Database, HardDrive, KeyRound, RefreshCw, Trash2, Wifi } from "lucide-react";
+import Link from "next/link";
 import { useRef, useState, type ReactNode } from "react";
 
 import { ModelPicker } from "@/components/model-picker";
@@ -28,7 +29,7 @@ import {
 } from "@/stores/use-config-store";
 import { useCanvasStore } from "@/app/(user)/canvas/stores/use-canvas-store";
 
-const TOKAXIS_PROXY_BASE_URL = "/api/tokaxis";
+const TOKAXIS_PROXY_BASE_URL = "/api/gateway";
 
 type ModelGroup = {
     capability: ModelCapability;
@@ -118,7 +119,7 @@ export function AppConfigModal() {
         const ready = config.channels.some((channel) => channel.baseUrl.trim() && (!requiresClientApiKey(channel.baseUrl) || channel.apiKey.trim()) && channel.models.length);
         if (!ready) {
             setActiveTab("channels");
-            message.warning("请先填写 TokAxis API Key");
+            message.warning("请先填写画布 Key");
             return;
         }
         closeFloatingModelPickers();
@@ -153,7 +154,7 @@ export function AppConfigModal() {
             setModelSyncStatus(`已同步 ${count} 个模型`);
             if (!quiet) message.success(`已同步 ${count} 个模型`);
         } catch (error) {
-            console.warn("[TokAxis] model sync failed", error);
+            console.warn("[platform-models] model sync failed", error);
             setModelSyncStatus("同步失败，已使用保底模型");
         } finally {
             setSyncingModels(false);
@@ -263,7 +264,7 @@ export function AppConfigModal() {
             title={
                 <div>
                     <div className="text-lg font-semibold">配置与用户偏好</div>
-                    <div className="mt-1 text-xs font-normal text-stone-500">TokAxis 代理、模型选择和同步偏好</div>
+                    <div className="mt-1 text-xs font-normal text-stone-500">画布 Key、平台模型和同步偏好</div>
                 </div>
             }
             open={isConfigOpen}
@@ -289,36 +290,38 @@ export function AppConfigModal() {
                 items={[
                     {
                         key: "channels",
-                        label: "TokAxis",
+                        label: "平台模型",
                         children: (
                             <Form layout="vertical" requiredMark={false}>
                                 <div className="mb-4 flex justify-start">
-                                    <Button type="primary" href="https://ai.tokaxis.com/console/token" target="_blank" rel="noreferrer">
-                                        获取 Key
-                                    </Button>
+                                    <Link href="/account" onClick={() => setConfigDialogOpen(false)}>
+                                        <Button type="primary" icon={<KeyRound className="size-4" />}>
+                                            创建画布 Key
+                                        </Button>
+                                    </Link>
                                 </div>
                                 <div className="space-y-3">
                                     {config.channels.slice(0, 1).map((channel) => (
                                         <section key={channel.id} className="rounded-lg border border-stone-200 p-3 dark:border-stone-800">
                                             <div className="mb-3 flex items-center justify-between gap-3">
                                                 <div className="min-w-0">
-                                                    <div className="truncate text-sm font-semibold">TokAxis</div>
-                                                    <div className="mt-1 text-xs text-stone-500">OpenAI 兼容格式 · 已内置 {channel.models.length} 个模型</div>
+                                                    <div className="truncate text-sm font-semibold">平台模型</div>
+                                                    <div className="mt-1 text-xs text-stone-500">站内安全代理 · 已同步 {channel.models.length} 个模型</div>
                                                 </div>
                                             </div>
                                             <div className="grid gap-4 md:grid-cols-2">
                                                 <Form.Item label="渠道名称" className="mb-0">
-                                                    <Input value="TokAxis" disabled />
+                                                    <Input value="平台模型" disabled />
                                                 </Form.Item>
                                                 <Form.Item label="Base URL" className="mb-0">
                                                     <Input value={channel.baseUrl} disabled />
                                                 </Form.Item>
-                                                <Form.Item label="TokAxis API Key" required className="mb-0 md:col-span-2">
+                                                <Form.Item label="画布 Key" required className="mb-0 md:col-span-2">
                                                     <div className="flex gap-2">
                                                         <Input.Password
                                                             className="min-w-0 flex-1"
                                                             value={channel.apiKey}
-                                                            placeholder="请输入 TokAxis API Key"
+                                                            placeholder="请输入在账户中心创建的画布 Key"
                                                             autoComplete="off"
                                                             onChange={(event) => updateChannel(channel.id, { apiKey: event.target.value })}
                                                             onBlur={() => syncTokaxisModelsIfNeeded(channel.apiKey)}
@@ -557,7 +560,7 @@ function withChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
     const tokaxis = createModelChannel({
         ...channels[0],
         id: "tokaxis",
-        name: "TokAxis",
+        name: "平台模型",
         baseUrl: TOKAXIS_PROXY_BASE_URL,
         apiFormat: "openai",
         models: currentModels,

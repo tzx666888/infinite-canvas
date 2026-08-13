@@ -1,61 +1,17 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
-import { AuthError } from "@/lib/auth/auth-error";
-import { verifyPassword } from "@/lib/auth/password";
-import type { TokaxisIdentity } from "@/lib/auth/tokaxis-identity";
-import type { AuthUser, InviteSummary } from "@/lib/auth/types";
+import { AuthError } from "./auth-error.ts";
+import { canvasDatabase, withImmediateTransaction, type CanvasDatabase } from "./database.ts";
+import { hashPassword, verifyPassword } from "./password.ts";
+import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary } from "./types.ts";
 
-type AccountRecord = {
-    id: string;
-    username: string;
-    displayName: string;
-    avatarUrl: string;
-    role: AuthUser["role"];
-    provider: "local" | "tokaxis";
-    externalId: string | null;
-    passwordHash: string;
-    createdAt: string;
-    updatedAt: string;
-    lastLoginAt: string | null;
-};
+type AccountRow = Record<string, unknown>;
+type ApiKeyIdentity = { keyId: string; user: AuthUser };
 
-type InviteRecord = {
-    id: string;
-    codeHash: string;
-    label: string;
-    createdBy: string;
-    createdAt: string;
-    expiresAt: string | null;
-    maxUses: number;
-    usedCount: number;
-    revokedAt: string | null;
-};
-
-type AuthDatabase = {
-    version: 1;
-    accounts: AccountRecord[];
-    invites: InviteRecord[];
-};
-
-type CreatedInvite = {
-    code: string;
-    invite: InviteSummary;
-};
+export type CreatedCanvasApiKey = { key: string; apiKey: CanvasApiKeySummary };
+export type CreditReservation = { requestId: string; amount: number; status: "reserved" | "submitted" | "settled" | "refunded" };
 
 const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const EMPTY_DATABASE: AuthDatabase = { version: 1, accounts: [], invites: [] };
-let mutationQueue: Promise<void> = Promise.resolve();
-
-function authDataDirectory() {
-    return process.env.AUTH_DATA_DIR?.trim() || join(tmpdir(), "infinite-canvas-auth");
-}
-
-function databasePath() {
-    return join(authDataDirectory(), "accounts.json");
-}
 
 function now() {
     return new Date().toISOString();
@@ -67,24 +23,13 @@ function normalizeUsername(value: string) {
 
 function validateUsername(value: string) {
     const username = normalizeUsername(value);
-    if (!/^[a-z0-9_-]{3,20}$/.test(username)) throw new AuthError("用户名需为 3-20 位小写字母、数字、下划线或短横线");
+    if (!/^[a-z0-9_-]{3,32}$/.test(username)) throw new AuthError("用户名需为 3-32 位小写字母、数字、下划线或短横线");
     return username;
 }
 
 function validatePassword(value: string) {
-    if (value.length < 12 || value.length > 72 || Buffer.byteLength(value, "utf8") > 72) throw new AuthError("密码需为 12-72 位且不超过 72 字节");
+    if (value.length < 12 || value.length > 128) throw new AuthError("密码需为 12-128 位");
     return value;
-}
-
-function identityFields(identity: TokaxisIdentity) {
-    const externalId = `tokaxis:${identity.id}`;
-    const username = identity.username.trim() || externalId;
-    return {
-        externalId,
-        username,
-        displayName: identity.displayName.trim() || username,
-        role: (identity.role >= 100 ? "root" : "member") as AuthUser["role"],
-    };
 }
 
 function normalizeInviteCode(value: string) {
@@ -98,261 +43,339 @@ function inviteCodeHash(value: string) {
     return createHash("sha256").update(normalizeInviteCode(value)).digest("base64url");
 }
 
+function apiKeyHash(value: string) {
+    const pepper = process.env.CANVAS_API_KEY_PEPPER?.trim() || process.env.CANVAS_SESSION_SECRET?.trim();
+    if (!pepper && process.env.NODE_ENV === "production") throw new AuthError("画布 Key 安全密钥尚未配置", 503, "api_key_pepper_missing");
+    return createHash("sha256")
+        .update(`${pepper || "local-development-only"}:${value.trim()}`)
+        .digest("base64url");
+}
+
 function createInviteCode() {
     const bytes = randomBytes(16);
     const characters = Array.from(bytes, (byte) => INVITE_ALPHABET[byte % INVITE_ALPHABET.length]);
     return `VC-${characters.slice(0, 4).join("")}-${characters.slice(4, 8).join("")}-${characters.slice(8, 12).join("")}-${characters.slice(12, 16).join("")}`;
 }
 
-function isDatabase(value: unknown): value is AuthDatabase {
-    if (!value || typeof value !== "object") return false;
-    const database = value as Partial<AuthDatabase>;
-    return database.version === 1 && Array.isArray(database.accounts) && Array.isArray(database.invites);
-}
-
-async function readDatabase(): Promise<AuthDatabase> {
-    const directory = authDataDirectory();
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    try {
-        const value = JSON.parse(await readFile(databasePath(), "utf8")) as unknown;
-        if (!isDatabase(value)) throw new Error("invalid auth database");
-        return value;
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return structuredClone(EMPTY_DATABASE);
-        throw error;
-    }
-}
-
-async function writeDatabase(database: AuthDatabase) {
-    const directory = authDataDirectory();
-    const target = databasePath();
-    const temp = join(directory, `accounts-${process.pid}-${randomUUID()}.tmp`);
-    await writeFile(temp, `${JSON.stringify(database, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-    await chmod(temp, 0o600);
-    await rename(temp, target);
-    await chmod(target, 0o600);
-}
-
-async function mutateDatabase<T>(handler: (database: AuthDatabase) => Promise<{ value: T; changed: boolean }>) {
-    const operation = mutationQueue.then(async () => {
-        const database = await readDatabase();
-        const result = await handler(database);
-        if (result.changed) await writeDatabase(database);
-        return result.value;
-    });
-    mutationQueue = operation.then(
-        () => undefined,
-        () => undefined,
-    );
-    return operation;
-}
-
-function toAuthUser(account: AccountRecord): AuthUser {
+function toAuthUser(row: AccountRow): AuthUser {
     return {
-        id: account.id,
-        username: account.username,
-        displayName: account.displayName,
-        avatarUrl: account.avatarUrl,
-        role: account.provider === "tokaxis" && account.role === "root" ? "root" : "member",
-        createdAt: account.createdAt,
+        id: String(row.id),
+        username: String(row.username),
+        displayName: String(row.display_name),
+        avatarUrl: String(row.avatar_url || ""),
+        role: row.role === "root" ? "root" : "member",
+        credits: Number(row.credits || 0),
+        createdAt: String(row.created_at),
     };
 }
 
-function isTokaxisRoot(account: AccountRecord) {
-    return account.provider === "tokaxis" && account.role === "root";
-}
-
-function inviteStatus(invite: InviteRecord): InviteSummary["status"] {
-    if (invite.revokedAt) return "revoked";
-    if (invite.expiresAt && Date.parse(invite.expiresAt) <= Date.now()) return "expired";
-    if (invite.usedCount >= invite.maxUses) return "used";
+function inviteStatus(row: AccountRow): InviteSummary["status"] {
+    if (row.revoked_at) return "revoked";
+    if (row.expires_at && Date.parse(String(row.expires_at)) <= Date.now()) return "expired";
+    if (Number(row.used_count) >= Number(row.max_uses)) return "used";
     return "active";
 }
 
-function toInviteSummary(invite: InviteRecord): InviteSummary {
+function toInviteSummary(row: AccountRow): InviteSummary {
     return {
-        id: invite.id,
-        label: invite.label,
-        createdAt: invite.createdAt,
-        expiresAt: invite.expiresAt,
-        maxUses: invite.maxUses,
-        usedCount: invite.usedCount,
-        revokedAt: invite.revokedAt,
-        status: inviteStatus(invite),
+        id: String(row.id),
+        label: String(row.label),
+        createdAt: String(row.created_at),
+        expiresAt: row.expires_at ? String(row.expires_at) : null,
+        maxUses: Number(row.max_uses),
+        usedCount: Number(row.used_count),
+        revokedAt: row.revoked_at ? String(row.revoked_at) : null,
+        status: inviteStatus(row),
     };
 }
 
+function toApiKeySummary(row: AccountRow): CanvasApiKeySummary {
+    return {
+        id: String(row.id),
+        name: String(row.name),
+        prefix: String(row.prefix),
+        lastFour: String(row.last_four),
+        createdAt: String(row.created_at),
+        lastUsedAt: row.last_used_at ? String(row.last_used_at) : null,
+        revokedAt: row.revoked_at ? String(row.revoked_at) : null,
+    };
+}
+
+export async function ensureBootstrapRoot() {
+    const usernameInput = process.env.CANVAS_BOOTSTRAP_ROOT_USERNAME?.trim();
+    const passwordInput = process.env.CANVAS_BOOTSTRAP_ROOT_PASSWORD || "";
+    if (!usernameInput || !passwordInput) return;
+    const username = validateUsername(usernameInput);
+    validatePassword(passwordInput);
+    const database = canvasDatabase();
+    if (database.prepare("SELECT id FROM accounts WHERE role = 'root' LIMIT 1").get()) return;
+    const timestamp = now();
+    database
+        .prepare(
+            `
+        INSERT OR IGNORE INTO accounts
+            (id, username, display_name, role, provider, password_hash, credits, created_at, updated_at)
+        VALUES (?, ?, ?, 'root', 'local', ?, ?, ?, ?)
+    `,
+        )
+        .run(randomUUID(), username, username, await hashPassword(passwordInput), Math.max(0, Math.floor(Number(process.env.CANVAS_BOOTSTRAP_ROOT_CREDITS || 0))), timestamp, timestamp);
+}
+
 export async function authenticateLocalUser(input: { username: string; password: string }) {
+    await ensureBootstrapRoot();
     const username = normalizeUsername(input.username);
-    if (!/^[a-z0-9_-]{3,32}$/.test(username)) return null;
-    return mutateDatabase(async (database) => {
-        const account = database.accounts.find((item) => item.provider !== "tokaxis" && item.username === username);
-        if (!account || !account.passwordHash || !(await verifyPassword(input.password, account.passwordHash))) return { value: null, changed: false };
-        account.lastLoginAt = now();
-        account.updatedAt = account.lastLoginAt;
-        return { value: toAuthUser(account), changed: true };
-    });
+    const database = canvasDatabase();
+    const account = database.prepare("SELECT * FROM accounts WHERE username = ? AND status = 'active'").get(username);
+    if (!account || !String(account.password_hash) || !(await verifyPassword(input.password, String(account.password_hash)))) return null;
+    const timestamp = now();
+    database.prepare("UPDATE accounts SET last_login_at = ?, updated_at = ? WHERE id = ?").run(timestamp, timestamp, account.id);
+    return toAuthUser({ ...account, last_login_at: timestamp, updated_at: timestamp });
 }
 
-export async function upsertTokaxisAccount(input: { id: number; username: string; displayName: string; role: number }) {
-    const { externalId, username, displayName, role } = identityFields(input);
-    return mutateDatabase(async (database) => {
-        const timestamp = now();
-        const existing = database.accounts.find((account) => account.provider === "tokaxis" && account.externalId === externalId);
+export async function claimExternalAccount(input: { id: number; username: string; displayName: string; role: number; password: string; canvasCredits?: number }) {
+    const username = normalizeUsername(input.username) || `member-${input.id}`;
+    if (!input.password || input.password.length > 128) throw new AuthError("旧账户密码无法迁移", 400, "legacy_password_invalid");
+    const externalId = `tokaxis:${input.id}`;
+    const timestamp = now();
+    const passwordHash = await hashPassword(input.password);
+    const configuredInitialCredits = Number(process.env.CANVAS_LEGACY_INITIAL_CREDITS || 0);
+    const requestedInitialCredits = input.canvasCredits === undefined ? configuredInitialCredits : Number(input.canvasCredits);
+    const initialCredits = Math.max(0, Math.min(1_000_000_000, Math.floor(Number.isFinite(requestedInitialCredits) ? requestedInitialCredits : 0)));
+    return withImmediateTransaction((database) => {
+        const existing = database.prepare("SELECT * FROM accounts WHERE external_id = ? OR username = ?").get(externalId, username);
+        const role = input.role >= 100 ? "root" : "member";
         if (existing) {
-            existing.username = username;
-            existing.displayName = displayName;
-            existing.role = role;
-            existing.updatedAt = timestamp;
-            existing.lastLoginAt = timestamp;
-            return { value: toAuthUser(existing), changed: true };
+            database
+                .prepare(`UPDATE accounts SET username = ?, display_name = ?, role = ?, provider = 'migrated', external_id = ?, password_hash = ?, status = 'active', updated_at = ?, last_login_at = ? WHERE id = ?`)
+                .run(username, input.displayName.trim() || username, role, externalId, passwordHash, timestamp, timestamp, existing.id);
+            return toAuthUser({ ...existing, username, display_name: input.displayName.trim() || username, role, provider: "migrated", external_id: externalId, password_hash: passwordHash, updated_at: timestamp, last_login_at: timestamp });
         }
-        const legacyLocal = database.accounts.find((account) => account.provider === "local" && account.username.toLowerCase() === username.toLowerCase());
-        if (legacyLocal) {
-            legacyLocal.id = externalId;
-            legacyLocal.username = username;
-            legacyLocal.displayName = displayName;
-            legacyLocal.role = role;
-            legacyLocal.provider = "tokaxis";
-            legacyLocal.externalId = externalId;
-            legacyLocal.passwordHash = "";
-            legacyLocal.updatedAt = timestamp;
-            legacyLocal.lastLoginAt = timestamp;
-            return { value: toAuthUser(legacyLocal), changed: true };
-        }
-        const account: AccountRecord = {
-            id: externalId,
-            username,
-            displayName,
-            avatarUrl: "",
-            role,
-            provider: "tokaxis",
-            externalId,
-            passwordHash: "",
-            createdAt: timestamp,
-            updatedAt: timestamp,
-            lastLoginAt: timestamp,
-        };
-        database.accounts.push(account);
-        return { value: toAuthUser(account), changed: true };
+        const id = randomUUID();
+        database
+            .prepare(`INSERT INTO accounts (id, username, display_name, role, provider, external_id, password_hash, credits, created_at, updated_at, last_login_at) VALUES (?, ?, ?, ?, 'migrated', ?, ?, ?, ?, ?, ?)`)
+            .run(id, username, input.displayName.trim() || username, role, externalId, passwordHash, initialCredits, timestamp, timestamp, timestamp);
+        if (initialCredits) insertLedger(database, { userId: id, type: "migration_credit", amount: initialCredits, balanceAfter: initialCredits, remark: "旧账户首次迁移积分" });
+        return toAuthUser({ id, username, display_name: input.displayName.trim() || username, avatar_url: "", role, credits: initialCredits, created_at: timestamp });
     });
 }
 
-export async function migrateLocalAccountToTokaxis(input: { localUserId: string; identity: TokaxisIdentity }) {
-    const { externalId, username, displayName, role } = identityFields(input.identity);
-    return mutateDatabase(async (database) => {
-        const local = database.accounts.find((account) => account.id === input.localUserId && account.provider === "local");
-        if (!local) throw new AuthError("本地账号迁移失败，请联系管理员", 409);
-        const existing = database.accounts.find((account) => account.provider === "tokaxis" && account.externalId === externalId);
-        const timestamp = now();
-        if (existing) {
-            existing.username = username;
-            existing.displayName = displayName;
-            existing.role = role;
-            existing.updatedAt = timestamp;
-            existing.lastLoginAt = timestamp;
-            database.accounts = database.accounts.filter((account) => account.id !== local.id);
-            return { value: toAuthUser(existing), changed: true };
-        }
-        local.id = externalId;
-        local.username = username;
-        local.displayName = displayName;
-        local.role = role;
-        local.provider = "tokaxis";
-        local.externalId = externalId;
-        local.passwordHash = "";
-        local.updatedAt = timestamp;
-        local.lastLoginAt = timestamp;
-        return { value: toAuthUser(local), changed: true };
-    });
-}
-
-export async function registerWithInvite(
-    input: { username: string; password: string; inviteCode: string },
-    createTokaxisIdentity: () => Promise<TokaxisIdentity>,
-) {
+export async function registerWithInvite(input: { username: string; password: string; inviteCode: string }) {
+    await ensureBootstrapRoot();
     const username = validateUsername(input.username);
-    validatePassword(input.password);
+    const password = validatePassword(input.password);
     const codeHash = inviteCodeHash(input.inviteCode);
     if (!normalizeInviteCode(input.inviteCode)) throw new AuthError("请输入邀请码");
-
-    return mutateDatabase(async (database) => {
-        if (database.accounts.some((account) => account.username.toLowerCase() === username)) throw new AuthError("该用户名已被使用", 409);
-        const invite = database.invites.find((item) => item.codeHash === codeHash);
+    const passwordHash = await hashPassword(password);
+    const initialCredits = Math.max(0, Math.floor(Number(process.env.CANVAS_INVITE_INITIAL_CREDITS || 0)));
+    return withImmediateTransaction((database) => {
+        if (database.prepare("SELECT id FROM accounts WHERE username = ?").get(username)) throw new AuthError("该用户名已被使用", 409);
+        const invite = database.prepare("SELECT * FROM invites WHERE code_hash = ?").get(codeHash);
         if (!invite || inviteStatus(invite) !== "active") throw new AuthError("邀请码无效、已过期或已使用", 403);
-
-        const identity = await createTokaxisIdentity();
-        const { externalId, username: syncedUsername, displayName, role } = identityFields(identity);
-        if (database.accounts.some((account) => account.provider === "tokaxis" && account.externalId === externalId)) {
-            throw new AuthError("该中转站账号已经绑定画布", 409);
-        }
         const createdAt = now();
-        const account: AccountRecord = {
-            id: externalId,
-            username: syncedUsername,
-            displayName,
-            avatarUrl: "",
-            role,
-            provider: "tokaxis",
-            externalId,
-            passwordHash: "",
-            createdAt,
-            updatedAt: createdAt,
-            lastLoginAt: createdAt,
-        };
-        database.accounts.push(account);
-        invite.usedCount += 1;
-        return { value: toAuthUser(account), changed: true };
+        const id = randomUUID();
+        database
+            .prepare(`INSERT INTO accounts (id, username, display_name, role, provider, password_hash, credits, created_at, updated_at, last_login_at) VALUES (?, ?, ?, 'member', 'local', ?, ?, ?, ?, ?)`)
+            .run(id, username, username, passwordHash, initialCredits, createdAt, createdAt, createdAt);
+        database.prepare("UPDATE invites SET used_count = used_count + 1 WHERE id = ?").run(invite.id);
+        if (initialCredits) insertLedger(database, { userId: id, type: "registration_bonus", amount: initialCredits, balanceAfter: initialCredits, remark: "注册赠送积分" });
+        return toAuthUser({ id, username, display_name: username, avatar_url: "", role: "member", credits: initialCredits, created_at: createdAt });
     });
 }
 
 export async function getAuthUser(userId: string) {
-    const database = await readDatabase();
-    const account = database.accounts.find((item) => item.id === userId);
+    await ensureBootstrapRoot();
+    const account = canvasDatabase().prepare("SELECT * FROM accounts WHERE id = ? AND status = 'active'").get(userId);
     return account ? toAuthUser(account) : null;
 }
 
-export async function createInvite(input: { rootUserId: string; label?: string; maxUses?: number; expiresInDays?: number | null }): Promise<CreatedInvite> {
+export async function createInvite(input: { rootUserId: string; label?: string; maxUses?: number; expiresInDays?: number | null }) {
+    await ensureBootstrapRoot();
     const label = input.label?.trim().slice(0, 80) || "未命名邀请码";
     const maxUses = Math.max(1, Math.min(100, Math.floor(Number(input.maxUses) || 1)));
     const requestedDays = input.expiresInDays === null ? null : Number(input.expiresInDays ?? 7);
     const expiresInDays = requestedDays === null ? null : Math.max(1, Math.min(90, Math.floor(Number.isFinite(requestedDays) ? requestedDays : 7)));
-
-    return mutateDatabase(async (database) => {
-        const root = database.accounts.find((account) => account.id === input.rootUserId && isTokaxisRoot(account));
-        if (!root) throw new AuthError("没有管理邀请码的权限", 403);
+    return withImmediateTransaction((database) => {
+        requireRoot(database, input.rootUserId);
         const createdAt = now();
         const code = createInviteCode();
-        const invite: InviteRecord = {
+        const row = {
             id: randomUUID(),
-            codeHash: inviteCodeHash(code),
+            code_hash: inviteCodeHash(code),
             label,
-            createdBy: root.id,
-            createdAt,
-            expiresAt: expiresInDays === null ? null : new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString(),
-            maxUses,
-            usedCount: 0,
-            revokedAt: null,
+            created_by: input.rootUserId,
+            created_at: createdAt,
+            expires_at: expiresInDays === null ? null : new Date(Date.now() + expiresInDays * 86_400_000).toISOString(),
+            max_uses: maxUses,
+            used_count: 0,
+            revoked_at: null,
         };
-        database.invites.unshift(invite);
-        return { value: { code, invite: toInviteSummary(invite) }, changed: true };
+        database
+            .prepare(`INSERT INTO invites (id, code_hash, label, created_by, created_at, expires_at, max_uses, used_count) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`)
+            .run(row.id, row.code_hash, row.label, row.created_by, row.created_at, row.expires_at, row.max_uses);
+        return { code, invite: toInviteSummary(row) };
     });
 }
 
 export async function listInvites(rootUserId: string) {
-    const database = await readDatabase();
-    const root = database.accounts.find((account) => account.id === rootUserId && isTokaxisRoot(account));
-    if (!root) throw new AuthError("没有查看邀请码的权限", 403);
-    return database.invites.map(toInviteSummary);
+    await ensureBootstrapRoot();
+    const database = canvasDatabase();
+    requireRoot(database, rootUserId);
+    return database.prepare("SELECT * FROM invites ORDER BY created_at DESC").all().map(toInviteSummary);
 }
 
 export async function revokeInvite(input: { rootUserId: string; inviteId: string }) {
-    return mutateDatabase(async (database) => {
-        const root = database.accounts.find((account) => account.id === input.rootUserId && isTokaxisRoot(account));
-        if (!root) throw new AuthError("没有管理邀请码的权限", 403);
-        const invite = database.invites.find((item) => item.id === input.inviteId);
+    return withImmediateTransaction((database) => {
+        requireRoot(database, input.rootUserId);
+        const invite = database.prepare("SELECT * FROM invites WHERE id = ?").get(input.inviteId);
         if (!invite) throw new AuthError("邀请码不存在", 404);
-        if (!invite.revokedAt) invite.revokedAt = now();
-        return { value: toInviteSummary(invite), changed: true };
+        const revokedAt = String(invite.revoked_at || now());
+        database.prepare("UPDATE invites SET revoked_at = ? WHERE id = ?").run(revokedAt, input.inviteId);
+        return toInviteSummary({ ...invite, revoked_at: revokedAt });
     });
+}
+
+export async function createCanvasApiKey(userId: string, nameInput?: string): Promise<CreatedCanvasApiKey> {
+    const database = canvasDatabase();
+    if (!database.prepare("SELECT id FROM accounts WHERE id = ? AND status = 'active'").get(userId)) throw new AuthError("账户不存在", 404);
+    const key = `vc_live_${randomBytes(24).toString("base64url")}`;
+    const createdAt = now();
+    const row = { id: randomUUID(), name: nameInput?.trim().slice(0, 50) || "默认画布 Key", prefix: key.slice(0, 12), last_four: key.slice(-4), created_at: createdAt, last_used_at: null, revoked_at: null };
+    database.prepare("INSERT INTO api_keys (id, user_id, name, key_hash, prefix, last_four, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(row.id, userId, row.name, apiKeyHash(key), row.prefix, row.last_four, createdAt);
+    return { key, apiKey: toApiKeySummary(row) };
+}
+
+export async function listCanvasApiKeys(userId: string) {
+    return canvasDatabase().prepare("SELECT * FROM api_keys WHERE user_id = ? ORDER BY created_at DESC").all(userId).map(toApiKeySummary);
+}
+
+export async function revokeCanvasApiKey(userId: string, keyId: string) {
+    const database = canvasDatabase();
+    const row = database.prepare("SELECT * FROM api_keys WHERE id = ? AND user_id = ?").get(keyId, userId);
+    if (!row) throw new AuthError("画布 Key 不存在", 404);
+    const revokedAt = String(row.revoked_at || now());
+    database.prepare("UPDATE api_keys SET revoked_at = ? WHERE id = ?").run(revokedAt, keyId);
+    return toApiKeySummary({ ...row, revoked_at: revokedAt });
+}
+
+export async function authenticateCanvasApiKey(value: string): Promise<ApiKeyIdentity | null> {
+    const token = value.trim().replace(/^Bearer\s+/i, "");
+    if (!token.startsWith("vc_live_")) return null;
+    const database = canvasDatabase();
+    const row = database.prepare(`SELECT k.id AS key_id, a.* FROM api_keys k JOIN accounts a ON a.id = k.user_id WHERE k.key_hash = ? AND k.revoked_at IS NULL AND a.status = 'active'`).get(apiKeyHash(token));
+    if (!row) return null;
+    database.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?").run(now(), row.key_id);
+    return { keyId: String(row.key_id), user: toAuthUser(row) };
+}
+
+export async function authenticateCanvasApiKeyReadOnly(value: string): Promise<ApiKeyIdentity | null> {
+    const token = value.trim().replace(/^Bearer\s+/i, "");
+    if (!token.startsWith("vc_live_")) return null;
+    const row = canvasDatabase().prepare(`SELECT k.id AS key_id, a.* FROM api_keys k JOIN accounts a ON a.id = k.user_id WHERE k.key_hash = ? AND k.revoked_at IS NULL AND a.status = 'active'`).get(apiKeyHash(token));
+    return row ? { keyId: String(row.key_id), user: toAuthUser(row) } : null;
+}
+
+export async function walletSummary(userId: string) {
+    const database = canvasDatabase();
+    const account = database.prepare("SELECT credits FROM accounts WHERE id = ?").get(userId);
+    if (!account) throw new AuthError("账户不存在", 404);
+    const ledger = database.prepare("SELECT * FROM credit_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT 100").all(userId).map(toLedgerEntry);
+    return { credits: Number(account.credits), creditsPerYuan: 10, ledger };
+}
+
+export async function adjustUserCredits(input: { rootUserId: string; username: string; amount: number; remark?: string }) {
+    const amount = Math.trunc(input.amount);
+    if (!amount) throw new AuthError("积分调整值不能为 0");
+    return withImmediateTransaction((database) => {
+        requireRoot(database, input.rootUserId);
+        const account = database.prepare("SELECT * FROM accounts WHERE username = ?").get(normalizeUsername(input.username));
+        if (!account) throw new AuthError("用户不存在", 404);
+        const balance = Number(account.credits) + amount;
+        if (balance < 0) throw new AuthError("扣减后积分不能小于 0");
+        database.prepare("UPDATE accounts SET credits = ?, updated_at = ? WHERE id = ?").run(balance, now(), account.id);
+        insertLedger(database, { userId: String(account.id), type: amount > 0 ? "recharge" : "admin_adjust", amount, balanceAfter: balance, remark: input.remark?.trim() || "管理员调整积分" });
+        return { user: toAuthUser({ ...account, credits: balance }), credits: balance };
+    });
+}
+
+export function reserveCredits(input: { userId: string; apiKeyId: string; requestId: string; model: string; amount: number; units: number; unit: string }): CreditReservation {
+    const amount = Math.max(0, Math.ceil(input.amount));
+    return withImmediateTransaction((database) => {
+        const existing = database.prepare("SELECT * FROM billing_transactions WHERE request_id = ?").get(input.requestId);
+        if (existing) {
+            const sameReservation =
+                String(existing.user_id) === input.userId &&
+                String(existing.api_key_id) === input.apiKeyId &&
+                String(existing.model) === input.model &&
+                Number(existing.amount) === amount &&
+                Number(existing.units) === input.units &&
+                String(existing.unit) === input.unit;
+            if (!sameReservation) throw new AuthError("请求编号已被其他任务使用", 409, "request_id_conflict");
+            if (existing.status === "refunded") throw new AuthError("该请求已经结束，请重新发起生成", 409, "request_already_refunded");
+            if (existing.status === "submitted" || existing.status === "settled") throw new AuthError("该请求已经提交完成，请勿重复生成", 409, "request_already_completed");
+            return { requestId: String(existing.request_id), amount: Number(existing.amount), status: existing.status as CreditReservation["status"] };
+        }
+        if (amount) {
+            const result = database.prepare("UPDATE accounts SET credits = credits - ?, updated_at = ? WHERE id = ? AND status = 'active' AND credits >= ?").run(amount, now(), input.userId, amount);
+            if (!Number(result.changes)) throw new AuthError("积分不足，请充值后再试", 402, "insufficient_credits");
+        }
+        const balance = Number(database.prepare("SELECT credits FROM accounts WHERE id = ?").get(input.userId)?.credits || 0);
+        const timestamp = now();
+        database
+            .prepare(`INSERT INTO billing_transactions (request_id, user_id, api_key_id, model, amount, units, unit, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)`)
+            .run(input.requestId, input.userId, input.apiKeyId, input.model, amount, input.units, input.unit, timestamp, timestamp);
+        if (amount) insertLedger(database, { userId: input.userId, type: "consume", amount: -amount, balanceAfter: balance, requestId: input.requestId, model: input.model, units: input.units, remark: `${input.model} 生成预扣` });
+        return { requestId: input.requestId, amount, status: "reserved" };
+    });
+}
+
+export function settleCredits(requestId: string, upstreamTaskId?: string) {
+    canvasDatabase()
+        .prepare("UPDATE billing_transactions SET status = ?, upstream_task_id = COALESCE(?, upstream_task_id), updated_at = ? WHERE request_id = ? AND status IN ('reserved', 'submitted')")
+        .run(upstreamTaskId ? "submitted" : "settled", upstreamTaskId || null, now(), requestId);
+}
+
+export function settleCreditsByTask(upstreamTaskId: string) {
+    canvasDatabase().prepare("UPDATE billing_transactions SET status = 'settled', updated_at = ? WHERE upstream_task_id = ? AND status = 'submitted'").run(now(), upstreamTaskId);
+}
+
+export function refundCredits(requestId: string, remark = "生成失败，积分退回") {
+    return withImmediateTransaction((database) => {
+        const transaction = database.prepare("SELECT * FROM billing_transactions WHERE request_id = ?").get(requestId);
+        if (!transaction || transaction.status === "refunded") return false;
+        if (transaction.status === "settled") return false;
+        const amount = Number(transaction.amount);
+        database.prepare("UPDATE accounts SET credits = credits + ?, updated_at = ? WHERE id = ?").run(amount, now(), transaction.user_id);
+        const balance = Number(database.prepare("SELECT credits FROM accounts WHERE id = ?").get(transaction.user_id)?.credits || 0);
+        database.prepare("UPDATE billing_transactions SET status = 'refunded', updated_at = ? WHERE request_id = ?").run(now(), requestId);
+        if (amount) insertLedger(database, { userId: String(transaction.user_id), type: "refund", amount, balanceAfter: balance, requestId, model: String(transaction.model), units: Number(transaction.units), remark });
+        return true;
+    });
+}
+
+export function refundCreditsByTask(upstreamTaskId: string, remark?: string) {
+    const row = canvasDatabase().prepare("SELECT request_id FROM billing_transactions WHERE upstream_task_id = ?").get(upstreamTaskId);
+    return row ? refundCredits(String(row.request_id), remark) : false;
+}
+
+function requireRoot(database: CanvasDatabase, userId: string) {
+    if (!database.prepare("SELECT id FROM accounts WHERE id = ? AND role = 'root' AND status = 'active'").get(userId)) throw new AuthError("没有此操作权限", 403);
+}
+
+function insertLedger(database: CanvasDatabase, input: { userId: string; type: CreditLedgerEntry["type"]; amount: number; balanceAfter: number; requestId?: string; model?: string; units?: number; remark: string }) {
+    database
+        .prepare(`INSERT INTO credit_ledger (id, user_id, type, amount, balance_after, request_id, model, units, remark, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(randomUUID(), input.userId, input.type, input.amount, input.balanceAfter, input.requestId || null, input.model || null, input.units ?? null, input.remark, now());
+}
+
+function toLedgerEntry(row: AccountRow): CreditLedgerEntry {
+    return {
+        id: String(row.id),
+        type: row.type as CreditLedgerEntry["type"],
+        amount: Number(row.amount),
+        balanceAfter: Number(row.balance_after),
+        model: row.model ? String(row.model) : null,
+        units: row.units === null || row.units === undefined ? null : Number(row.units),
+        remark: String(row.remark || ""),
+        createdAt: String(row.created_at),
+    };
 }

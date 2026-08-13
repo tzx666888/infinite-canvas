@@ -4,7 +4,7 @@ import Link from "next/link";
 const gettingStarted = [
     {
         title: "先填好 API Key",
-        description: "点右上角配置，填入你的 API Key。Base URL 已固定，正常情况下不用自己再配地址。",
+        description: "先到账户中心创建画布 Key，再点右上角配置并填入。模型地址由系统固定，无需自行设置。",
         icon: Sparkles,
     },
     {
@@ -95,14 +95,9 @@ export default function LearnPage() {
                             学习文档
                         </div>
                         <h1 className="mt-5 text-4xl font-semibold tracking-tight md:text-5xl">从会用，到顺手，再到稳定出结果</h1>
-                        <p className="mt-4 max-w-2xl text-base leading-7 text-stone-500 dark:text-stone-400">
-                            这份学习页专门给第一次接触视觉画布的人用。先学怎么快速出第一张图，再学怎么把提示词、参考图、结果图和画布工作流串起来。
-                        </p>
+                        <p className="mt-4 max-w-2xl text-base leading-7 text-stone-500 dark:text-stone-400">这份学习页专门给第一次接触视觉画布的人用。先学怎么快速出第一张图，再学怎么把提示词、参考图、结果图和画布工作流串起来。</p>
                         <div className="mt-7 flex flex-wrap gap-3">
-                            <Link
-                                href="/image"
-                                className="inline-flex items-center gap-2 rounded-full bg-stone-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-950 dark:hover:bg-white"
-                            >
+                            <Link href="/image" className="inline-flex items-center gap-2 rounded-full bg-stone-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-950 dark:hover:bg-white">
                                 先去生图工作台
                                 <ArrowRight className="size-4" />
                             </Link>
@@ -143,9 +138,7 @@ export default function LearnPage() {
                         <div className="mt-6 space-y-4">
                             {workflow.map((item) => (
                                 <div key={item.step} className="flex gap-4 rounded-2xl border border-stone-200/80 p-4 dark:border-stone-800">
-                                    <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-sm font-semibold text-white dark:bg-stone-100 dark:text-stone-950">
-                                        {item.step}
-                                    </div>
+                                    <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-sm font-semibold text-white dark:bg-stone-100 dark:text-stone-950">{item.step}</div>
                                     <div>
                                         <h3 className="text-base font-semibold">{item.title}</h3>
                                         <p className="mt-1 text-sm leading-6 text-stone-500 dark:text-stone-400">{item.description}</p>

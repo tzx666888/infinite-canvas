@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import {
-    buildTokaxisMiniMaxH3Payload,
-    isTokaxisMiniMaxH3VideoModel,
-    normalizeMiniMaxH3AspectRatio,
-    normalizeMiniMaxH3Duration,
-    TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID,
-} from "../src/lib/minimax-h3-video.ts";
+import { buildTokaxisMiniMaxH3Payload, isTokaxisMiniMaxH3VideoModel, normalizeMiniMaxH3AspectRatio, normalizeMiniMaxH3Duration, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "../src/lib/minimax-h3-video.ts";
 
 assert.equal(isTokaxisMiniMaxH3VideoModel("tokaxis::MiniMax-H3-c4"), true);
 assert.equal(normalizeMiniMaxH3Duration(4), 5);
@@ -38,7 +32,7 @@ assert.deepEqual(
 );
 assert.throws(() => buildTokaxisMiniMaxH3Payload({ prompt: "move", audios: ["audio"], duration: 5, size: "16:9", generateAudio: true }), /需要同时提供参考图/);
 
-const proxySource = readFileSync(new URL("../src/app/api/tokaxis/[...path]/route.ts", import.meta.url), "utf8");
+const proxySource = readFileSync(new URL("../src/app/api/gateway/[...path]/route.ts", import.meta.url), "utf8");
 const serviceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
 const settingsSource = readFileSync(new URL("../src/lib/video-model-settings.ts", import.meta.url), "utf8");
 const configStoreSource = readFileSync(new URL("../src/stores/use-config-store.ts", import.meta.url), "utf8");
@@ -47,8 +41,7 @@ assert.match(serviceSource, /createMiniMaxH3Task/);
 assert.match(serviceSource, /buildTokaxisMiniMaxH3Payload/);
 assert.match(settingsSource, /isTokaxisMiniMaxH3VideoModel/);
 assert.match(settingsSource, /return "1440"/);
-const fallbackModelsBlock =
-    configStoreSource.match(/const TOKAXIS_FALLBACK_MODELS = \[([\s\S]*?)\n\];/)?.[1] ?? "";
+const fallbackModelsBlock = configStoreSource.match(/const TOKAXIS_FALLBACK_MODELS\s*=\s*\[([\s\S]*?)\];/)?.[1] ?? "";
 
 assert.match(fallbackModelsBlock, /TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID/);
 assert.doesNotMatch(fallbackModelsBlock, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/);

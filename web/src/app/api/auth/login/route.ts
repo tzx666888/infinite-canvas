@@ -4,8 +4,8 @@ import { AuthError, authErrorResponse } from "@/lib/auth/auth-error";
 import { enforceRateLimit, clearRateLimit, requestAddress } from "@/lib/auth/rate-limit";
 import { enforceSameOrigin, parseAuthBody, stringInput } from "@/lib/auth/route-utils";
 import { createSessionToken, AUTH_COOKIE_NAME, sessionCookieOptions } from "@/lib/auth/session";
-import { authenticateLocalUser, migrateLocalAccountToTokaxis, upsertTokaxisAccount } from "@/lib/auth/store";
-import { registerTokaxisAccount, tokaxisAuthError, verifyTokaxisCredentials } from "@/lib/auth/tokaxis";
+import { authenticateLocalUser, claimExternalAccount } from "@/lib/auth/store";
+import { tokaxisAuthError, verifyTokaxisCredentials } from "@/lib/auth/tokaxis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,25 +17,20 @@ export async function POST(request: Request) {
         enforceRateLimit(clientKey);
         const body = await parseAuthBody(request);
         const credentials = { username: stringInput(body.username), password: stringInput(body.password), code: stringInput(body.code) || undefined };
-        const tokaxis = await verifyTokaxisCredentials(credentials);
-        let user;
-        if (tokaxis.status === "authenticated") {
-            user = await upsertTokaxisAccount(tokaxis.identity);
-        } else if (tokaxis.status === "two_factor_required") {
-            throw new AuthError(tokaxis.message, 428, "two_factor_required");
-        } else if (tokaxis.status === "blocked") {
-            throw tokaxisAuthError(tokaxis);
-        } else {
-            user = await authenticateLocalUser(credentials);
-            if (!user) {
-                if (tokaxis.status === "unavailable") throw new AuthError("中转站账号校验服务暂时不可用，请稍后重试", 503);
-                throw new AuthError("用户名或密码错误", 401);
-            }
-            if (tokaxis.status === "invalid") {
-                const identity = await registerTokaxisAccount(credentials);
-                user = await migrateLocalAccountToTokaxis({ localUserId: user.id, identity });
+        let user = await authenticateLocalUser(credentials);
+        if (!user && process.env.CANVAS_LEGACY_AUTH_ENABLED === "true") {
+            const legacy = await verifyTokaxisCredentials(credentials);
+            if (legacy.status === "authenticated") {
+                user = await claimExternalAccount({ ...legacy.identity, password: credentials.password });
+            } else if (legacy.status === "two_factor_required") {
+                throw new AuthError(legacy.message, 428, "two_factor_required");
+            } else if (legacy.status === "blocked") {
+                throw tokaxisAuthError(legacy);
+            } else if (legacy.status === "unavailable") {
+                throw new AuthError("旧账户迁移校验暂时不可用，请稍后重试", 503);
             }
         }
+        if (!user) throw new AuthError("用户名或密码错误", 401);
         clearRateLimit(clientKey);
         const response = NextResponse.json({ user });
         response.cookies.set(AUTH_COOKIE_NAME, createSessionToken(user.id), sessionCookieOptions());

@@ -16,6 +16,7 @@ export default function nextConfig(phase: string): NextConfig {
 
     return {
         output: "standalone",
+        serverExternalPackages: ["better-sqlite3"],
         allowedDevOrigins: isDev ? ["*.*.*.*"] : [],
         env: {
             NEXT_PUBLIC_APP_VERSION: localVersion,
