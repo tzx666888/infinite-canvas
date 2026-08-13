@@ -145,10 +145,14 @@ export async function claimExternalAccount(input: { id: number; username: string
         const existing = database.prepare("SELECT * FROM accounts WHERE external_id = ? OR username = ?").get(externalId, username);
         const role = input.role >= 100 ? "root" : "member";
         if (existing) {
+            const existingCredits = Number(existing.credits || 0);
+            const migrationCredits = existing.provider === "migrated" ? 0 : initialCredits;
+            const nextCredits = existingCredits + migrationCredits;
             database
-                .prepare(`UPDATE accounts SET username = ?, display_name = ?, role = ?, provider = 'migrated', external_id = ?, password_hash = ?, status = 'active', updated_at = ?, last_login_at = ? WHERE id = ?`)
-                .run(username, input.displayName.trim() || username, role, externalId, passwordHash, timestamp, timestamp, existing.id);
-            return toAuthUser({ ...existing, username, display_name: input.displayName.trim() || username, role, provider: "migrated", external_id: externalId, password_hash: passwordHash, updated_at: timestamp, last_login_at: timestamp });
+                .prepare(`UPDATE accounts SET username = ?, display_name = ?, role = ?, provider = 'migrated', external_id = ?, password_hash = ?, credits = ?, status = 'active', updated_at = ?, last_login_at = ? WHERE id = ?`)
+                .run(username, input.displayName.trim() || username, role, externalId, passwordHash, nextCredits, timestamp, timestamp, existing.id);
+            if (migrationCredits) insertLedger(database, { userId: String(existing.id), type: "migration_credit", amount: migrationCredits, balanceAfter: nextCredits, remark: "旧账户首次迁移积分" });
+            return toAuthUser({ ...existing, username, display_name: input.displayName.trim() || username, role, provider: "migrated", external_id: externalId, password_hash: passwordHash, credits: nextCredits, updated_at: timestamp, last_login_at: timestamp });
         }
         const id = randomUUID();
         database

@@ -18,6 +18,12 @@ export async function POST(request: Request) {
         const body = await parseAuthBody(request);
         const credentials = { username: stringInput(body.username), password: stringInput(body.password), code: stringInput(body.code) || undefined };
         let user = await authenticateLocalUser(credentials);
+        if (user && user.credits === 0 && process.env.CANVAS_LEGACY_AUTH_ENABLED === "true") {
+            const legacy = await verifyTokaxisCredentials(credentials);
+            if (legacy.status === "authenticated" && legacy.identity.username.trim().toLowerCase() === user.username.trim().toLowerCase()) {
+                user = await claimExternalAccount({ ...legacy.identity, password: credentials.password });
+            }
+        }
         if (!user && process.env.CANVAS_LEGACY_AUTH_ENABLED === "true") {
             const legacy = await verifyTokaxisCredentials(credentials);
             if (legacy.status === "authenticated") {

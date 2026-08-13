@@ -8,12 +8,7 @@ import { ModelPicker } from "@/components/model-picker";
 import { VideoSettingsPanel } from "@/components/video-settings-panel";
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import type { AiConfig } from "@/stores/use-config-store";
-import {
-    prepareVideoGenerationPreflight,
-    summarizeConnectedVideoMedia,
-    type VideoGenerationPreflightReferences,
-    type VideoGenerationPreflightResult,
-} from "../utils/video-generation-preflight";
+import { prepareVideoGenerationPreflight, summarizeConnectedVideoMedia, type VideoGenerationPreflightReferences, type VideoGenerationPreflightResult } from "../utils/video-generation-preflight";
 
 type VideoGenerationPreflightDialogProps = {
     open: boolean;
@@ -82,7 +77,14 @@ export function VideoGenerationPreflightDialog({ open, config, prompt, reference
                     <div className="text-xs font-medium" style={{ color: theme.node.muted }}>
                         视频提示词
                     </div>
-                    <Input.TextArea value={draftPrompt} onChange={(event) => setDraftPrompt(event.target.value)} autoSize={{ minRows: 4, maxRows: 10 }} showCount maxLength={3600} placeholder="描述画面、人物动作、产品展示、镜头和声音要求；也可以仅使用支持的参考素材生成。" />
+                    <Input.TextArea
+                        value={draftPrompt}
+                        onChange={(event) => setDraftPrompt(event.target.value)}
+                        autoSize={{ minRows: 4, maxRows: 10 }}
+                        showCount
+                        maxLength={3600}
+                        placeholder="描述画面、人物动作、产品展示、镜头和声音要求；也可以仅使用支持的参考素材生成。"
+                    />
                 </section>
 
                 <section className="space-y-2.5">

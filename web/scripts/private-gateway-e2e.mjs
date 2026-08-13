@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 const testDirectory = await mkdtemp(path.join(tmpdir(), "canvas-private-gateway-"));
+const authDirectory = path.join(testDirectory, "auth");
 const requests = [];
 let videoTaskStatus = "pending";
 let compatibilityVideoTaskStatus = "pending";
@@ -74,6 +75,26 @@ const upstream = createServer(async (request, response) => {
 
 let app;
 try {
+    await mkdir(authDirectory, { recursive: true });
+    await writeFile(
+        path.join(authDirectory, "accounts.json"),
+        JSON.stringify({
+            accounts: [
+                {
+                    id: "legacy-json-account",
+                    username: "legacy-user",
+                    displayName: "Legacy User",
+                    role: "member",
+                    provider: "tokaxis",
+                    externalId: "tokaxis:88",
+                    passwordHash: "",
+                    createdAt: "2026-08-01T00:00:00.000Z",
+                    updatedAt: "2026-08-01T00:00:00.000Z",
+                },
+            ],
+            invites: [],
+        }),
+    );
     const upstreamPort = await listen(upstream);
     const appPort = await freePort();
     const origin = `http://127.0.0.1:${appPort}`;
@@ -82,7 +103,7 @@ try {
         env: {
             ...process.env,
             NODE_ENV: "production",
-            AUTH_DATA_DIR: path.join(testDirectory, "auth"),
+            AUTH_DATA_DIR: authDirectory,
             IMAGE_JOB_DIR: path.join(testDirectory, "image-jobs"),
             CANVAS_PUBLIC_ORIGIN: origin,
             CANVAS_LEGACY_AUTH_ENABLED: "true",

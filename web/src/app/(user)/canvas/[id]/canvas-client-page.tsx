@@ -1194,8 +1194,7 @@ function InfiniteCanvasPage() {
         (ops?: CanvasAgentOp[], options?: { allowVideoPreparation?: boolean }) => {
             const safeOps = Array.isArray(ops) ? ops.filter((op) => op?.type) : [];
             const before = { projectId, title: currentProject?.title || "未命名画布", nodes: nodesRef.current, connections: connectionsRef.current, selectedNodeIds: Array.from(selectedNodeIdsRef.current), viewport: viewportRef.current };
-            if (!options?.allowVideoPreparation && hasDirectAgentVideoGeneration(safeOps, before))
-                throw new Error("Agent 不能绕过引导直接创建或生成视频，请使用视频需求准备工具。");
+            if (!options?.allowVideoPreparation && hasDirectAgentVideoGeneration(safeOps, before)) throw new Error("Agent 不能绕过引导直接创建或生成视频，请使用视频需求准备工具。");
             const generationOps = safeOps.filter((op): op is Extract<CanvasAgentOp, { type: "run_generation" }> => op.type === "run_generation" && Boolean(op.nodeId));
             const next = applyCanvasAgentOps(
                 before,
@@ -6977,7 +6976,10 @@ function isAudioFile(file: File) {
 }
 
 function hasDirectAgentVideoGeneration(ops: CanvasAgentOp[], snapshot: CanvasAgentSnapshot) {
-    const next = applyCanvasAgentOps(snapshot, ops.filter((op) => op.type !== "run_generation"));
+    const next = applyCanvasAgentOps(
+        snapshot,
+        ops.filter((op) => op.type !== "run_generation"),
+    );
     return ops.some((op) => {
         if (op.type === "add_node") return op.nodeType === CanvasNodeType.Video || op.metadata?.generationMode === "video";
         if (op.type === "update_node") return op.patch?.type === CanvasNodeType.Video || op.metadata?.generationMode === "video" || op.patch?.metadata?.generationMode === "video";
