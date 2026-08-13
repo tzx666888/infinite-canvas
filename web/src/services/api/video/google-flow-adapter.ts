@@ -4,6 +4,7 @@ import type { VideoGenerationTask, VideoGenerationTaskState, VideoRequestOptions
 
 type VideoResponse = {
     id?: string;
+    task_id?: string;
     request_id?: string;
     status?: string;
     error?: { message?: string } | string;
@@ -32,9 +33,13 @@ export async function createGoogleFlowVideoTaskRequest(input: {
     const body = buildGoogleFlowVideoRequestBody(input);
 
     const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(input.endpoint, body, { headers: input.headers, signal: input.options?.signal })).data);
-    const taskId = created.id || created.request_id;
+    const taskId = readGoogleVideoTaskId(created);
     if (!taskId) throw new Error("视频接口没有返回任务 ID");
     return { id: taskId, provider: "google-flow", model: input.taskModel };
+}
+
+export function readGoogleVideoTaskId(payload: Pick<VideoResponse, "id" | "task_id" | "request_id">) {
+    return payload.id || payload.task_id || payload.request_id || "";
 }
 
 export function buildGoogleFlowVideoRequestBody(input: { model: string; prompt: string; seconds: string; size: string; resolution: string; files: File[] }) {
@@ -51,14 +56,15 @@ export function buildGoogleFlowVideoRequestBody(input: { model: string; prompt: 
 
 export async function pollGoogleFlowVideoTaskRequest(input: { endpoint: string; contentEndpoint: string; headers: Record<string, string>; options?: VideoRequestOptions }): Promise<VideoGenerationTaskState> {
     const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(input.endpoint, { headers: input.headers, signal: input.options?.signal })).data);
-    if (video.status === "completed" || video.status === "succeeded" || video.status === "done" || video.status === "success" || video.status === "finished") {
+    const status = String(video.status || "").trim().toLowerCase();
+    if (status === "completed" || status === "succeeded" || status === "done" || status === "success" || status === "finished") {
         const url = firstVideoUrl(video.video_url, video.result_url, video.url, video.output, video.content?.video_url, video.content?.url, video.video?.url);
         if (url && !isProtectedVideoContentUrl(url)) return { status: "completed", result: { url, mimeType: "video/mp4" } };
         const content = await axios.get<Blob>(input.contentEndpoint, { headers: input.headers, responseType: "blob", signal: input.options?.signal });
         await assertVideoBlob(content.data);
         return { status: "completed", result: { blob: content.data } };
     }
-    if (video.status === "failed" || video.status === "cancelled" || video.status === "expired") return { status: "failed", error: readProviderTaskError(video.error, "视频生成失败") };
+    if (status === "failed" || status === "cancelled" || status === "canceled" || status === "expired") return { status: "failed", error: readProviderTaskError(video.error, "视频生成失败") };
     return { status: "pending" };
 }
 

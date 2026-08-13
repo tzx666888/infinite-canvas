@@ -1,4 +1,4 @@
-import { isContentPolicyErrorMessage, isIdentifiablePersonReferenceErrorMessage } from "../../../../lib/content-policy-error.ts";
+import { isContentPolicyErrorMessage, isIdentifiablePersonReferenceErrorMessage } from "../../../../lib/content-policy-error";
 
 export type CanvasNodeErrorDisplay = {
     title: string;

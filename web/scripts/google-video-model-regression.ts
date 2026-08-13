@@ -19,6 +19,7 @@ import {
     resolveGoogleVideoRouteModelId,
     supportsGoogleVideoReferenceCount,
 } from "../src/lib/video-providers/google-video.ts";
+import { readGoogleVideoTaskId } from "../src/services/api/video/google-flow-adapter.ts";
 
 const t2v = "veo_3_1_t2v_fast_portrait";
 const i2v = "veo_3_1_i2v_s_fast_portrait_fl";
@@ -68,6 +69,9 @@ assert.equal(fixedGoogleVideoResolution("omni_portrait"), "720");
 assert.deepEqual(defaultGoogleVideoEntrySettings(t2v), { videoSeconds: "8", vquality: "1080" });
 assert.deepEqual(defaultGoogleVideoEntrySettings(r2v), { videoSeconds: "8", vquality: "720" });
 assert.deepEqual(defaultGoogleVideoEntrySettings("omni"), { videoSeconds: "10", vquality: "720" });
+assert.equal(readGoogleVideoTaskId({ id: "task-id" }), "task-id");
+assert.equal(readGoogleVideoTaskId({ task_id: "task-task-id" }), "task-task-id");
+assert.equal(readGoogleVideoTaskId({ request_id: "task-request-id" }), "task-request-id");
 
 assert.equal(googleVideoEntryMode(t2v), "veo-auto");
 assert.equal(googleVideoEntryMode(i2v), "veo-auto");
@@ -100,6 +104,7 @@ assert.match(googleAdapterSource, /new FormData\(\)/, "Flow video requests must 
 assert.match(googleAdapterSource, /body\.append\("input_reference", file\)/, "reference images must be uploaded as multipart files");
 assert.match(googleAdapterSource, /body\.append\("seconds", input\.seconds\)/, "Google video duration must be sent explicitly");
 assert.match(googleAdapterSource, /body\.append\("resolution_name", input\.resolution\)/, "Google video resolution must be sent explicitly");
+assert.match(googleAdapterSource, /task_id\?: string/, "Google video creation must accept the upstream task_id response field");
 assert.match(configSource, /videoModel: DEFAULT_GOOGLE_VIDEO_MODEL/, "TokAxis default must come from the isolated Google provider contract");
 assert.match(configSource, /video-providers\/google-video/, "TokAxis defaults must import only the Google provider contract");
 assert.match(configSource, /\.\.\.ACTIVE_GOOGLE_VIDEO_MODEL_IDS/, "TokAxis fallback must expose only active Google models");
