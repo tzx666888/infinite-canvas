@@ -125,7 +125,7 @@ export function CanvasNodePromptPanel({
 
     const submit = () => {
         const text = prompt.trim();
-        if (!text || isRunning) return;
+        if ((!text && mode !== "video") || isRunning) return;
         if (mode === "image" && productBreakdownPlan) {
             const count = Math.max(1, Math.min(productBreakdownPlan.shots.length, Math.floor(Number(config.count)) || 1));
             void onGenerateProductBreakdown(node.id, {
@@ -160,7 +160,7 @@ export function CanvasNodePromptPanel({
         }
         const editedFrom = promptSource.sourceKind === "user_typed" && promptDraftRef.current?.beforeText !== text ? promptDraftRef.current || undefined : undefined;
         onGenerate(node.id, mode, text, { ...promptSource, editedFrom });
-        setPrompt("");
+        if (mode !== "video") setPrompt("");
     };
 
     const handlePolish = async (template: PolishTemplate) => {
@@ -309,7 +309,7 @@ export function CanvasNodePromptPanel({
                     type="primary"
                     className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
                     danger={isRunning}
-                    disabled={!isRunning && !prompt.trim() && !activeCommerceVideoPlan}
+                    disabled={!isRunning && mode !== "video" && !prompt.trim() && !activeCommerceVideoPlan}
                     onClick={() => (isRunning ? onStop(node.id) : submit())}
                     aria-label={isRunning ? "停止生成" : "生成"}
                 >

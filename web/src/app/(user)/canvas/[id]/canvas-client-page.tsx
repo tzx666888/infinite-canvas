@@ -70,6 +70,7 @@ import { CanvasNodeCropDialog, type CanvasImageCropRect } from "../components/ca
 import { CanvasNodeMaskEditDialog, type CanvasImageMaskEditPayload } from "../components/canvas-node-mask-edit-dialog";
 import { CanvasNodeSplitDialog, type CanvasImageSplitParams } from "../components/canvas-node-split-dialog";
 import { CanvasNodeUpscaleDialog, type CanvasImageUpscaleParams } from "../components/canvas-node-upscale-dialog";
+import { VideoGenerationPreflightDialog } from "../components/video-generation-preflight-dialog";
 import {
     buildNodeGenerationContext,
     buildNodeGenerationInputs,
@@ -99,6 +100,7 @@ import { canvasNodeErrorMessage } from "../utils/node-error-display";
 import { resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
 import { imageJobFailureMetadata, isCanvasImageJobResultUrl, shouldRecoverCanvasImageJob, stageCanvasImageJobResult } from "../utils/image-job-recovery";
 import { prepareCanvasAgentVideo, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
+import type { VideoGenerationPreflightResult } from "../utils/video-generation-preflight";
 import type { CanvasAgentMode } from "../components/canvas-agent-chat-ui";
 import {
     CanvasNodeType,
@@ -154,6 +156,12 @@ type PromptEditedFrom = { beforeText: string; previousSourceKind: CanvasPromptSo
 type PromptEditBaseline = PromptEditedFrom & { origin: "edited_from" | "draft" | "last" };
 type GenerationProvenance = { sourceKind: CanvasPromptSourceKind; templateId?: string; editedFrom?: PromptEditedFrom };
 type PromptResolutionSnapshot = Pick<CanvasNodeMetadata, "telemetryLastRawPrompt" | "telemetryLastResolvedPrompt" | "telemetryLastPromptSourceNodeId" | "telemetryLastPromptInputNodeIds" | "telemetryLastPromptResolutionMode">;
+type PendingVideoGeneration = {
+    nodeId: string;
+    prompt: string;
+    provenance?: GenerationProvenance;
+    storyboardReviewSnapshot?: CanvasNodeData;
+};
 
 const VIDEO_NODE_MAX_WIDTH = 420;
 const VIDEO_NODE_MAX_HEIGHT = 420;
@@ -449,6 +457,7 @@ function InfiniteCanvasPage() {
     const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
     const [runningNodeId, setRunningNodeId] = useState<string | null>(null);
+    const [pendingVideoGeneration, setPendingVideoGeneration] = useState<PendingVideoGeneration | null>(null);
     const [isMiniMapOpen, setIsMiniMapOpen] = useState(false);
     const [backgroundMode, setBackgroundMode] = useState<CanvasBackgroundMode>("lines");
     const [showImageInfo, setShowImageInfo] = useState(false);
@@ -1103,6 +1112,24 @@ function InfiniteCanvasPage() {
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
     const directorStudioNode = directorStudioNodeId ? nodeById.get(directorStudioNodeId) || null : null;
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
+    const pendingVideoSourceNode = pendingVideoGeneration ? nodeById.get(pendingVideoGeneration.nodeId) || pendingVideoGeneration.storyboardReviewSnapshot || null : null;
+    const pendingVideoContext = useMemo(
+        () =>
+            pendingVideoGeneration
+                ? buildNodeGenerationContext(pendingVideoGeneration.nodeId, nodes, connections, pendingVideoGeneration.prompt)
+                : { prompt: "", referenceImages: [], referenceVideos: [], referenceAudios: [], textCount: 0, imageCount: 0, videoCount: 0, audioCount: 0 },
+        [connections, nodes, pendingVideoGeneration],
+    );
+    const pendingVideoPrompt = pendingVideoGeneration?.prompt.trim() ? pendingVideoGeneration.prompt : pendingVideoContext.prompt;
+    const pendingVideoReferences = useMemo(
+        () => ({
+            images: mergeReferenceImages(sourceNodeReferenceImages(pendingVideoSourceNode), pendingVideoContext.referenceImages),
+            videos: pendingVideoContext.referenceVideos,
+            audios: pendingVideoContext.referenceAudios,
+        }),
+        [pendingVideoContext.referenceAudios, pendingVideoContext.referenceImages, pendingVideoContext.referenceVideos, pendingVideoSourceNode],
+    );
+    const pendingVideoConfig = useMemo(() => buildGenerationConfig(effectiveConfig, pendingVideoSourceNode || undefined, "video"), [effectiveConfig, pendingVideoSourceNode]);
     const hasMultipleSelectedNodes = selectedNodeIds.size > 1;
     const activeNodeId = hasMultipleSelectedNodes ? null : hoveredNodeId || (selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null);
     const batchChildCountById = useMemo(() => {
@@ -3710,7 +3737,7 @@ function InfiniteCanvasPage() {
     );
 
     const handleGenerateNode = useCallback(
-        async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, provenanceOverride?: GenerationProvenance, storyboardReviewSnapshot?: CanvasNodeData) => {
+        async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, provenanceOverride?: GenerationProvenance, storyboardReviewSnapshot?: CanvasNodeData, generationConfigOverride?: AiConfig) => {
             const generationStartedAt = Date.now();
             const generationNodes = nodesRef.current;
             const generationConnections = connectionsRef.current;
@@ -3720,7 +3747,7 @@ function InfiniteCanvasPage() {
                 message.info("当前节点正在生成，请稍等完成后再操作");
                 return;
             }
-            const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
+            const generationConfig = generationConfigOverride || buildGenerationConfig(effectiveConfig, sourceNode, mode);
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
@@ -4559,6 +4586,60 @@ function InfiniteCanvasPage() {
         [applyAgentOps, currentProject?.title, effectiveConfig, projectId],
     );
 
+    const requestGenerateNode = useCallback(
+        (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, provenance?: GenerationProvenance, storyboardReviewSnapshot?: CanvasNodeData) => {
+            if (mode !== "video") {
+                void handleGenerateNode(nodeId, mode, prompt, provenance, storyboardReviewSnapshot);
+                return;
+            }
+            setPendingVideoGeneration({ nodeId, prompt, provenance, storyboardReviewSnapshot });
+        },
+        [handleGenerateNode],
+    );
+
+    const confirmPendingVideoGeneration = useCallback(
+        (result: VideoGenerationPreflightResult) => {
+            const pending = pendingVideoGeneration;
+            if (!pending || result.errors.length) return;
+            const model = result.config.videoModel || result.config.model;
+            const promptChanged = result.prompt.trim() !== pendingVideoPrompt.trim();
+            const sourceNode = nodesRef.current.find((node) => node.id === pending.nodeId) || pending.storyboardReviewSnapshot;
+            const patch: Partial<CanvasNodeMetadata> = {
+                model,
+                size: result.config.size,
+                seconds: result.config.videoSeconds,
+                vquality: result.config.vquality,
+                productScaleMode: result.config.videoProductScaleMode,
+                generateAudio: result.config.videoGenerateAudio,
+                watermark: result.config.videoWatermark,
+                ...(promptChanged
+                    ? sourceNode?.type === CanvasNodeType.Config
+                        ? { composerContent: result.prompt, prompt: result.prompt, promptSourceKind: "user_typed", promptTemplateId: undefined }
+                        : { prompt: result.prompt, promptSourceKind: "user_typed", promptTemplateId: undefined }
+                    : {}),
+            };
+            const nextNodes = nodesRef.current.map((node) => (node.id === pending.nodeId ? applyNodeConfigPatch(node, patch) : node));
+            nodesRef.current = nextNodes;
+            setNodes(nextNodes);
+            const reviewSnapshot = pending.storyboardReviewSnapshot ? applyNodeConfigPatch(pending.storyboardReviewSnapshot, patch) : undefined;
+            const provenance = promptChanged
+                ? {
+                      sourceKind: "user_typed" as const,
+                      editedFrom: pendingVideoPrompt.trim()
+                          ? {
+                                beforeText: pendingVideoPrompt.trim(),
+                                previousSourceKind: pending.provenance?.sourceKind || sourceNode?.metadata?.promptSourceKind || "user_typed",
+                            }
+                          : undefined,
+                  }
+                : pending.provenance;
+            const generationPrompt = promptChanged ? result.prompt : pending.prompt;
+            setPendingVideoGeneration(null);
+            void handleGenerateNode(pending.nodeId, "video", generationPrompt, provenance, reviewSnapshot, result.config);
+        },
+        [handleGenerateNode, pendingVideoGeneration, pendingVideoPrompt],
+    );
+
     useEffect(() => {
         generateNodeRef.current = handleGenerateNode;
     }, [handleGenerateNode]);
@@ -5298,7 +5379,7 @@ function InfiniteCanvasPage() {
                                         mentionReferences={mentionReferencesByNodeId.get(panelNode.id) || []}
                                         onPromptChange={handleNodePromptChange}
                                         onConfigChange={handleConfigNodeChange}
-                                        onGenerate={handleGenerateNode}
+                                        onGenerate={requestGenerateNode}
                                         onGenerateProductBreakdown={handleGenerateProductBreakdown}
                                         onGenerateSceneExpansion={handleGenerateSceneExpansion}
                                         onGenerateVideoStoryboard={handleGenerateVideoStoryboard}
@@ -5323,7 +5404,7 @@ function InfiniteCanvasPage() {
                                         onStop={confirmStopGeneration}
                                         onGenerate={(nodeId) => {
                                             const target = nodesRef.current.find((item) => item.id === nodeId);
-                                            void handleGenerateNode(nodeId, target?.metadata?.generationMode || "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
+                                            requestGenerateNode(nodeId, target?.metadata?.generationMode || "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
                                         }}
                                     />
                                 ) : null
@@ -5399,7 +5480,7 @@ function InfiniteCanvasPage() {
                     onToggleDialog={(node) => setDialogNodeId((current) => (current === node.id ? null : node.id))}
                     onGenerateImage={generateImageFromTextNode}
                     onGenerateStoryboardKeyframes={(node) => void handleGenerateStoryboardKeyframes(node)}
-                    onGenerateFullVideo={(node) => void handleGenerateNode(node.id, "video", node.metadata?.prompt || "", undefined, node)}
+                    onGenerateFullVideo={(node) => requestGenerateNode(node.id, "video", node.metadata?.prompt || "", undefined, node)}
                     onGenerateVideoClips={(node) => void handleGenerateVideoClips(node)}
                     onUpload={(node) => handleUploadRequest(node.id)}
                     onDownload={downloadNodeImage}
@@ -5469,6 +5550,17 @@ function InfiniteCanvasPage() {
                 ) : null}
 
                 <input ref={imageInputRef} type="file" accept="image/*,video/*,audio/mpeg,audio/wav,audio/x-wav,.mp3,.wav" className="hidden" onChange={handleImageInputChange} />
+
+                <VideoGenerationPreflightDialog
+                    open={Boolean(pendingVideoGeneration)}
+                    config={pendingVideoConfig}
+                    prompt={pendingVideoPrompt}
+                    references={pendingVideoReferences}
+                    theme={theme}
+                    onCancel={() => setPendingVideoGeneration(null)}
+                    onConfirm={confirmPendingVideoGeneration}
+                    onMissingConfig={() => openConfigDialog(true)}
+                />
 
                 <CanvasNodeInfoModal node={infoNode} open={Boolean(infoNode)} onClose={() => setInfoNodeId(null)} />
 

@@ -39,7 +39,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
     const chipStyle = { background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text };
     const hasAnyInput = Boolean(inputSummary.textCount || inputSummary.imageCount || inputSummary.videoCount || inputSummary.audioCount);
     const hasComposerContent = Boolean((node.metadata?.composerContent ?? node.metadata?.prompt ?? "").trim());
-    const canGenerate = hasComposerContent || (mode === "audio" ? inputSummary.textCount > 0 : hasAnyInput);
+    const canGenerate = mode === "video" || hasComposerContent || (mode === "audio" ? inputSummary.textCount > 0 : hasAnyInput);
     const videoRoute = mode === "video" ? summarizeConfiguredGoogleVideoRoute(config, inputSummary.imageCount) : null;
 
     return (
