@@ -92,11 +92,17 @@ export function canvasDatabase() {
             unit TEXT NOT NULL,
             status TEXT NOT NULL CHECK (status IN ('reserved', 'submitted', 'settled', 'refunded')),
             upstream_task_id TEXT,
+            upstream_path TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
         CREATE UNIQUE INDEX IF NOT EXISTS billing_upstream_task_idx ON billing_transactions(upstream_task_id) WHERE upstream_task_id IS NOT NULL;
     `);
+    try {
+        database.exec("ALTER TABLE billing_transactions ADD COLUMN upstream_path TEXT");
+    } catch {
+        // Existing databases already have the column.
+    }
     migrateLegacyJson(database, directory);
     chmodSync(target, 0o600);
     globalThis.__infiniteCanvasDatabase = database;

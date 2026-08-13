@@ -1,10 +1,11 @@
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { AuthError, authErrorResponse } from "../../../../lib/auth/auth-error.ts";
 import { authenticateCanvasApiKey } from "../../../../lib/auth/store.ts";
-import { finalizeGatewayResponse, publicModelPrices, reconcileGatewayTaskResponse, refundGatewayReservation, reserveGatewayRequest, settleGatewayReservation, type GatewayReservation } from "../../../../lib/gateway/billing.ts";
+import { ensureGatewayTaskReconciler, finalizeGatewayResponse, publicModelPrices, reconcileGatewayTaskResponse, refundGatewayReservation, reserveGatewayRequest, settleGatewayReservation, type GatewayReservation } from "../../../../lib/gateway/billing.ts";
 import { sanitizeGatewayErrorResponse } from "../../../../lib/gateway/errors.ts";
 import { storeTemporaryMediaDataUrl } from "../../../../lib/temporary-media.ts";
 
@@ -60,6 +61,7 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         if (!UPSTREAM_ORIGIN) throw new AuthError("模型服务尚未配置", 503, "gateway_not_configured");
         const authorization = normalizeAuthorization(process.env.CANVAS_UPSTREAM_API_KEY || "");
         if (!authorization) throw new AuthError("模型服务授权尚未配置", 503, "gateway_not_configured");
+        ensureGatewayTaskReconciler();
         reservation = await reserveGatewayRequest(request, path, { keyId: identity.keyId, userId: identity.user.id });
 
         const upstreamUrl = new URL(`${UPSTREAM_ORIGIN}/${path}`);
@@ -69,6 +71,9 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         STRIPPED_REQUEST_HEADERS.forEach((name) => headers.delete(name));
         headers.set("Authorization", authorization);
         headers.set("Accept-Encoding", "identity");
+        headers.set("X-Canvas-User-Id", identity.user.id);
+        headers.set("X-Canvas-Username", identity.user.username);
+        headers.set("X-Canvas-Request-Id", request.headers.get("x-canvas-request-id")?.trim() || randomUUID());
 
         let videoModel = "";
         if (request.method === "POST" && path === "v1/videos/generations") {

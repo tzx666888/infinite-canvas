@@ -11,6 +11,14 @@ type ApiKeyIdentity = { keyId: string; user: AuthUser };
 export type CreatedCanvasApiKey = { key: string; apiKey: CanvasApiKeySummary };
 export type CreditReservation = { requestId: string; amount: number; status: "reserved" | "submitted" | "settled" | "refunded" };
 
+export type SubmittedBillingTask = {
+    requestId: string;
+    upstreamTaskId: string;
+    upstreamPath: string;
+    model: string;
+    updatedAt: string;
+};
+
 const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function now() {
@@ -332,10 +340,10 @@ export function reserveCredits(input: { userId: string; apiKeyId: string; reques
     });
 }
 
-export function settleCredits(requestId: string, upstreamTaskId?: string) {
+export function settleCredits(requestId: string, upstreamTaskId?: string, upstreamPath?: string) {
     canvasDatabase()
-        .prepare("UPDATE billing_transactions SET status = ?, upstream_task_id = COALESCE(?, upstream_task_id), updated_at = ? WHERE request_id = ? AND status IN ('reserved', 'submitted')")
-        .run(upstreamTaskId ? "submitted" : "settled", upstreamTaskId || null, now(), requestId);
+        .prepare("UPDATE billing_transactions SET status = ?, upstream_task_id = COALESCE(?, upstream_task_id), upstream_path = COALESCE(?, upstream_path), updated_at = ? WHERE request_id = ? AND status IN ('reserved', 'submitted')")
+        .run(upstreamTaskId ? "submitted" : "settled", upstreamTaskId || null, upstreamPath || null, now(), requestId);
 }
 
 export function settleCreditsByTask(upstreamTaskId: string) {
@@ -359,6 +367,19 @@ export function refundCredits(requestId: string, remark = "生成失败，积分
 export function refundCreditsByTask(upstreamTaskId: string, remark?: string) {
     const row = canvasDatabase().prepare("SELECT request_id FROM billing_transactions WHERE upstream_task_id = ?").get(upstreamTaskId);
     return row ? refundCredits(String(row.request_id), remark) : false;
+}
+
+export function listSubmittedBillingTasks(limit = 100): SubmittedBillingTask[] {
+    return canvasDatabase()
+        .prepare("SELECT request_id, upstream_task_id, upstream_path, model, updated_at FROM billing_transactions WHERE status = 'submitted' AND upstream_task_id IS NOT NULL ORDER BY updated_at ASC LIMIT ?")
+        .all(Math.max(1, Math.min(500, Math.floor(limit))))
+        .map((row) => ({
+            requestId: String(row.request_id),
+            upstreamTaskId: String(row.upstream_task_id),
+            upstreamPath: String(row.upstream_path || ""),
+            model: String(row.model),
+            updatedAt: String(row.updated_at),
+        }));
 }
 
 function requireRoot(database: CanvasDatabase, userId: string) {

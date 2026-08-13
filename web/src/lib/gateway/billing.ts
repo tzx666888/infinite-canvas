@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { AuthError } from "../auth/auth-error.ts";
-import { refundCredits, refundCreditsByTask, reserveCredits, settleCredits, settleCreditsByTask } from "../auth/store.ts";
+import { listSubmittedBillingTasks, refundCredits, refundCreditsByTask, reserveCredits, settleCredits, settleCreditsByTask } from "../auth/store.ts";
 
 type PriceUnit = "request" | "image" | "second";
 type PriceRule = { credits: number; unit: PriceUnit };
@@ -44,7 +44,7 @@ export async function finalizeGatewayResponse(response: Response, reservation: G
         const task = envelopeData(payload);
         const taskId = task && typeof task === "object" ? text((task as Record<string, unknown>).id) || text((task as Record<string, unknown>).request_id) || text((task as Record<string, unknown>).task_id) : "";
         if (taskId) {
-            settleCredits(reservation.requestId, taskId);
+            settleCredits(reservation.requestId, taskId, reservation.path);
             return response;
         }
     }
@@ -74,6 +74,58 @@ export function refundGatewayReservation(reservation: GatewayReservation, remark
 
 export function settleGatewayReservation(reservation: GatewayReservation) {
     return settleCredits(reservation.requestId);
+}
+
+const TASK_RECONCILE_INTERVAL_MS = 60_000;
+const taskReconcilerState = globalThis as typeof globalThis & { __infiniteCanvasTaskReconciler?: { started: boolean; running: boolean } };
+
+export function ensureGatewayTaskReconciler() {
+    if (taskReconcilerState.__infiniteCanvasTaskReconciler?.started) return;
+    const state = (taskReconcilerState.__infiniteCanvasTaskReconciler = { started: true, running: false });
+    const timer = setInterval(() => void reconcileSubmittedGatewayTasks(state), TASK_RECONCILE_INTERVAL_MS);
+    timer.unref?.();
+    void reconcileSubmittedGatewayTasks(state);
+}
+
+async function reconcileSubmittedGatewayTasks(state: { started: boolean; running: boolean }) {
+    if (state.running) return;
+    state.running = true;
+    try {
+        const origin = (process.env.CANVAS_UPSTREAM_ORIGIN || process.env.TOKAXIS_INTERNAL_ORIGIN || "").replace(/\/+$/, "");
+        const authorization = normalizeAuthorization(process.env.CANVAS_UPSTREAM_API_KEY || "");
+        if (!origin || !authorization) return;
+        for (const task of listSubmittedBillingTasks()) {
+            const path = task.upstreamPath || fallbackVideoTaskPath(task.model);
+            if (!path) continue;
+            try {
+                const response = await fetch(`${origin}/${path}/${encodeURIComponent(task.upstreamTaskId)}`, { headers: { Authorization: authorization }, cache: "no-store" });
+                if (!response.ok) continue;
+                const payload = await response.json().catch(() => null);
+                const taskPayload = envelopeData(payload);
+                if (!taskPayload || typeof taskPayload !== "object") continue;
+                const status = text((taskPayload as Record<string, unknown>).status).toLowerCase();
+                if (["failed", "error", "expired", "cancelled", "canceled"].includes(status)) refundCreditsByTask(task.upstreamTaskId, "视频生成失败，积分退回");
+                if (["done", "completed", "succeeded", "success", "finished"].includes(status)) settleCreditsByTask(task.upstreamTaskId);
+            } catch {
+                // A network failure cannot prove that the provider task failed. Keep the reservation for the next pass.
+            }
+        }
+    } finally {
+        state.running = false;
+    }
+}
+
+function fallbackVideoTaskPath(model: string) {
+    const normalized = model.trim().toLowerCase();
+    if (["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimax-h3-c4"].includes(normalized)) return "v1/videos/generations";
+    if (normalized.startsWith("grok-imagine-video-")) return "v1/videos";
+    return "v1/videos";
+}
+
+function normalizeAuthorization(value: string | null) {
+    const token = (value || "").trim();
+    if (!token) return "";
+    return token.toLowerCase().startsWith("bearer ") ? token : `Bearer ${token}`;
 }
 
 export function billingEnabled() {

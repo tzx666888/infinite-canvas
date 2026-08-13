@@ -63,7 +63,11 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
 
             provisionedPlatformKeyForUser.current = user.id;
             void createCanvasApiKey("平台默认 Key")
-                .then(({ key }) => useConfigStore.getState().syncModelsFromKey(key))
+                .then(({ key }) => {
+                    const configStore = useConfigStore.getState();
+                    configStore.setPlatformApiKey(key);
+                    return configStore.syncModelsFromKey(key);
+                })
                 .catch((error) => {
                     console.warn("[platform-key] automatic canvas key setup failed", error);
                     openConfigDialog(false);
