@@ -9,6 +9,7 @@ assert.doesNotMatch(JSON.stringify(projectUpload), /flow2api|project|upload/i);
 assert.doesNotMatch(canvasNodeErrorMessage("Flow2API upstream error: Project-scoped image upload failed via /flow/uploadImage (project_id=private)"), /flow2api|project|upload/i);
 
 assert.equal(describeCanvasNodeError("当前令牌剩余额度 $1.39，请求需要 $1.50").title, "账户额度不足");
+assert.equal(describeCanvasNodeError("积分不足，请充值后再试").title, "账户额度不足");
 assert.equal(describeCanvasNodeError("当前模型需要 Ult 账号，但没有可用的 Ult 账号").title, "当前模型暂不可用");
 assert.equal(describeCanvasNodeError("PUBLIC_ERROR_UNSAFE_GENERATION").title, "内容审核未通过");
 assert.equal(describeCanvasNodeError("Flow2API upstream error: PUBLIC_ERROR_UNSAFE_GENERATION").title, "内容审核未通过");

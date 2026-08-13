@@ -1,4 +1,4 @@
-import { isContentPolicyErrorMessage, isIdentifiablePersonReferenceErrorMessage } from "../../../../lib/content-policy-error";
+import { isContentPolicyErrorMessage, isIdentifiablePersonReferenceErrorMessage } from "../../../../lib/content-policy-error.ts";
 
 export type CanvasNodeErrorDisplay = {
     title: string;
@@ -22,7 +22,7 @@ export function describeCanvasNodeError(errorDetails?: string): CanvasNodeErrorD
         };
     }
 
-    if (/预扣费|余额不足|额度不足|剩余(?:余额|额度)|insufficient.*(?:balance|credit)|remaining.*(?:balance|credit)|request.*(?:needs|requires).*\$/.test(lower) || /预扣费|余额不足|额度不足|剩余(?:余额|额度)/.test(text)) {
+    if (/预扣费|积分不足|余额不足|额度不足|剩余(?:余额|额度)|insufficient.*(?:balance|credit)|remaining.*(?:balance|credit)|request.*(?:needs|requires).*\$/.test(lower) || /预扣费|积分不足|余额不足|额度不足|剩余(?:余额|额度)/.test(text)) {
         return {
             title: "账户额度不足",
             message: "当前余额不足以发起本次生成，补充额度后再试。",
