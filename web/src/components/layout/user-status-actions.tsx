@@ -1,8 +1,8 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useEffect, type CSSProperties } from "react";
 import { Avatar, Dropdown } from "antd";
-import { Keyboard, KeyRound, LogIn, LogOut, Settings2 } from "lucide-react";
+import { CreditCard, Keyboard, KeyRound, LogIn, LogOut, Settings2 } from "lucide-react";
 import type { ItemType } from "antd/es/menu/interface";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -26,12 +26,29 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
     const router = useRouter();
     const user = useUserStore((state) => state.user);
     const isReady = useUserStore((state) => state.isReady);
+    const refreshUser = useUserStore((state) => state.refreshUser);
     const logout = useUserStore((state) => state.logout);
     const canvasTheme = canvasThemes[theme];
     const naturalIconClass = "inline-flex size-7 shrink-0 items-center justify-center text-stone-600 transition hover:text-stone-950 dark:text-stone-300 dark:hover:text-white [&_svg]:size-4";
     const iconStyle: CSSProperties | undefined = variant === "canvas" ? { color: canvasTheme.node.text } : undefined;
     const userName = user?.displayName || user?.username || "用户";
+    const creditsLabel = user ? user.credits.toLocaleString("zh-CN") : "0";
+    const userId = user?.id;
     const avatarText = (userName.trim()[0] || "U").toUpperCase();
+
+    useEffect(() => {
+        if (!isReady || !userId) return;
+        void refreshUser();
+        const interval = window.setInterval(() => void refreshUser(), 30_000);
+        const refreshWhenVisible = () => {
+            if (document.visibilityState === "visible") void refreshUser();
+        };
+        document.addEventListener("visibilitychange", refreshWhenVisible);
+        return () => {
+            window.clearInterval(interval);
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
+        };
+    }, [isReady, refreshUser, userId]);
     const menuItems: ItemType[] = user
         ? [
               {
@@ -70,6 +87,19 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
                 <button type="button" className={naturalIconClass} style={iconStyle} onClick={onOpenShortcuts} aria-label="快捷键" title="快捷键">
                     <Keyboard className="size-4" />
                 </button>
+            ) : null}
+            {isReady && user ? (
+                <Link
+                    href="/account"
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-stone-300 bg-transparent px-2.5 text-xs font-medium text-stone-700 transition hover:border-stone-500 hover:text-stone-950 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-400 dark:hover:text-white"
+                    style={variant === "canvas" ? { borderColor: canvasTheme.toolbar.border, color: canvasTheme.node.text } : undefined}
+                    aria-label={`可用积分 ${creditsLabel}`}
+                    title="可用积分"
+                >
+                    <CreditCard className="size-3.5" />
+                    <span className="tabular-nums">{creditsLabel}</span>
+                    <span className="hidden md:inline">积分</span>
+                </Link>
             ) : null}
             {isReady ? (
                 user ? (

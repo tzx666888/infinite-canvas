@@ -12,6 +12,7 @@ type UserStore = {
     isReady: boolean;
     isLoading: boolean;
     hydrateUser: () => Promise<void>;
+    refreshUser: () => Promise<void>;
     login: (input: { username: string; password: string; code?: string }) => Promise<LocalUser>;
     register: (input: { username: string; password: string; inviteCode: string }) => Promise<LocalUser>;
     logout: () => Promise<void>;
@@ -19,6 +20,7 @@ type UserStore = {
 };
 
 let hydrationPromise: Promise<void> | null = null;
+let refreshPromise: Promise<void> | null = null;
 
 export const useUserStore = create<UserStore>()((set, get) => ({
     user: null,
@@ -35,6 +37,16 @@ export const useUserStore = create<UserStore>()((set, get) => ({
                 hydrationPromise = null;
             });
         return hydrationPromise;
+    },
+    refreshUser: () => {
+        if (refreshPromise) return refreshPromise;
+        refreshPromise = fetchCurrentUser()
+            .then((user) => set({ user, isReady: true }))
+            .catch(() => undefined)
+            .finally(() => {
+                refreshPromise = null;
+            });
+        return refreshPromise;
     },
     login: async (input) => {
         set({ isLoading: true });
