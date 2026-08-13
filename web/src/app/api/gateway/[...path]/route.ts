@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 
 import { AuthError, authErrorResponse } from "../../../../lib/auth/auth-error.ts";
 import { authenticateCanvasApiKey } from "../../../../lib/auth/store.ts";
-import { finalizeGatewayResponse, reconcileGatewayTaskResponse, refundGatewayReservation, reserveGatewayRequest, settleGatewayReservation, type GatewayReservation } from "../../../../lib/gateway/billing.ts";
+import { finalizeGatewayResponse, publicModelPrices, reconcileGatewayTaskResponse, refundGatewayReservation, reserveGatewayRequest, settleGatewayReservation, type GatewayReservation } from "../../../../lib/gateway/billing.ts";
 import { sanitizeGatewayErrorResponse } from "../../../../lib/gateway/errors.ts";
 import { storeTemporaryMediaDataUrl } from "../../../../lib/temporary-media.ts";
 
@@ -107,6 +107,11 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
             );
         }
 
+        if (request.method === "GET" && path === "v1/models") {
+            const catalogResponse = await filterPublicModelCatalog(upstreamResponse, responseHeaders);
+            return finalizeGatewayResponse(catalogResponse, reservation);
+        }
+
         const response = new Response(upstreamResponse.body, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: responseHeaders });
         const finalized = await finalizeGatewayResponse(response, reservation);
         return request.method === "GET" ? reconcileGatewayTaskResponse(path, finalized) : finalized;
@@ -114,6 +119,17 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         if (reservation) refundGatewayReservation(reservation, "模型服务连接失败，积分退回");
         return authErrorResponse(error);
     }
+}
+
+async function filterPublicModelCatalog(upstreamResponse: Response, responseHeaders: Headers) {
+    const payload = await upstreamResponse.json().catch(() => null);
+    const allowedModels = new Set(Object.keys(publicModelPrices()).map((model) => model.toLowerCase()));
+    const data = payload && typeof payload === "object" && "data" in payload && Array.isArray((payload as { data?: unknown }).data)
+        ? (payload as { data: unknown[] }).data.filter((item) => item && typeof item === "object" && typeof (item as { id?: unknown }).id === "string" && allowedModels.has((item as { id: string }).id.toLowerCase()))
+        : [];
+    const filteredPayload = payload && typeof payload === "object" && !Array.isArray(payload) ? { ...(payload as Record<string, unknown>), data } : { object: "list", data };
+    responseHeaders.set("Content-Type", "application/json; charset=utf-8");
+    return new Response(JSON.stringify(filteredPayload), { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: responseHeaders });
 }
 
 async function finishGatewayResponse(response: Response, reservation: GatewayReservation | null) {

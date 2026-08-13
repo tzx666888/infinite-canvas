@@ -33,7 +33,7 @@ const upstream = createServer(async (request, response) => {
         return;
     }
     if (request.method === "GET" && request.url === "/v1/models") {
-        response.end(JSON.stringify({ data: [{ id: "gpt-5.6-sol" }, { id: "gpt-image-2" }, { id: "Seedance 2.0-fast-720p" }] }));
+        response.end(JSON.stringify({ data: [{ id: "gpt-5.6-sol" }, { id: "gpt-image-2" }, { id: "Seedance 2.0-fast-720p" }, { id: "unpriced-upstream-model" }] }));
         return;
     }
     if (request.method === "POST" && request.url === "/v1/chat/completions") {
