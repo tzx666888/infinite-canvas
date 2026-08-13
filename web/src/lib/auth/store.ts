@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { AuthError } from "@/lib/auth/auth-error";
-import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { verifyPassword } from "@/lib/auth/password";
+import type { TokaxisIdentity } from "@/lib/auth/tokaxis-identity";
 import type { AuthUser, InviteSummary } from "@/lib/auth/types";
 
 type AccountRecord = {
@@ -66,13 +67,24 @@ function normalizeUsername(value: string) {
 
 function validateUsername(value: string) {
     const username = normalizeUsername(value);
-    if (!/^[a-z0-9_-]{3,32}$/.test(username)) throw new AuthError("用户名需为 3-32 位小写字母、数字、下划线或短横线");
+    if (!/^[a-z0-9_-]{3,20}$/.test(username)) throw new AuthError("用户名需为 3-20 位小写字母、数字、下划线或短横线");
     return username;
 }
 
 function validatePassword(value: string) {
-    if (value.length < 12 || value.length > 128) throw new AuthError("密码需为 12-128 位");
+    if (value.length < 12 || value.length > 72 || Buffer.byteLength(value, "utf8") > 72) throw new AuthError("密码需为 12-72 位且不超过 72 字节");
     return value;
+}
+
+function identityFields(identity: TokaxisIdentity) {
+    const externalId = `tokaxis:${identity.id}`;
+    const username = identity.username.trim() || externalId;
+    return {
+        externalId,
+        username,
+        displayName: identity.displayName.trim() || username,
+        role: (identity.role >= 100 ? "root" : "member") as AuthUser["role"],
+    };
 }
 
 function normalizeInviteCode(value: string) {
@@ -171,12 +183,8 @@ function toInviteSummary(invite: InviteRecord): InviteSummary {
 }
 
 export async function authenticateLocalUser(input: { username: string; password: string }) {
-    let username: string;
-    try {
-        username = validateUsername(input.username);
-    } catch {
-        return null;
-    }
+    const username = normalizeUsername(input.username);
+    if (!/^[a-z0-9_-]{3,32}$/.test(username)) return null;
     return mutateDatabase(async (database) => {
         const account = database.accounts.find((item) => item.provider !== "tokaxis" && item.username === username);
         if (!account || !account.passwordHash || !(await verifyPassword(input.password, account.passwordHash))) return { value: null, changed: false };
@@ -187,10 +195,7 @@ export async function authenticateLocalUser(input: { username: string; password:
 }
 
 export async function upsertTokaxisAccount(input: { id: number; username: string; displayName: string; role: number }) {
-    const externalId = `tokaxis:${input.id}`;
-    const username = input.username.trim() || externalId;
-    const displayName = input.displayName.trim() || username;
-    const role: AuthUser["role"] = input.role >= 100 ? "root" : "member";
+    const { externalId, username, displayName, role } = identityFields(input);
     return mutateDatabase(async (database) => {
         const timestamp = now();
         const existing = database.accounts.find((account) => account.provider === "tokaxis" && account.externalId === externalId);
@@ -201,6 +206,19 @@ export async function upsertTokaxisAccount(input: { id: number; username: string
             existing.updatedAt = timestamp;
             existing.lastLoginAt = timestamp;
             return { value: toAuthUser(existing), changed: true };
+        }
+        const legacyLocal = database.accounts.find((account) => account.provider === "local" && account.username.toLowerCase() === username.toLowerCase());
+        if (legacyLocal) {
+            legacyLocal.id = externalId;
+            legacyLocal.username = username;
+            legacyLocal.displayName = displayName;
+            legacyLocal.role = role;
+            legacyLocal.provider = "tokaxis";
+            legacyLocal.externalId = externalId;
+            legacyLocal.passwordHash = "";
+            legacyLocal.updatedAt = timestamp;
+            legacyLocal.lastLoginAt = timestamp;
+            return { value: toAuthUser(legacyLocal), changed: true };
         }
         const account: AccountRecord = {
             id: externalId,
@@ -220,9 +238,41 @@ export async function upsertTokaxisAccount(input: { id: number; username: string
     });
 }
 
-export async function registerWithInvite(input: { username: string; password: string; inviteCode: string }) {
+export async function migrateLocalAccountToTokaxis(input: { localUserId: string; identity: TokaxisIdentity }) {
+    const { externalId, username, displayName, role } = identityFields(input.identity);
+    return mutateDatabase(async (database) => {
+        const local = database.accounts.find((account) => account.id === input.localUserId && account.provider === "local");
+        if (!local) throw new AuthError("本地账号迁移失败，请联系管理员", 409);
+        const existing = database.accounts.find((account) => account.provider === "tokaxis" && account.externalId === externalId);
+        const timestamp = now();
+        if (existing) {
+            existing.username = username;
+            existing.displayName = displayName;
+            existing.role = role;
+            existing.updatedAt = timestamp;
+            existing.lastLoginAt = timestamp;
+            database.accounts = database.accounts.filter((account) => account.id !== local.id);
+            return { value: toAuthUser(existing), changed: true };
+        }
+        local.id = externalId;
+        local.username = username;
+        local.displayName = displayName;
+        local.role = role;
+        local.provider = "tokaxis";
+        local.externalId = externalId;
+        local.passwordHash = "";
+        local.updatedAt = timestamp;
+        local.lastLoginAt = timestamp;
+        return { value: toAuthUser(local), changed: true };
+    });
+}
+
+export async function registerWithInvite(
+    input: { username: string; password: string; inviteCode: string },
+    createTokaxisIdentity: () => Promise<TokaxisIdentity>,
+) {
     const username = validateUsername(input.username);
-    const password = validatePassword(input.password);
+    validatePassword(input.password);
     const codeHash = inviteCodeHash(input.inviteCode);
     if (!normalizeInviteCode(input.inviteCode)) throw new AuthError("请输入邀请码");
 
@@ -231,16 +281,21 @@ export async function registerWithInvite(input: { username: string; password: st
         const invite = database.invites.find((item) => item.codeHash === codeHash);
         if (!invite || inviteStatus(invite) !== "active") throw new AuthError("邀请码无效、已过期或已使用", 403);
 
+        const identity = await createTokaxisIdentity();
+        const { externalId, username: syncedUsername, displayName, role } = identityFields(identity);
+        if (database.accounts.some((account) => account.provider === "tokaxis" && account.externalId === externalId)) {
+            throw new AuthError("该中转站账号已经绑定画布", 409);
+        }
         const createdAt = now();
         const account: AccountRecord = {
-            id: randomUUID(),
-            username,
-            displayName: username,
+            id: externalId,
+            username: syncedUsername,
+            displayName,
             avatarUrl: "",
-            role: "member",
-            provider: "local",
-            externalId: null,
-            passwordHash: await hashPassword(password),
+            role,
+            provider: "tokaxis",
+            externalId,
+            passwordHash: "",
             createdAt,
             updatedAt: createdAt,
             lastLoginAt: createdAt,

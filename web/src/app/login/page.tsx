@@ -87,7 +87,7 @@ export default function LoginPage() {
                         />
                     </Form.Item>
                     <Form.Item name="username" label={mode === "login" ? "用户名或邮箱" : "用户名"} rules={[{ required: true, message: "请输入用户名" }]}>
-                        <Input prefix={<UserRound className="size-4" />} autoComplete="username" placeholder={mode === "login" ? "输入中转站用户名或邮箱" : "3-32 位小写字母、数字或 _ -"} />
+                        <Input prefix={<UserRound className="size-4" />} autoComplete="username" placeholder={mode === "login" ? "输入中转站用户名或邮箱" : "3-20 位小写字母、数字或 _ -"} />
                     </Form.Item>
                     <Form.Item name="password" label="密码" rules={[{ required: true, message: "请输入密码" }]}>
                         <Input.Password prefix={<LockKeyhole className="size-4" />} autoComplete={mode === "register" ? "new-password" : "current-password"} placeholder="至少 12 位" />

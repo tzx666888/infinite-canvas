@@ -4,8 +4,8 @@ import { AuthError, authErrorResponse } from "@/lib/auth/auth-error";
 import { enforceRateLimit, clearRateLimit, requestAddress } from "@/lib/auth/rate-limit";
 import { enforceSameOrigin, parseAuthBody, stringInput } from "@/lib/auth/route-utils";
 import { createSessionToken, AUTH_COOKIE_NAME, sessionCookieOptions } from "@/lib/auth/session";
-import { authenticateLocalUser, upsertTokaxisAccount } from "@/lib/auth/store";
-import { tokaxisAuthError, verifyTokaxisCredentials } from "@/lib/auth/tokaxis";
+import { authenticateLocalUser, migrateLocalAccountToTokaxis, upsertTokaxisAccount } from "@/lib/auth/store";
+import { registerTokaxisAccount, tokaxisAuthError, verifyTokaxisCredentials } from "@/lib/auth/tokaxis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +30,10 @@ export async function POST(request: Request) {
             if (!user) {
                 if (tokaxis.status === "unavailable") throw new AuthError("中转站账号校验服务暂时不可用，请稍后重试", 503);
                 throw new AuthError("用户名或密码错误", 401);
+            }
+            if (tokaxis.status === "invalid") {
+                const identity = await registerTokaxisAccount(credentials);
+                user = await migrateLocalAccountToTokaxis({ localUserId: user.id, identity });
             }
         }
         clearRateLimit(clientKey);
