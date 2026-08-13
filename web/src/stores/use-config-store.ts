@@ -9,7 +9,7 @@ import { modelDisplayInfo } from "@/lib/model-display";
 import { TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
 import { TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS } from "@/lib/seedance-video";
 import { isTokaxisGoogleImageModel, TOKAXIS_GOOGLE_IMAGE_MODELS } from "@/lib/tokaxis-google-image";
-import { DEFAULT_GOOGLE_VIDEO_MODEL, GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-providers/google-video";
+import { ACTIVE_GOOGLE_VIDEO_MODEL_IDS, DEFAULT_GOOGLE_VIDEO_MODEL, GOOGLE_VEO_MODEL_IDS, GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-providers/google-video";
 import { GROK_DISABLED_VIDEO_MODEL_IDS } from "@/lib/video-providers/grok-video";
 
 export type ApiCallFormat = "openai" | "gemini";
@@ -71,12 +71,12 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const TOKAXIS_CHANNEL_ID = "tokaxis";
 const TOKAXIS_BASE_URL = "/api/tokaxis";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-const TOKAXIS_DEFAULTS_VERSION = 21;
+const TOKAXIS_DEFAULTS_VERSION = 22;
 const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 20;
 const TOKAXIS_FALLBACK_MODELS = [
     "gpt-image-2",
     TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
-    ...GOOGLE_VIDEO_MODEL_IDS,
+    ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS,
     TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID,
     "gpt-5.6-sol",
     "gpt-5.5",
@@ -90,6 +90,7 @@ const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", TOKAXIS_GOOGLE_IM
 const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set<string>([
     ...GROK_DISABLED_VIDEO_MODEL_IDS,
     ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()),
+    ...GOOGLE_VEO_MODEL_IDS.map((model) => model.toLowerCase()),
 ]);
 const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>([...GOOGLE_VIDEO_MODEL_IDS, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID.toLowerCase()]);
 const TOKAXIS_FALLBACK_MODEL_OPTIONS = TOKAXIS_FALLBACK_MODELS.map((model) => encodeChannelModel(TOKAXIS_CHANNEL_ID, model));
@@ -123,8 +124,8 @@ export const defaultConfig: AiConfig = {
     audioFormat: "mp3",
     audioSpeed: "1",
     audioInstructions: "",
-    videoSeconds: "8",
-    vquality: "1080",
+    videoSeconds: "10",
+    vquality: "720",
     videoProductScaleMode: "auto",
     videoGenerateAudio: "true",
     videoWatermark: "false",
@@ -290,6 +291,7 @@ export const useConfigStore = create<ConfigStore>()(
                 const textModels = mergeTokaxisModelList(config.textModels, capabilityLists.textModels, channels);
                 const audioModels = mergeTokaxisModelList(config.audioModels, capabilityLists.audioModels, channels);
                 const shouldMigrateTokaxisDefaults = (persistedConfig.tokaxisDefaultsVersion || 0) < TOKAXIS_DEFAULT_SELECTIONS_VERSION;
+                const shouldMigrateTokaxisVideo = isDisabledModelName(config.videoModel);
                 return {
                     ...current,
                     webdav: { ...defaultWebdavSyncConfig, ...persistedWebdav },
@@ -303,15 +305,15 @@ export const useConfigStore = create<ConfigStore>()(
                         baseUrl: TOKAXIS_BASE_URL,
                         model: normalizeDefaultTokaxisModel(config.model, models, channels) || models[0] || "",
                         imageModel: normalizeDefaultTokaxisImageModel(config.imageModel || config.model, config.size, shouldMigrateTokaxisDefaults, imageModels, channels),
-                        videoModel: shouldMigrateTokaxisDefaults ? defaultConfig.videoModel : normalizeDefaultTokaxisModel(config.videoModel, videoModels, channels) || "",
+                        videoModel: shouldMigrateTokaxisVideo ? defaultConfig.videoModel : normalizeDefaultTokaxisModel(config.videoModel, videoModels, channels) || "",
                         textModel: shouldMigrateTokaxisDefaults ? defaultConfig.textModel : normalizeDefaultTokaxisModel(config.textModel || config.model, textModels, channels),
                         audioModel: normalizeDefaultTokaxisModel(config.audioModel || defaultConfig.audioModel, audioModels, channels),
                         audioVoice: config.audioVoice || defaultConfig.audioVoice,
                         audioFormat: config.audioFormat || defaultConfig.audioFormat,
                         audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
                         audioInstructions: config.audioInstructions || "",
-                        videoSeconds: shouldMigrateTokaxisDefaults ? defaultConfig.videoSeconds : config.videoSeconds || defaultConfig.videoSeconds,
-                        vquality: config.vquality || defaultConfig.vquality,
+                        videoSeconds: shouldMigrateTokaxisVideo ? defaultConfig.videoSeconds : config.videoSeconds || defaultConfig.videoSeconds,
+                        vquality: shouldMigrateTokaxisVideo ? defaultConfig.vquality : config.vquality || defaultConfig.vquality,
                         videoProductScaleMode: config.videoProductScaleMode || defaultConfig.videoProductScaleMode,
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
@@ -461,7 +463,11 @@ function normalizeTokaxisChannels(config: AiConfig) {
     const persistedModels = first?.models?.length ? first.models : [];
     const modelSource = persistedModels.length ? persistedModels : config.models?.map(modelOptionName) || [];
     const shouldMigrateModels = (config.tokaxisDefaultsVersion || 0) < TOKAXIS_DEFAULTS_VERSION;
-    const models = sanitizeTokaxisModels(modelSource.length ? [...modelSource, ...(shouldMigrateModels ? ["gpt-5.6-sol", ...Object.values(TOKAXIS_GOOGLE_IMAGE_MODELS), ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS] : [])] : TOKAXIS_FALLBACK_MODELS);
+    const models = sanitizeTokaxisModels(
+        modelSource.length
+            ? [...modelSource, ...(shouldMigrateModels ? ["gpt-5.6-sol", ...Object.values(TOKAXIS_GOOGLE_IMAGE_MODELS), ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID] : [])]
+            : TOKAXIS_FALLBACK_MODELS,
+    );
     return [
         createModelChannel({
             id: TOKAXIS_CHANNEL_ID,

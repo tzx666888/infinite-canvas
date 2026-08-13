@@ -53,12 +53,6 @@ export function selectedAgentVideoModel(options: AvailableAgentVideoModel[], cur
     return options.find((item) => googleVideoEntryMode(item.value) === "omni")?.value || values[0] || "";
 }
 
-export function agentVideoFallbackModel(options: AvailableAgentVideoModel[], current: string) {
-    const currentMode = googleVideoEntryMode(current);
-    const fallbackMode = currentMode === "omni" ? "veo-auto" : "omni";
-    return options.find((item) => googleVideoEntryMode(item.value) === fallbackMode)?.value;
-}
-
 export function agentVideoModelSpec(model: string): AgentVideoModelOption | undefined {
     const modelId = modelOptionName(model).toLowerCase();
     return AGENT_VIDEO_MODEL_OPTIONS.find((item) => (item.modelIds as readonly string[]).includes(modelId));

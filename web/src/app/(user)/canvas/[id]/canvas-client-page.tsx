@@ -100,7 +100,7 @@ import { canvasNodeErrorMessage } from "../utils/node-error-display";
 import { canvasVideoModelSelectionPatch, resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
 import { imageJobFailureMetadata, isCanvasImageJobResultUrl, shouldRecoverCanvasImageJob, stageCanvasImageJobResult } from "../utils/image-job-recovery";
 import { AGENT_VIDEO_MARKETS, AGENT_VIDEO_PRESETS } from "../utils/agent-video-presets";
-import { agentVideoFallbackModel, availableAgentVideoModels } from "../utils/agent-video-models";
+import { availableAgentVideoModels } from "../utils/agent-video-models";
 import { compileAgentVideoPrompt, prepareAgentVideoPromptForGeneration } from "../utils/agent-video-sop";
 import type { CanvasAgentMode } from "../components/canvas-agent-chat-ui";
 import {
@@ -4708,18 +4708,16 @@ function InfiniteCanvasPage() {
                 if (errorDetails) {
                     const personReferenceFailure = isIdentifiablePersonReferenceErrorMessage(errorDetails);
                     const policyFailure = personReferenceFailure || isContentPolicyErrorMessage(errorDetails) || /unsafe|content.?policy|copyright|infring|肖像|portrait.+protect|侵权|审核|安全过滤/iu.test(errorDetails);
-                    const retryModelId = agentVideoFallbackModel(availableAgentVideoModels(effectiveConfig, options.size, preset.referenceImages), options.model);
                     return {
                         ok: false,
                         videoNodeId: videoId,
                         creatorNodeId,
                         error: personReferenceFailure
-                            ? "参考人物图未通过上游隐私审核，失败任务会自动退回额度。请更换已授权且合规的人物图，或改用 Omni / Veo 重试。"
+                            ? "参考人物图未通过隐私审核，失败任务会自动退回额度。请更换已授权且合规的人物图后手动重试。"
                             : policyFailure
-                              ? "当前模型因内容安全或肖像保护未能完成生成，失败任务会自动退回额度，你可以换一个模型后手动重试。"
+                              ? "当前模型因内容安全或肖像保护未能完成生成，失败任务会自动退回额度。请调整提示词或参考图后手动重试。"
                               : "视频生成失败，请检查失败节点详情后重试。",
                         errorKind: policyFailure ? "content_policy" : generationTelemetryErrorKind(errorDetails),
-                        retryModelId: policyFailure ? retryModelId : undefined,
                     };
                 }
                 return { ok: false, videoNodeId: videoId, creatorNodeId, error: "视频生成未启动，请检查当前模型权限后重试。", errorKind: "exec_failed" };

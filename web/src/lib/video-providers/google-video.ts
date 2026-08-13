@@ -1,6 +1,6 @@
 import type { VideoAspectRatio, VideoReferenceMode } from "@/lib/video-providers/shared";
 
-export const GOOGLE_VIDEO_MODEL_IDS = [
+export const GOOGLE_VEO_MODEL_IDS = [
     "veo_3_1_t2v_fast_landscape",
     "veo_3_1_t2v_fast_portrait",
     "veo_3_1_i2v_s_fast_fl",
@@ -8,13 +8,18 @@ export const GOOGLE_VIDEO_MODEL_IDS = [
     "veo_3_1_r2v_fast_landscape",
     "veo_3_1_r2v_fast_portrait",
     "veo_3_1_r2v_fast",
+] as const;
+export const GOOGLE_OMNI_MODEL_IDS = [
     "omni",
     "omni_portrait",
 ] as const;
-export const DEFAULT_GOOGLE_VIDEO_MODEL = "tokaxis::veo_3_1_i2v_s_fast_portrait_fl";
+export const ACTIVE_GOOGLE_VIDEO_MODEL_IDS = GOOGLE_OMNI_MODEL_IDS;
+export const GOOGLE_VIDEO_MODEL_IDS = [...GOOGLE_VEO_MODEL_IDS, ...GOOGLE_OMNI_MODEL_IDS] as const;
+export const DEFAULT_GOOGLE_VIDEO_MODEL = "tokaxis::omni_portrait";
 
 const GOOGLE_VIDEO_MODEL_ID_SET = new Set<string>(GOOGLE_VIDEO_MODEL_IDS);
-const OMNI_VIDEO_MODEL_IDS = new Set(["omni", "omni_portrait"]);
+const ACTIVE_GOOGLE_VIDEO_MODEL_ID_SET = new Set<string>(ACTIVE_GOOGLE_VIDEO_MODEL_IDS);
+const OMNI_VIDEO_MODEL_IDS = new Set<string>(GOOGLE_OMNI_MODEL_IDS);
 const GOOGLE_VEO_DURATION_OPTIONS = [8] as const;
 const GOOGLE_VEO_R2V_DURATION_OPTIONS = [8] as const;
 const GOOGLE_OMNI_DURATION_OPTIONS = [10] as const;
@@ -65,6 +70,10 @@ export function isGoogleVeoOfficialExtendDuration(_value: string | number, _mode
 
 export function isGoogleVideoModel(model: string) {
     return GOOGLE_VIDEO_MODEL_ID_SET.has(normalizeVideoModelId(model));
+}
+
+export function isActiveGoogleVideoModel(model: string) {
+    return ACTIVE_GOOGLE_VIDEO_MODEL_ID_SET.has(normalizeVideoModelId(model));
 }
 
 export function isOmniVideoModel(model: string) {
@@ -153,10 +162,8 @@ export function supportsGoogleVideoReferenceCount(model: string, referenceImageC
 }
 
 export function preferredGoogleVideoModel(referenceImageCount = 1, aspectRatio: VideoAspectRatio = "9:16") {
-    const portrait = aspectRatio !== "16:9";
-    if (referenceImageCount <= 0) return `tokaxis::veo_3_1_t2v_fast_${portrait ? "portrait" : "landscape"}`;
-    if (referenceImageCount <= 2) return portrait ? "tokaxis::veo_3_1_i2v_s_fast_portrait_fl" : "tokaxis::veo_3_1_i2v_s_fast_fl";
-    return `tokaxis::veo_3_1_r2v_fast_${portrait ? "portrait" : "landscape"}`;
+    if (referenceImageCount > 3) throw new Error("Omni 智能创作最多支持 3 张参考图");
+    return aspectRatio === "16:9" ? "tokaxis::omni" : "tokaxis::omni_portrait";
 }
 
 export function selectGoogleVideoReferenceImages<T>(items: T[], model: string) {

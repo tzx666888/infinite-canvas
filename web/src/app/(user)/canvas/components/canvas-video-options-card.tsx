@@ -5,7 +5,7 @@ import { Button, Select, Switch } from "antd";
 import { Eye, ImagePlus, LoaderCircle, LockKeyhole, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
-import { modelOptionLabel, modelOptionName, useEffectiveConfig } from "@/stores/use-config-store";
+import { modelOptionLabel, useEffectiveConfig } from "@/stores/use-config-store";
 import { sizeOptions } from "@/components/video-settings-panel";
 import {
     AGENT_VIDEO_DEFAULT_MODEL_ID,
@@ -46,7 +46,6 @@ export type GenerateAgentVideoResult = {
     creatorNodeId?: string;
     error?: string;
     errorKind?: string;
-    retryModelId?: string;
     prompt?: string;
     warnings?: AgentVideoPromptWarning[];
 };
@@ -79,15 +78,13 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
     const [creatorPreviewUrl, setCreatorPreviewUrl] = useState("");
     const [running, setRunning] = useState(false);
     const [stage, setStage] = useState<AgentVideoGenerationStage>();
-    const [feedback, setFeedback] = useState<{ kind: "success" | "error" | "info"; text: string; retryModelId?: string }>();
+    const [feedback, setFeedback] = useState<{ kind: "success" | "error" | "info"; text: string }>();
     const [promptPreview, setPromptPreview] = useState<{ original: string; parts: AgentVideoPromptPart[]; cacheKey: string }>();
 
     const preset = AGENT_VIDEO_PRESETS[presetId];
     const availableModels = useMemo(() => availableAgentVideoModels(config, size, preset.referenceImages), [config, preset.referenceImages, size]);
     const selectedModel = selectedAgentVideoModel(availableModels, model);
     const selectedModelSpec = availableModels.find((item) => item.value === selectedModel);
-    const selectedModelName = modelOptionName(selectedModel).toLowerCase();
-    const qyPersonPrivacyLimited = presetId === "creator" && selectedModelName.startsWith("qy-seedance-2.0");
     const imageCandidates = nodes.filter((node) => node.type === CanvasNodeType.Image && node.metadata?.content);
     const productCandidates = imageCandidates.filter((node) => node.id !== creatorNodeId);
     const creatorCandidates = imageCandidates.filter((node) => node.id !== productNodeId);
@@ -96,7 +93,6 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
     const marketConfig = AGENT_VIDEO_MARKETS[market];
     const creatorReady = presetId !== "creator" || Boolean((creatorNode && creatorNode.id !== productNode?.id) || creatorFile);
     const canGenerate = Boolean(productNode && selectedModel && marketConfig.enabled && creatorReady && !running);
-    const retryModel = feedback?.retryModelId ? availableModels.find((item) => item.value === feedback.retryModelId) : undefined;
     const promptCacheKey = JSON.stringify({ presetId, market, model: selectedModel, size, withSubtitle, userIntent, productNodeId: productNode?.id, creatorNodeId: creatorNode?.id, creatorFile: creatorFile ? [creatorFile.name, creatorFile.size, creatorFile.lastModified] : undefined });
     const editedPrompt = promptPreview?.parts.map((part) => part.text).join("").trim() || "";
     const editValidation = useMemo(
@@ -162,7 +158,7 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                 setPromptPreview({ original: result.prompt, parts: splitAgentVideoPrompt(result.prompt, withSubtitle), cacheKey: promptCacheKey });
                 setFeedback({ kind: "success", text: "提示词已生成，可编辑镜头、动作、转场、音效和口播。" });
             } else {
-                setFeedback(result.ok ? { kind: "success", text: "视频已生成并保留在画布节点中。" } : { kind: "error", text: result.error || "视频生成失败，请重试。", retryModelId: result.retryModelId });
+                setFeedback(result.ok ? { kind: "success", text: "视频已生成并保留在画布节点中。" } : { kind: "error", text: result.error || "视频生成失败，请重试。" });
             }
         } catch {
             setFeedback({ kind: "error", text: "视频生成失败，请检查模型配置后重试。" });
@@ -253,11 +249,7 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                         ),
                     }))}
                 />
-                {qyPersonPrivacyLimited ? (
-                    <div className="mt-1 text-[11px] leading-4" style={{ color: theme.node.muted }}>
-                        达人模式包含可识别人物时，QY Seedance 可能触发上游隐私审核。建议优先用 Omni；失败会自动退款，并可一键换 Omni 重试。
-                    </div>
-                ) : selectedModelSpec && selectedModelSpec.durationSeconds < 15 ? (
+                {selectedModelSpec && selectedModelSpec.durationSeconds < 15 ? (
                     <div className="mt-1 text-[11px] leading-4" style={{ color: theme.node.muted }}>
                         当前模型固定 {selectedModelSpec.durationSeconds} 秒，已自动精简为 3–4 镜；要完整五镜分镜请选择可用的 15 秒模型。
                     </div>
@@ -393,18 +385,6 @@ export function CanvasVideoOptionsCard({ detail, nodes, theme, onGenerateVideoFr
                 <Button className="min-w-0 flex-1" disabled={!canGenerate} icon={running ? <LoaderCircle className="size-4 animate-spin" /> : <Eye className="size-4" />} onClick={() => void generate(selectedModel, true)}>
                     {promptPreview ? "重新生成提示词" : "先看提示词"}
                 </Button>
-                {feedback?.kind === "error" && retryModel ? (
-                    <Button
-                        disabled={running}
-                        onClick={() => {
-                            setModel(retryModel.value);
-                            if (promptPreview) invalidatePromptPreview();
-                            else void generate(retryModel.value, false, true);
-                        }}
-                    >
-                        {retryModel.spec?.id === "omni" ? "换 Omni 重试" : "换 Veo 重试"}
-                    </Button>
-                ) : null}
             </div>
         </div>
     );

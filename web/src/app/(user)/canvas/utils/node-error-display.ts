@@ -50,7 +50,7 @@ export function describeCanvasNodeError(errorDetails?: string): CanvasNodeErrorD
     if (isIdentifiablePersonReferenceErrorMessage(text)) {
         return {
             title: "参考人物图未通过隐私审核",
-            message: "当前上游未接受这张可识别真人参考图，失败任务会自动退回额度。请更换已授权且合规的人物图，或在视频创作卡改用 Omni / Veo 后重试。",
+            message: "当前模型未接受这张可识别真人参考图，失败任务会自动退回额度。请更换已授权且合规的人物图后重试。",
         };
     }
 

@@ -5,12 +5,15 @@ import {
     defaultGoogleVideoEntrySettings,
     fixedGoogleVideoDurationOptions,
     fixedGoogleVideoResolution,
+    ACTIVE_GOOGLE_VIDEO_MODEL_IDS,
+    GOOGLE_VEO_MODEL_IDS,
     GOOGLE_VIDEO_MODEL_IDS,
     googleVideoEntryMode,
     googleVideoEntryReferenceImageLimit,
     googleVideoReferenceImageLimit,
     googleVideoReferenceMode,
     isGoogleVeoOfficialExtendDuration,
+    isActiveGoogleVideoModel,
     isGoogleVideoModel,
     normalizeGoogleVideoSeconds,
     resolveGoogleVideoRouteModelId,
@@ -23,6 +26,9 @@ const r2v = "veo_3_1_r2v_fast_portrait";
 
 assert.equal(GOOGLE_VIDEO_MODEL_IDS.length, 9);
 for (const model of GOOGLE_VIDEO_MODEL_IDS) assert.equal(isGoogleVideoModel(`tokaxis::${model}`), true, `${model} must be recognized as a Google video model`);
+assert.deepEqual(ACTIVE_GOOGLE_VIDEO_MODEL_IDS, ["omni", "omni_portrait"]);
+for (const model of ACTIVE_GOOGLE_VIDEO_MODEL_IDS) assert.equal(isActiveGoogleVideoModel(`tokaxis::${model}`), true, `${model} must remain active`);
+for (const model of GOOGLE_VEO_MODEL_IDS) assert.equal(isActiveGoogleVideoModel(`tokaxis::${model}`), false, `${model} must remain disabled`);
 
 assert.equal(googleVideoReferenceMode(t2v), "t2v");
 assert.equal(googleVideoReferenceMode(i2v), "i2v");
@@ -96,10 +102,12 @@ assert.match(googleAdapterSource, /body\.append\("seconds", input\.seconds\)/, "
 assert.match(googleAdapterSource, /body\.append\("resolution_name", input\.resolution\)/, "Google video resolution must be sent explicitly");
 assert.match(configSource, /videoModel: DEFAULT_GOOGLE_VIDEO_MODEL/, "TokAxis default must come from the isolated Google provider contract");
 assert.match(configSource, /video-providers\/google-video/, "TokAxis defaults must import only the Google provider contract");
-assert.match(configSource, /\.\.\.GOOGLE_VIDEO_MODEL_IDS/, "TokAxis fallback must expose all Google models");
+assert.match(configSource, /\.\.\.ACTIVE_GOOGLE_VIDEO_MODEL_IDS/, "TokAxis fallback must expose only active Google models");
+assert.match(configSource, /\.\.\.GOOGLE_VEO_MODEL_IDS\.map/, "saved Veo selections must be removed during migration");
 assert.match(settingsRouteSource, /video-providers\/google-video/, "settings fallback must import only the Google provider contract");
-assert.match(settingsRouteSource, /\.\.\.GOOGLE_VIDEO_MODEL_IDS/, "settings fallback must expose all Google models");
-assert.match(canvasSource, /model: "veo"/, "storyboard video prompts must compile for Veo");
+assert.match(settingsRouteSource, /\.\.\.ACTIVE_GOOGLE_VIDEO_MODEL_IDS/, "settings fallback must expose only active Google models");
+assert.match(routingSource, /!isActiveGoogleVideoModel\(selected\)/, "legacy Veo nodes must be rejected before request routing");
+assert.match(canvasSource, /model: "veo"/, "legacy storyboard compiler dialect must remain readable while Veo routing is disabled");
 assert.match(routingSource, /resolveGoogleVideoRouteModelId/, "all Google requests must use the deterministic route matrix");
 assert.match(pickerSource, /compactVideoModelPickerOptions/, "the video picker must collapse raw model IDs into capability entries");
 assert.match(videoSettingsSource, /normalizeVideoResolutionValue\(value, model, duration\)/, "video resolution labels must account for duration-specific provider limits");

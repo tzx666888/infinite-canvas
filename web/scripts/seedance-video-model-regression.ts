@@ -130,7 +130,9 @@ assert.match(serviceSource, /\/videos\/generations/, "TokAxis Seedance must use 
 assert.match(serviceSource, /buildTokaxisSeedanceVideoPayload/, "TokAxis Seedance requests must use the model-specific payload builder");
 assert.match(proxySource, /isTokaxisAsyncVideoModel/, "the proxy must isolate async TokAxis video models from the legacy Grok rewrite");
 assert.match(proxySource, /videos\\\/generations\(\?:\\\/\[\^\/\]\+\)\?/, "the proxy must allow Seedance polling paths");
-assert.match(configSource, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/, "the client model registry must expose all Seedance models");
-assert.match(settingsRouteSource, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/, "the server fallback registry must expose all Seedance models");
+const fallbackModelsBlock = configSource.match(/const TOKAXIS_FALLBACK_MODELS = \[([\s\S]*?)\n\];/)?.[1] ?? "";
+assert.doesNotMatch(fallbackModelsBlock, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/, "withdrawn Seedance models must stay out of the client fallback registry");
+assert.match(configSource, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS\.map\(\(model\) => model\.toLowerCase\(\)\)/, "persisted Seedance selections must be filtered during migration");
+assert.doesNotMatch(settingsRouteSource, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/, "withdrawn Seedance models must stay out of the server fallback registry");
 
 console.log("Seedance video model regression checks passed");

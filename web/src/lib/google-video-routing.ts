@@ -5,6 +5,7 @@ import {
     googleVideoEntryInfo,
     googleVideoEntryMode,
     googleVideoRouteAspectRatio,
+    isActiveGoogleVideoModel,
     isGoogleVideoModel,
     normalizeGoogleVideoSeconds,
     resolveGoogleVideoRouteModelId,
@@ -17,6 +18,7 @@ const ENTRY_ORDER: GoogleVideoEntryMode[] = ["veo-auto", "veo-r2v", "omni"];
 export function resolveConfiguredGoogleVideoModel(config: AiConfig, referenceImageCount: number) {
     const selected = config.videoModel || config.model;
     if (!isGoogleVideoModel(selected)) return selected;
+    if (!isActiveGoogleVideoModel(selected)) throw new Error("Veo 视频入口已暂停，请选择 Omni 智能创作");
     const targetId = resolveGoogleVideoRouteModelId(selected, referenceImageCount, googleVideoRouteAspectRatio(selected, config.size));
     const resolved = findConfiguredModelOption(config, targetId, selected);
     if (resolved) return resolved;
@@ -24,13 +26,16 @@ export function resolveConfiguredGoogleVideoModel(config: AiConfig, referenceIma
 }
 
 export function compactVideoModelPickerOptions(models: string[], requestedSize: string) {
-    const googleModels = models.filter(isGoogleVideoModel);
+    const googleModels = models.filter(isActiveGoogleVideoModel);
     const otherModels = models.filter((model) => !isGoogleVideoModel(model));
     const representatives = ENTRY_ORDER.map((mode) => representativeForMode(googleModels, mode, requestedSize)).filter((model): model is string => Boolean(model));
     return Array.from(new Set([...representatives, ...otherModels]));
 }
 
 export function normalizeVideoModelPickerValue(options: string[], current: string) {
+    if (isGoogleVideoModel(current) && !isActiveGoogleVideoModel(current)) {
+        return options.find((option) => googleVideoEntryMode(option) === "omni") || options[0] || current;
+    }
     const mode = googleVideoEntryMode(current);
     if (!mode) return current;
     return options.find((option) => googleVideoEntryMode(option) === mode) || current;
@@ -75,12 +80,12 @@ function representativeForMode(models: string[], mode: GoogleVideoEntryMode, req
 }
 
 function findConfiguredModelOption(config: AiConfig, targetId: string, selected: string) {
-    return findModelOption(Array.from(new Set([...config.videoModels, ...config.models])), targetId, selected);
+    return findModelOption(config.videoModels, targetId, selected);
 }
 
 function findModelOption(options: string[], targetId: string, selected: string) {
     const channel = channelId(selected);
-    return options.find((option) => rawModelName(option) === targetId && (!channel || channelId(option) === channel)) || options.find((option) => rawModelName(option) === targetId);
+    return options.find((option) => rawModelName(option) === targetId && (!channel || channelId(option) === channel));
 }
 
 function matchesRequestedOrientation(model: string, requestedSize: string) {

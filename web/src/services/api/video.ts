@@ -105,7 +105,7 @@ export async function createVideoGenerationTask(
         return createSeedanceTask(configuredRequest, configuredModel, prompt, references, videoReferences, audioReferences, options);
     }
     const selectedModel = resolveConfiguredGoogleVideoModel(config, references.length);
-    if (!selectedModel) throw new Error("当前令牌未开放 Google 视频模型，请先同步 Veo / Omni 模型");
+    if (!selectedModel) throw new Error("当前令牌未开放所需的 Omni 视频模型，请先同步模型权限");
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (videoReferences.length || audioReferences.length) {

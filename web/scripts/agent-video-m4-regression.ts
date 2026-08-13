@@ -112,26 +112,17 @@ const portraitDefault = selectedAgentVideoModel(portraitModels, "omni");
 const landscapeDefault = selectedAgentVideoModel(landscapeModels, portraitDefault);
 assert.equal(modelOptionName(portraitDefault), "omni_portrait");
 assert.equal(modelOptionName(landscapeDefault), "omni");
-assert.ok(portraitModels.some((item) => googleVideoEntryMode(item.value) === "veo-r2v"));
-assert.equal(portraitModels.find((item) => googleVideoEntryMode(item.value) === "veo-r2v")?.resolution, "720p");
 assert.equal(googleVideoEntryMode(portraitDefault), "omni");
-assert.ok(portraitModels.some((item) => modelOptionName(item.value).toLowerCase() === "seedance 2.0-fast-720p"));
-const qyStandard = portraitModels.find((item) => modelOptionName(item.value).toLowerCase() === "qy-seedance-2.0");
-const qyFast = portraitModels.find((item) => modelOptionName(item.value).toLowerCase() === "qy-seedance-2.0-fast");
-assert.deepEqual(
-    [qyStandard && { durationSeconds: qyStandard.durationSeconds, resolution: qyStandard.resolution, hasAudio: qyStandard.hasAudio }, qyFast && { durationSeconds: qyFast.durationSeconds, resolution: qyFast.resolution, hasAudio: qyFast.hasAudio }],
-    [
-        { durationSeconds: 15, resolution: "1080p", hasAudio: true },
-        { durationSeconds: 15, resolution: "720p", hasAudio: true },
-    ],
-);
+assert.equal(portraitModels.some((item) => googleVideoEntryMode(item.value)?.startsWith("veo")), false);
+assert.equal(portraitModels.some((item) => modelOptionName(item.value).toLowerCase().includes("seedance")), false);
+assert.ok(portraitModels.some((item) => modelOptionName(item.value).toLowerCase() === "minimax-h3-c4"));
 assert.equal(resolveGoogleVideoRouteModelId("omni_portrait", 1, "16:9"), "omni");
 assert.equal(resolveGoogleVideoRouteModelId("veo_3_1_i2v_s_fast_portrait_fl", 1, "16:9"), "veo_3_1_i2v_s_fast_fl");
 assert.equal(resolveGoogleVideoRouteModelId("veo_3_1_r2v_fast_portrait", 2, "16:9"), "veo_3_1_r2v_fast_landscape");
-const configuredSubset = defaultConfig.videoModels.filter((model) => ["omni", "omni_portrait", "seedance 2.0-fast-720p"].includes(modelOptionName(model).toLowerCase()));
+const configuredSubset = defaultConfig.videoModels.filter((model) => ["omni", "omni_portrait", "minimax-h3-c4"].includes(modelOptionName(model).toLowerCase()));
 const configuredSubsetCards = availableAgentVideoModels({ ...defaultConfig, videoModels: configuredSubset }, "720x1280").map((item) => item.value);
 assert.ok(configuredSubsetCards.every((model) => configuredSubset.includes(model)), "Agent model card must not escape the configured video-model intersection");
-assert.deepEqual(configuredSubsetCards.map(modelOptionName), ["omni_portrait", "Seedance 2.0-fast-720p"]);
+assert.deepEqual(configuredSubsetCards.map(modelOptionName), ["omni_portrait", "MiniMax-H3-c4"]);
 const unknownFutureModel = "tokaxis::future-video-model";
 assert.equal(modelMatchesCapability(unknownFutureModel, "video"), false);
 assert.ok(!availableAgentVideoModels({ ...defaultConfig, videoModels: [...defaultConfig.videoModels, unknownFutureModel] }, "720x1280").some((item) => item.value === unknownFutureModel));
@@ -141,24 +132,6 @@ const resolvedLandscapeConfig = resolveReferenceImageVideoConfig(
 );
 assert.equal(modelOptionName(resolvedLandscapeConfig.videoModel), "omni");
 assert.equal(resolvedLandscapeConfig.size, "1280x720");
-const resolvedQyStandardConfig = resolveReferenceImageVideoConfig(
-    { ...defaultConfig, model: qyStandard!.value, videoModel: qyStandard!.value, size: "720x1280", videoSeconds: "15", vquality: qyStandard!.resolution, videoGenerateAudio: String(qyStandard!.hasAudio) },
-    2,
-);
-const resolvedQyFastConfig = resolveReferenceImageVideoConfig(
-    { ...defaultConfig, model: qyFast!.value, videoModel: qyFast!.value, size: "720x1280", videoSeconds: "15", vquality: qyFast!.resolution, videoGenerateAudio: String(qyFast!.hasAudio) },
-    2,
-);
-assert.deepEqual(
-    [
-        { seconds: resolvedQyStandardConfig.videoSeconds, quality: resolvedQyStandardConfig.vquality, audio: resolvedQyStandardConfig.videoGenerateAudio },
-        { seconds: resolvedQyFastConfig.videoSeconds, quality: resolvedQyFastConfig.vquality, audio: resolvedQyFastConfig.videoGenerateAudio },
-    ],
-    [
-        { seconds: "15", quality: "1080p", audio: "true" },
-        { seconds: "15", quality: "720p", audio: "true" },
-    ],
-);
 const portraitOnlyModels = defaultConfig.videoModels.filter((model) => modelOptionName(model).toLowerCase() === "omni_portrait");
 assert.deepEqual(availableAgentVideoModels({ ...defaultConfig, models: portraitOnlyModels, videoModels: portraitOnlyModels }, "1280x720").map((item) => item.value), []);
 assert.throws(
@@ -279,8 +252,7 @@ console.log(
                 portraitDefault: modelOptionName(portraitDefault),
                 landscapeDefault: modelOptionName(landscapeDefault),
                 entries: portraitModels.map((item) => modelOptionName(item.value)),
-                qySeedance: [modelOptionName(qyStandard!.value), modelOptionName(qyFast!.value)],
-                veoMultiReferenceResolution: portraitModels.find((item) => googleVideoEntryMode(item.value) === "veo-r2v")?.resolution,
+                disabledEntriesHidden: "Veo and Seedance PASS",
                 configuredIntersection: "PASS",
                 unintegratedFutureModelHidden: "PASS",
                 landscapeResolvedRequest: { model: modelOptionName(resolvedLandscapeConfig.videoModel), size: resolvedLandscapeConfig.size },
