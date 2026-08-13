@@ -20,13 +20,22 @@ import { DiaTextReveal } from "@/components/ui/dia-text-reveal";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { CanvasPromptLibrary } from "./canvas-prompt-library";
 import { AgentChatComposer, AgentChatMessage, AgentModeSwitch, AgentPanelTabs, AgentWorkingMessage, type CanvasAgentChatMessage, type CanvasAgentMode } from "./canvas-agent-chat-ui";
-import type { GenerateAgentVideoOptions, GenerateAgentVideoResult } from "./canvas-video-options-card";
 import { CanvasLocalAgentPanel } from "./canvas-local-agent-panel";
 import { NODE_DEFAULT_SIZE } from "../constants";
-import { CanvasNodeType, type CanvasAssistantMessage, type CanvasAssistantReference, type CanvasAssistantSession, type CanvasNodeData } from "../types";
+import { CanvasNodeType, type CanvasAgentVideoBrief, type CanvasAssistantMessage, type CanvasAssistantReference, type CanvasAssistantSession, type CanvasNodeData } from "../types";
 import { useCanvasAgentStore } from "../stores/use-canvas-agent-store";
 import { applyCanvasAgentOps, summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
 import { prepareToolArguments, ToolArgumentValidationError } from "../utils/canvas-assistant-tool-arguments";
+import {
+    AGENT_VIDEO_TYPE_OPTIONS,
+    agentVideoCapabilityCatalog,
+    agentVideoGuideIntro,
+    mergeCanvasAgentVideoBrief,
+    missingAgentVideoBriefFields,
+    validateAgentVideoReferences,
+    type PrepareCanvasAgentVideoInput,
+    type PrepareCanvasAgentVideoResult,
+} from "../utils/canvas-agent-video-guide";
 
 export const CANVAS_AGENT_PANEL_MOTION_MS = 500;
 const PANEL_MOTION_SECONDS = CANVAS_AGENT_PANEL_MOTION_MS / 1000;
@@ -34,7 +43,7 @@ const ONLINE_AGENT_MAX_STEPS = 12;
 const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用户在画布上创建电商产品素材。
 
 你可以执行以下画布操作：
-- add_node：新增节点（图片/文本/音频/配置；视频节点只由视频创作卡创建）
+- add_node：新增节点（图片/文本/音频/配置；视频节点只能由引导完成后的 canvas_prepare_video 创建）
 - update_node：更新节点内容
 - delete_node：删除节点
 - connect_nodes：连接两个节点
@@ -55,10 +64,10 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 1. 优化提示词：按图片或视频模式优化。图片输出中文，明确主体、构图、光线、材质、比例、数量/版式、身份与尺度约束；视频输出英文单段，保持动作连续、参考图身份和物理真实。
 2. 产品拆解：读取选中产品信息或图片，提炼产品名称、外观描述、包装描述、配件清单、场景关键词、色调关键词、禁止元素，创建中文文本节点并连线到源节点。
 3. 场景扩展：读取产品信息，生成多个不同使用场景的中文提示词，为每个场景创建图片节点并自动排版，可按用户要求触发生成。
-4. 视频分镜：按当前模型时长规划 CommerceVideoPlan；Omni 固定 10 秒，MiniMax H3 支持 5-15 秒。商品展示、生活方式、教程和带货使用各自合适结构。JSON 视觉字段用英文，说明用中文。点击生成后创建固定 3×4 的 12 格候选图，用户选一张再生成干净关键帧。
-5. 视频生成提示词：输出当前视频模型可执行的 90-180 词英文指令。Omni 支持纯文字或 1-3 张参考图、固定 10 秒 720p；MiniMax H3 支持横竖屏、5-15 秒、1440p 和最多 5 张参考图。不得擅自换模型、模式、时长或宣称不支持的能力。
+4. 视频分镜：按当前模型能力与时长规划 CommerceVideoPlan。商品展示、生活方式、教程和带货使用各自合适结构。JSON 视觉字段用英文，说明用中文。点击生成后创建固定 3×4 的 12 格候选图，用户选一张再生成干净关键帧。
+5. 视频导演与提示词：通过纯文本对话逐步确认产品、人物、类型、市场、平台、语言、横竖屏、模型、有效时长、声音、字幕和卖点，再写当前模型可执行的英文单段提示词并准备普通视频节点。不得擅自换模型、模式、时长或宣称未登记的能力。
 6. 一键流水线：按优化提示词、产品拆解、场景扩展、可选视频分镜的顺序自动创建节点、连线、排版。
-7. 视频反推：读取用户已有视频素材节点，分析关键帧，反推英文视频提示词，仅创建文本节点输出，不创建视频生成配置。
+7. 视频反推：用户已有视频素材需要先走画布的视频反推能力；当前 Agent 不得假装已经看过未提取关键帧的视频。
 8. 批量排版：按节点类型分组，图片、文本、音频和已有视频素材分区网格排列，并调整视图让节点可见。
 9. 批量连线：把指定源节点连接到多个目标节点。
 10. 多尺寸适配：基于当前提示词创建竖版、方形、横版、电商主图等尺寸节点。
@@ -69,25 +78,51 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 15. 智能配色：分析产品主色调，推荐背景色、点缀色、整体色调方向，并更新提示词。
 
 输出规则：
-- 面向用户的解释和规划说明默认用中文；图片提示词默认中文；视频反推提示词只用英文；带货视频提示词由 SOP 编译器产出中文正文与当地语言口播，Agent 不自己写视频提示词。
-- 用户要求生成任何视频（商品展示、人物、带货、口播、生活方式或教程）时，必须且只能单独调用 canvas_request_video_options 弹出视频创作卡片；不得调用 canvas_run_generation，不得用 canvas_apply_ops 的 run_generation 生成视频，不得创建视频节点或视频生成配置节点。若已能确认画布图片角色，传 references.productNodeId 和 / 或 references.creatorNodeId；角色不明确时留空，由用户在卡片选择。用户明确要求“做分镜”“出 12 宫格”“写视频提示词”时，可走分镜或文本链路，但仍不得直接生成视频。
+- 面向用户的解释和规划说明默认用中文；图片提示词默认中文；视频提示词使用英文单段，当地语言只放在引号内的口播台词中。
+- 视频创作只使用纯文本引导，不显示参数卡片。一次只问 1–2 个问题，不重复询问已经确认的信息；每次获得新答案后调用 canvas_update_video_brief 保存白名单字段。
+- 引导顺序：先确认视频类型；再确认目标市场、平台和语言；达人出镜或买家证言必须确认独立的人物参考图；再确认横竖屏；然后调用 canvas_get_video_capabilities，并只向用户提供当前能力表中的模型和时长。固定时长直接说明“模型固定”，不要制造无效选择；最后确认声音、字幕和一个核心卖点。
+- 视频类型只能从以下八类选择：${AGENT_VIDEO_TYPE_OPTIONS.map((item) => `${item.label}(${item.value})`).join("、")}。
+- 提示词正文写成 60–100 个英文词的一条连续创作指令：一个清晰主体、一处主要场景、连续动作、镜头与光线、真实产品交互、必要的当地语言口播。10 秒内不超过 3 个可见节拍，不塞入多地点长剧情；不得包含标题、Markdown、时间表、data URL 或 base64。
+- 创意按类型适配：产品展示/品牌广告强调产品立即可见、身份细节和 hero shot；手部/教程/开箱强调一次真实操作及物理接触；达人/证言强调同一成年人物、服装、声音和自然体验；痛点解决只使用客户明确提供的问题，不编造功效、评价或夸张前后对比。商业短片优先“钩子→一次演示→产品特写/柔和 CTA”。
+- 口播必须能在时长内自然说完：6 秒约 10–14 词，10 秒约 18–24 词，15 秒约 26–34 词；客户没有确认口播台词时不得凭空补对白。根据能力表的 promptProfile 适配：single-scene 不提参考图；image-anchor 锁单图；multi-reference 按输入顺序绑定角色；first-last-frame 只表达首尾状态；multimodal 只引用真正传入的素材。
+- 在准备节点前，先把中文需求摘要和完整英文提示词展示给用户，明确询问是否确认。只有用户明确确认后，才能调用 canvas_prepare_video，并传 confirmed=true。该工具只创建并选中一个普通视频节点、写入提示词并连接参考图，绝不立即提交生成或扣费；最终由客户在画布视频节点点击生成。
+- canvas_prepare_video 中，产品参考图必填；人物图与产品图必须是不同节点。提示词不得依赖未传入的参考图。禁止使用 canvas_apply_ops、canvas_create_node 或 canvas_run_generation 绕过引导创建/触发视频。
 - 需要读取画布时调用 canvas_get_state 或 canvas_get_selection。
 - 审阅分镜图（review-sheet）只能作为用户审阅和关键帧生成方向参考；视频参考只能使用干净关键帧。
 - 视频分镜 beat 描述必须用英文，中文只用于客户阅读说明。
 - 需要精确批量操作时调用 canvas_apply_ops。
 - 不要输出 JSON ops 给用户，不要编造执行结果。
 - 工具参数涉及已有节点时必须使用当前画布 JSON 中真实存在的 id；缺少必要 id 或用户意图不明确时，先简短说明需要用户明确选择或说明。`;
+
+function onlineAgentSystemPrompt(config: AiConfig, brief?: CanvasAgentVideoBrief) {
+    const referenceCount = brief?.creatorNodeId ? 2 : 1;
+    const size = brief?.size || "720x1280";
+    return `${ONLINE_AGENT_PROMPT}\n\n当前视频需求：${JSON.stringify(brief || {})}\n尚缺字段：${missingAgentVideoBriefFields(brief || {}).join("、") || "无"}\n当前视频模型能力（唯一事实来源）：${JSON.stringify(agentVideoCapabilityCatalog(config, size, referenceCount))}`;
+}
 const JSON_RECORD_SCHEMA = { type: "object", additionalProperties: true };
 const POSITION_SCHEMA = { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"], additionalProperties: false };
 const VIEWPORT_SCHEMA = { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, k: { type: "number" } }, required: ["x", "y", "k"], additionalProperties: false };
 const NODE_TYPE_SCHEMA = { type: "string", enum: ["image", "text", "config", "audio"] };
 const GENERATION_MODE_SCHEMA = { type: "string", enum: ["text", "image", "audio"] };
 const RUN_GENERATION_MODE_SCHEMA = GENERATION_MODE_SCHEMA;
-const VIDEO_REFERENCE_ROLES_SCHEMA = {
-    type: "object",
-    properties: { productNodeId: { type: "string" }, creatorNodeId: { type: "string" } },
-    additionalProperties: false,
+const VIDEO_TYPE_SCHEMA = { type: "string", enum: AGENT_VIDEO_TYPE_OPTIONS.map((item) => item.value) };
+const VIDEO_SIZE_SCHEMA = { type: "string", enum: ["720x1280", "1280x720"] };
+const VIDEO_BRIEF_PROPERTIES = {
+    productNodeId: { type: "string" },
+    creatorNodeId: { type: "string" },
+    videoType: VIDEO_TYPE_SCHEMA,
+    market: { type: "string" },
+    platform: { type: "string" },
+    language: { type: "string" },
+    model: { type: "string" },
+    seconds: { type: "number" },
+    size: VIDEO_SIZE_SCHEMA,
+    generateAudio: { type: "boolean" },
+    withSubtitle: { type: "boolean" },
+    sellingPoint: { type: "string" },
+    userIntent: { type: "string" },
 };
+const VIDEO_BRIEF_SCHEMA = { type: "object", properties: VIDEO_BRIEF_PROPERTIES, additionalProperties: false };
 const GENERATION_OPTION_PROPERTIES = {
     model: { type: "string" },
     size: { type: "string" },
@@ -128,7 +163,7 @@ const CANVAS_OP_SCHEMA = {
     required: ["type"],
     additionalProperties: false,
 };
-const ONLINE_READ_TOOLS = new Set(["canvas_get_state", "canvas_get_selection", "canvas_export_snapshot"]);
+const ONLINE_READ_TOOLS = new Set(["canvas_get_state", "canvas_get_selection", "canvas_export_snapshot", "canvas_get_video_capabilities", "canvas_update_video_brief"]);
 
 function toolDefinition(name: string, description: string, properties: Record<string, unknown>, required: string[] = [], strict = false): ResponseFunctionTool {
     return { type: "function", function: { name, description, parameters: { type: "object", properties, required, additionalProperties: false }, strict } };
@@ -165,7 +200,7 @@ const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = [
     ),
     toolDefinition(
         "canvas_create_node",
-        "创建节点：text、image、config、audio。适合创建占位图、媒体占位、配置节点或自定义 metadata 节点；视频必须使用视频创作卡。",
+        "创建节点：text、image、config、audio。适合创建占位图、媒体占位、配置节点或自定义 metadata 节点；视频必须使用引导式视频准备工具。",
         { nodeType: NODE_TYPE_SCHEMA, title: { type: "string" }, x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" }, metadata: JSON_RECORD_SCHEMA },
         ["nodeType"],
     ),
@@ -212,10 +247,13 @@ const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = [
     generationToolDefinition("canvas_generate_text", "创建通用文本生成流程并立即触发生成。", "text"),
     generationToolDefinition("canvas_generate_image", "创建通用图片生成流程并立即触发生成。", "image"),
     generationToolDefinition("canvas_generate_audio", "创建通用音频生成流程并立即触发生成。", "audio"),
+    toolDefinition("canvas_get_video_capabilities", "读取当前已配置视频模型的真实能力。可按画面比例和参考图数量过滤；选择模型和时长前必须调用。", { size: VIDEO_SIZE_SCHEMA, referenceImageCount: { type: "number" } }),
+    toolDefinition("canvas_update_video_brief", "保存本轮已确认的视频需求字段，然后继续用普通文本追问尚缺信息。不创建节点、不提交生成。", VIDEO_BRIEF_PROPERTIES),
     toolDefinition(
-        "canvas_request_video_options",
-        "用户要求生成任何视频时调用。只弹出产品/人物/剧情/市场/模型/尺寸选择卡片，不创建任何节点、不提交生成、不输出提示词、不做分镜。角色可确认时传 references.productNodeId 或 references.creatorNodeId，不确定时留空让用户选择。",
-        { references: VIDEO_REFERENCE_ROLES_SCHEMA, userIntent: { type: "string" } },
+        "canvas_prepare_video",
+        "客户明确确认完整需求和英文提示词后调用。创建一个普通视频节点并按人物→产品顺序连接参考图，但不立即生成。",
+        { brief: VIDEO_BRIEF_SCHEMA, prompt: { type: "string" }, confirmed: { type: "boolean", enum: [true] } },
+        ["brief", "prompt", "confirmed"],
     ),
     toolDefinition("canvas_update_node", "更新节点基础字段或 metadata。", { id: { type: "string" }, patch: JSON_RECORD_SCHEMA, metadata: JSON_RECORD_SCHEMA }, ["id"]),
     toolDefinition("canvas_update_node_text", "更新文本节点内容和标题。", { id: { type: "string" }, text: { type: "string" }, title: { type: "string" } }, ["id", "text"]),
@@ -241,7 +279,7 @@ const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = [
     ),
     toolDefinition("canvas_select_nodes", "设置当前选中节点。", { ids: { type: "array", items: { type: "string" } } }, ["ids"]),
     toolDefinition("canvas_set_viewport", "调整画布视口。", { viewport: VIEWPORT_SCHEMA }, ["viewport"]),
-    toolDefinition("canvas_run_generation", "触发指定节点生成图片、文本或音频。视频必须使用 canvas_request_video_options。", { nodeId: { type: "string" }, mode: RUN_GENERATION_MODE_SCHEMA, prompt: { type: "string" } }, ["nodeId"]),
+    toolDefinition("canvas_run_generation", "触发指定节点生成图片、文本或音频。Agent 不得用它触发视频。", { nodeId: { type: "string" }, mode: RUN_GENERATION_MODE_SCHEMA, prompt: { type: "string" } }, ["nodeId"]),
 ];
 const ONLINE_AGENT_TOOL_SCHEMAS = new Map(ONLINE_AGENT_TOOLS.map((tool) => [tool.function.name, tool.function.parameters]));
 type OnlineAgentTab = "setup" | "chat" | "history" | "log";
@@ -275,7 +313,7 @@ type CanvasAssistantPanelProps = {
     canUndoOps: boolean;
     onUndoOps: () => CanvasAgentSnapshot | null;
     onPasteImage: (file: File) => void;
-    onGenerateVideoFromReference: (options: GenerateAgentVideoOptions) => Promise<GenerateAgentVideoResult>;
+    onPrepareAgentVideo: (input: PrepareCanvasAgentVideoInput) => PrepareCanvasAgentVideoResult;
     agentMode: CanvasAgentMode;
     onAgentModeChange: (mode: CanvasAgentMode) => void;
     closing: boolean;
@@ -294,7 +332,7 @@ export function CanvasAssistantPanel({
     canUndoOps,
     onUndoOps,
     onPasteImage,
-    onGenerateVideoFromReference,
+    onPrepareAgentVideo,
     agentMode,
     onAgentModeChange,
     closing,
@@ -319,12 +357,15 @@ export function CanvasAssistantPanel({
     const [removedReferenceIds, setRemovedReferenceIds] = useState<Set<string>>(new Set());
     const [localSessions, setLocalSessions] = useState<CanvasAssistantSession[]>(() => (sessions.length ? sessions : [createSession()]));
     const [localActiveSessionId, setLocalActiveSessionId] = useState<string | null>(activeSessionId);
+    const localSessionsRef = useRef(localSessions);
     const snapshotRef = useRef(snapshot);
     const pendingToolContextRef = useRef(new Map<string, PendingOnlineToolContext>());
     const turnTelemetryRef = useRef(new Map<string, AgentTurnTelemetryContext>());
+    const guidedSelectionRef = useRef("");
 
     useEffect(() => {
         if (!sessions.length) return;
+        localSessionsRef.current = sessions;
         setLocalSessions(sessions);
         setLocalActiveSessionId(activeSessionId);
     }, [activeSessionId, sessions]);
@@ -353,7 +394,11 @@ export function CanvasAssistantPanel({
     }, [selectedNodeKey]);
 
     const updateSession = (sessionId: string, updater: (session: CanvasAssistantSession) => CanvasAssistantSession) => {
-        setLocalSessions((prev) => prev.map((session) => (session.id === sessionId ? updater(session) : session)));
+        setLocalSessions((prev) => {
+            const next = prev.map((session) => (session.id === sessionId ? updater(session) : session));
+            localSessionsRef.current = next;
+            return next;
+        });
     };
 
     const appendMessage = (sessionId: string, message: CanvasAssistantMessage) => {
@@ -364,6 +409,16 @@ export function CanvasAssistantPanel({
             updatedAt: new Date().toISOString(),
         }));
     };
+
+    useEffect(() => {
+        const selectedImages = allSelectedReferences.filter((item) => item.type === CanvasNodeType.Image);
+        if (agentMode !== "online" || !activeSession || activeSession.messages.length || selectedImages.length !== 1) return;
+        const key = `${activeSession.id}:${selectedImages[0].id}`;
+        if (guidedSelectionRef.current === key) return;
+        guidedSelectionRef.current = key;
+        updateSession(activeSession.id, (session) => ({ ...session, videoBrief: mergeCanvasAgentVideoBrief(session.videoBrief, { productNodeId: selectedImages[0].id }) }));
+        appendMessage(activeSession.id, { id: nanoid(), role: "assistant", text: agentVideoGuideIntro(), detail: { kind: "video-guide-intro", productCandidateNodeId: selectedImages[0].id } });
+    }, [activeSession, agentMode, allSelectedReferences]);
     const addOnlineLog = (title: string, data?: unknown) => setOnlineLogs((prev) => [{ id: nanoid(), time: new Date().toLocaleTimeString(), title, data }, ...prev].slice(0, 80));
 
     const rememberAssistantText = (assistantId: string, text: string) => {
@@ -452,7 +507,11 @@ export function CanvasAssistantPanel({
             return;
         }
         const session = createSession();
-        setLocalSessions((prev) => [session, ...prev]);
+        setLocalSessions((prev) => {
+            const next = [session, ...prev];
+            localSessionsRef.current = next;
+            return next;
+        });
         setLocalActiveSessionId(session.id);
     };
 
@@ -461,9 +520,11 @@ export function CanvasAssistantPanel({
         const next = safeSessions.filter((session) => !ids.includes(session.id));
         if (!next.length) {
             const session = createSession();
+            localSessionsRef.current = [session];
             setLocalSessions([session]);
             setLocalActiveSessionId(session.id);
         } else {
+            localSessionsRef.current = next;
             setLocalSessions(next);
             setLocalActiveSessionId(localActiveSessionId && ids.includes(localActiveSessionId) ? next[0].id : localActiveSessionId);
         }
@@ -473,6 +534,7 @@ export function CanvasAssistantPanel({
     const clearSessions = () => {
         finishSessionTurns(safeSessions.map((session) => session.id));
         const session = createSession();
+        localSessionsRef.current = [session];
         setLocalSessions([session]);
         setLocalActiveSessionId(session.id);
         cleanupImages({ sessions: [session] });
@@ -487,6 +549,7 @@ export function CanvasAssistantPanel({
 
         const session = activeSession || createSession();
         if (!activeSession) {
+            localSessionsRef.current = [session];
             setLocalSessions([session]);
             setLocalActiveSessionId(session.id);
         }
@@ -516,10 +579,11 @@ export function CanvasAssistantPanel({
         const requestConfig = { ...effectiveConfig, model: effectiveConfig.textModel || effectiveConfig.model };
         try {
             setIsRunning(true);
-            const messages = await buildToolAgentMessages(snapshotRef.current, history, userMessage);
-            addOnlineLog(`Agent Tool Loop ${loop.step} 开始`, { toolChoice: "required" });
+            const currentBrief = localSessionsRef.current.find((session) => session.id === sessionId)?.videoBrief;
+            const messages = await buildToolAgentMessages(snapshotRef.current, history, userMessage, requestConfig, currentBrief);
+            addOnlineLog(`Agent Tool Loop ${loop.step} 开始`, { toolChoice: "auto" });
             let streamed = "";
-            const result = await requestToolResponse({ ...requestConfig, systemPrompt: "" }, messages, ONLINE_AGENT_TOOLS, "required", (text) => {
+            const result = await requestToolResponse({ ...requestConfig, systemPrompt: "" }, messages, ONLINE_AGENT_TOOLS, "auto", (text) => {
                 streamed = text;
                 rememberAssistantText(assistantId, text);
                 if (text.trim()) upsertMessage(sessionId, { id: assistantId, role: "assistant", text });
@@ -564,10 +628,6 @@ export function CanvasAssistantPanel({
             text: toolResults.map((item) => toolResultText(item.result)).join("\n"),
             detail: completedToolDetail(step, result.toolCalls, toolResults),
         });
-        if (successfulVideoOptionsResult(toolResults)) {
-            finishAgentTurn(assistantId);
-            return;
-        }
         await continueOnlineToolLoopAfterResults(sessionId, assistantId, messages, result.toolCalls, toolResults, step);
     };
 
@@ -626,7 +686,7 @@ export function CanvasAssistantPanel({
         return { changed, ops: executableOps, appliedOpsCount, ranGeneration, noopReason, before: JSON.parse(before), after: JSON.parse(snapshotSignature(next)) };
     };
 
-    const executeOnlineTool = (name: string, args: Record<string, unknown>): OnlineToolResult => {
+    const executeOnlineTool = (name: string, args: Record<string, unknown>, sessionId: string): OnlineToolResult => {
         const current = snapshotRef.current;
         try {
             if (name === "canvas_get_state") return { ok: true, message: describeCanvasSnapshot(current), data: compactSnapshot(current) };
@@ -635,14 +695,31 @@ export function CanvasAssistantPanel({
                 const ids = new Set(current.selectedNodeIds || []);
                 return { ok: true, message: `当前选中 ${ids.size} 个节点。`, data: { nodes: compactSnapshot({ ...current, nodes: current.nodes.filter((node) => ids.has(node.id)) }).nodes } };
             }
-            if (name === "canvas_request_video_options") {
-                const references = readVideoReferenceRoles(args.references);
-                const referenceError = validateVideoReferenceRoles(current, references);
-                if (referenceError) return referenceError;
-                return { ok: true, message: "已打开视频创作选项，请选择产品、人物和模型后生成。", data: { kind: "video-options", references, userIntent: stringOptional(args.userIntent).trim() || "基于参考产品生成真实视频" } };
+            if (name === "canvas_get_video_capabilities") {
+                const sessionBrief = localSessionsRef.current.find((session) => session.id === sessionId)?.videoBrief;
+                const size = stringOptional(args.size) || sessionBrief?.size || "720x1280";
+                const referenceImageCount = Math.max(1, Math.floor(numberOptional(args.referenceImageCount) || (sessionBrief?.creatorNodeId ? 2 : 1)));
+                const models = agentVideoCapabilityCatalog(effectiveConfig, size, referenceImageCount);
+                return { ok: true, message: `读取到 ${models.length} 个当前可用的视频模型。`, data: { kind: "video-capabilities", size, referenceImageCount, models } };
+            }
+            if (name === "canvas_update_video_brief") {
+                const previous = localSessionsRef.current.find((session) => session.id === sessionId)?.videoBrief;
+                const brief = mergeCanvasAgentVideoBrief(previous, readVideoBrief(args));
+                const referenceError = validateAgentVideoReferences(current, brief);
+                if (referenceError) return { ok: false, message: referenceError, errorKind: referenceError.includes("没有找到") ? "missing_node_id" : "invalid_args" };
+                updateSession(sessionId, (session) => ({ ...session, videoBrief: brief }));
+                return { ok: true, message: "视频需求已记录，请继续用文字确认剩余信息。", data: { kind: "video-brief", brief, missingFields: missingAgentVideoBriefFields(brief) } };
+            }
+            if (name === "canvas_prepare_video") {
+                const previous = localSessionsRef.current.find((session) => session.id === sessionId)?.videoBrief;
+                const brief = mergeCanvasAgentVideoBrief(previous, readVideoBrief(args.brief));
+                const prepared = onPrepareAgentVideo({ brief, prompt: stringOptional(args.prompt), confirmed: args.confirmed === true });
+                if (!prepared.ok) return { ok: false, message: prepared.error, errorKind: prepared.errorKind };
+                updateSession(sessionId, (session) => ({ ...session, videoBrief: prepared.brief }));
+                return { ok: true, message: "视频节点已准备完成。提示词和参考图已写入，请在画布节点检查后点击生成。", data: { kind: "video-prepared", videoNodeId: prepared.videoNodeId, brief: prepared.brief } };
             }
             const ops = markAgentPromptOps(onlineToolToOps(name, args, current, effectiveConfig));
-            if (ops.some(isAgentVideoCreationOp)) return { ok: false, message: "Agent 不能直接创建或触发视频生成，请使用视频创作卡选择产品、人物和模型。", errorKind: "invalid_args" };
+            if (ops.some(isAgentVideoCreationOp)) return { ok: false, message: "Agent 不能绕过引导直接创建或触发视频，请使用 canvas_prepare_video。", errorKind: "invalid_args" };
             const result = executeOps(ops);
             return { ok: result.changed, message: result.changed ? summarizeCanvasAgentOps(ops) || "画布操作已执行。" : result.noopReason, data: result };
         } catch (error) {
@@ -650,13 +727,14 @@ export function CanvasAssistantPanel({
         }
     };
 
-    const executeOnlineToolCall = (toolCall: ResponseToolCall): OnlineExecutedToolCall => {
+    const executeOnlineToolCall = (toolCall: ResponseToolCall, assistantId: string): OnlineExecutedToolCall => {
         try {
             const prepared = prepareToolArguments(toolCall.function.arguments, ONLINE_AGENT_TOOL_SCHEMAS.get(toolCall.function.name));
             if (prepared.strippedCount) {
                 addOnlineLog("工具参数已剥离未知字段", { tool: toolCall.function.name, count: prepared.strippedCount, paths: prepared.strippedPaths });
             }
-            const result = executeOnlineTool(toolCall.function.name, prepared.args);
+            const sessionId = turnTelemetryRef.current.get(assistantId)?.sessionId || activeSession?.id || "";
+            const result = executeOnlineTool(toolCall.function.name, prepared.args, sessionId);
             if (result.ok && prepared.strippedCount) result.errorKind = "unknown_keys_stripped";
             return { toolCallId: toolCall.id, name: toolCall.function.name, result };
         } catch (error) {
@@ -673,20 +751,6 @@ export function CanvasAssistantPanel({
     };
 
     const executeOnlineToolCalls = (toolCalls: ResponseToolCall[], assistantId: string) => {
-        const videoOptionsCalls = toolCalls.filter((toolCall) => toolCall.function.name === "canvas_request_video_options");
-        if (videoOptionsCalls.length && toolCalls.length !== 1) {
-            const results = toolCalls.map((toolCall): OnlineExecutedToolCall => ({
-                toolCallId: toolCall.id,
-                name: toolCall.function.name,
-                result: {
-                    ok: false,
-                    message: "canvas_request_video_options 必须单独调用，不能与创建、更新或生成类工具同批执行。请只保留该工具后重试。",
-                    errorKind: toolCall.function.name === "canvas_request_video_options" ? "invalid_args" : "skipped_after_failure",
-                },
-            }));
-            recordToolResults(assistantId, results);
-            return results;
-        }
         const results: OnlineExecutedToolCall[] = [];
         let stopped = false;
         toolCalls.forEach((toolCall) => {
@@ -694,7 +758,7 @@ export function CanvasAssistantPanel({
                 results.push({ toolCallId: toolCall.id, name: toolCall.function.name, result: { ok: false, message: "前一个工具调用失败，未继续执行。" } });
                 return;
             }
-            const result = executeOnlineToolCall(toolCall);
+            const result = executeOnlineToolCall(toolCall, assistantId);
             results.push(result);
             if (!result.result.ok) stopped = true;
         });
@@ -732,10 +796,6 @@ export function CanvasAssistantPanel({
             const results = executeOnlineToolCalls(toolCalls, assistantId);
             addOnlineLog("工具执行结果", results);
             upsertMessage(session.id, { id: messageId, role: "tool", title: "工具执行完成", text: results.map((item) => toolResultText(item.result)).join("\n"), detail: completedToolDetail(pendingContext?.step || Number(detail.step) || 1, toolCalls, results) });
-            if (successfulVideoOptionsResult(results)) {
-                finishAgentTurn(assistantId);
-                return;
-            }
             await continueOnlineToolLoopAfterResults(session.id, assistantId, previousMessages, toolCalls, results, pendingContext?.step || Number(detail.step) || 1);
         } catch (error) {
             addOnlineLog("工具续跑失败", error instanceof Error ? error.message : error);
@@ -869,8 +929,6 @@ export function CanvasAssistantPanel({
                                         item={assistantMessageToChatMessage(message)}
                                         theme={theme}
                                         user={user}
-                                        nodes={nodes}
-                                        onGenerateVideoFromReference={onGenerateVideoFromReference}
                                         onRejectTool={rejectOnlineTool}
                                         onApproveTool={approveOnlineTool}
                                     />
@@ -991,7 +1049,7 @@ export function CanvasAssistantPanel({
                         </Tooltip>
                     </div>
                 </header>
-                {agentMode === "local" ? <CanvasLocalAgentPanel embedded snapshot={snapshot} canUndoOps={canUndoOps} onApplyOps={onApplyOps} onUndoOps={onUndoOps} onGenerateVideoFromReference={onGenerateVideoFromReference} /> : onlineContent}
+                {agentMode === "local" ? <CanvasLocalAgentPanel embedded snapshot={snapshot} canUndoOps={canUndoOps} onApplyOps={onApplyOps} onUndoOps={onUndoOps} onPrepareAgentVideo={onPrepareAgentVideo} /> : onlineContent}
             </motion.aside>
         </motion.div>
     );
@@ -1242,25 +1300,25 @@ function objectDetail(value: unknown) {
     return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
-function readVideoReferenceRoles(value: unknown) {
+function readVideoBrief(value: unknown): Partial<CanvasAgentVideoBrief> {
     const input = objectDetail(value);
-    const productNodeId = stringOptional(input.productNodeId).trim();
-    const creatorNodeId = stringOptional(input.creatorNodeId).trim();
-    return { ...(productNodeId ? { productNodeId } : {}), ...(creatorNodeId ? { creatorNodeId } : {}) };
-}
-
-function validateVideoReferenceRoles(snapshot: CanvasAgentSnapshot, references: { productNodeId?: string; creatorNodeId?: string }): OnlineToolResult | undefined {
-    if (references.productNodeId && references.creatorNodeId && references.productNodeId === references.creatorNodeId)
-        return { ok: false, message: "产品参考图和人物参考图不能是同一张图片，请只传已确认的角色或留空让用户在卡片选择。", errorKind: "invalid_args" };
-    const ids = [references.productNodeId, references.creatorNodeId].filter((id): id is string => Boolean(id));
-    const nodeById = new Map(snapshot.nodes.map((node) => [node.id, node]));
-    const missingIds = ids.filter((id) => !nodeById.has(id));
-    if (missingIds.length) return { ok: false, message: `没有找到图片节点：${missingIds.join("、")}。请使用当前画布中真实存在的图片节点 id，或留空让用户选择。`, errorKind: "missing_node_id" };
-    const nonImageIds = ids.filter((id) => nodeById.get(id)?.type !== CanvasNodeType.Image);
-    if (nonImageIds.length) return { ok: false, message: `节点不是图片类型：${nonImageIds.join("、")}。请改用图片节点或留空让用户选择。`, errorKind: "invalid_args" };
-    const emptyImageIds = ids.filter((id) => !nodeById.get(id)?.metadata?.content?.trim());
-    if (emptyImageIds.length) return { ok: false, message: `图片节点没有可用图片内容：${emptyImageIds.join("、")}。请改用有内容的图片节点或留空让用户选择。`, errorKind: "invalid_args" };
-    return undefined;
+    return Object.fromEntries(
+        Object.entries({
+            productNodeId: stringOptional(input.productNodeId).trim() || undefined,
+            creatorNodeId: stringOptional(input.creatorNodeId).trim() || undefined,
+            videoType: stringOptional(input.videoType) || undefined,
+            market: stringOptional(input.market).trim() || undefined,
+            platform: stringOptional(input.platform).trim() || undefined,
+            language: stringOptional(input.language).trim() || undefined,
+            model: stringOptional(input.model).trim() || undefined,
+            seconds: numberOptional(input.seconds),
+            size: stringOptional(input.size) || undefined,
+            generateAudio: typeof input.generateAudio === "boolean" ? input.generateAudio : undefined,
+            withSubtitle: typeof input.withSubtitle === "boolean" ? input.withSubtitle : undefined,
+            sellingPoint: stringOptional(input.sellingPoint).trim() || undefined,
+            userIntent: stringOptional(input.userIntent).trim() || undefined,
+        }).filter(([, item]) => item !== undefined),
+    ) as Partial<CanvasAgentVideoBrief>;
 }
 
 function isAgentVideoCreationOp(op: CanvasAgentOp) {
@@ -1274,15 +1332,8 @@ function isAgentVideoCreationOp(op: CanvasAgentOp) {
     );
 }
 
-function successfulVideoOptionsResult(results: OnlineExecutedToolCall[]) {
-    return results.find((item) => item.name === "canvas_request_video_options" && item.result.ok && objectDetail(item.result.data).kind === "video-options");
-}
-
 function completedToolDetail(step: number, toolCalls: ResponseToolCall[], results: OnlineExecutedToolCall[]) {
-    const videoOptions = successfulVideoOptionsResult(results);
-    return videoOptions?.result.ok
-        ? { ...objectDetail(videoOptions.result.data), status: "completed", step, toolCalls, results }
-        : { status: "completed", step, toolCalls, results };
+    return { status: "completed", step, toolCalls, results };
 }
 
 function stringifyLog(value: unknown) {
@@ -1447,7 +1498,7 @@ function runGenerationOp(nodeId: string, mode: "text" | "image" | "audio", promp
 }
 
 function isWritableToolCall(call: ResponseToolCall) {
-    return !ONLINE_READ_TOOLS.has(call.function.name) && call.function.name !== "canvas_request_video_options";
+    return !ONLINE_READ_TOOLS.has(call.function.name);
 }
 
 function shouldConfirmOnlineToolCalls(confirmTools: boolean, calls: ResponseToolCall[]) {
@@ -1486,7 +1537,9 @@ function toolCallLabel(name: string) {
     if (name === "canvas_generate_text") return "生成文本";
     if (name === "canvas_generate_image") return "生成图片";
     if (name === "canvas_generate_audio") return "生成音频";
-    if (name === "canvas_request_video_options") return "选择视频创作参数";
+    if (name === "canvas_get_video_capabilities") return "读取视频模型能力";
+    if (name === "canvas_update_video_brief") return "记录视频需求";
+    if (name === "canvas_prepare_video") return "准备视频节点";
     if (name === "canvas_update_node") return "更新节点";
     if (name === "canvas_update_node_text") return "更新文本";
     if (name === "canvas_move_nodes") return "移动节点";
@@ -1617,7 +1670,7 @@ function requireNumber(value: unknown, field: string) {
 
 function requireNodeType(value: unknown): CanvasNodeType {
     if ([CanvasNodeType.Text, CanvasNodeType.Image, CanvasNodeType.Config, CanvasNodeType.Audio].includes(value as CanvasNodeType)) return value as CanvasNodeType;
-    throw new Error("Agent 节点类型必须是 text、image、config 或 audio；视频请使用视频创作卡。");
+    throw new Error("Agent 节点类型必须是 text、image、config 或 audio；视频请使用引导式视频准备工具。");
 }
 
 function requireViewport(value: unknown) {
@@ -1741,20 +1794,30 @@ function buildAssistantReferences(nodes: CanvasNodeData[], selectedNodeIds: Set<
         .filter((item): item is CanvasAssistantReference => Boolean(item));
 }
 
-async function buildToolAgentMessages(snapshot: CanvasAgentSnapshot, history: CanvasAssistantMessage[], userMessage: CanvasAssistantMessage): Promise<ResponseInputMessage[]> {
+async function buildToolAgentMessages(snapshot: CanvasAgentSnapshot, history: CanvasAssistantMessage[], userMessage: CanvasAssistantMessage, config: AiConfig, brief?: CanvasAgentVideoBrief): Promise<ResponseInputMessage[]> {
     const refs = userMessage.references || [];
+    const visualReferences = (
+        await Promise.all(
+            refs
+                .filter((item) => item.dataUrl)
+                .map(async (item, index) => [
+                    { type: "text" as const, text: `<IMAGE_${index + 1}> 对应画布图片节点 id=${item.id}，标题=${item.title}` },
+                    { type: "image_url" as const, image_url: { url: await imageToDataUrl(item) } },
+                ]),
+        )
+    ).flat();
     return [
-        { role: "system", content: ONLINE_AGENT_PROMPT },
+        { role: "system", content: onlineAgentSystemPrompt(config, brief) },
         ...history
             .filter((message): message is CanvasAssistantMessage & { role: "user" | "assistant" | "system" } => message.role === "user" || message.role === "assistant" || message.role === "system")
-            .slice(-8)
+            .slice(-20)
             .map((message): ResponseInputMessage => ({ role: message.role, content: message.text })),
         {
             role: "user",
             content: [
                 ...refs.flatMap((item) => (item.text ? [{ type: "text" as const, text: `选中节点 ${item.title}：${item.text}` }] : [])),
                 { type: "text", text: `当前画布：${JSON.stringify(compactSnapshot(snapshot))}\n\n用户需求：${userMessage.text}` },
-                ...(await Promise.all(refs.filter((item) => item.dataUrl).map(async (item) => ({ type: "image_url" as const, image_url: { url: await imageToDataUrl(item) } })))),
+                ...visualReferences,
             ],
         },
     ];

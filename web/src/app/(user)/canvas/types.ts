@@ -23,6 +23,24 @@ export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasImageGenerationType = "generation" | "edit";
 export type CanvasPromptSourceKind = "user_typed" | "builtin_template" | "agent_generated" | "prompt_library";
 
+export type CanvasAgentVideoType = "product-showcase" | "handsfree-demo" | "creator" | "unboxing" | "tutorial" | "pain-solution" | "testimonial" | "brand-film";
+
+export type CanvasAgentVideoBrief = {
+    productNodeId?: string;
+    creatorNodeId?: string;
+    videoType?: CanvasAgentVideoType;
+    market?: string;
+    platform?: string;
+    language?: string;
+    model?: string;
+    seconds?: number;
+    size?: "720x1280" | "1280x720";
+    generateAudio?: boolean;
+    withSubtitle?: boolean;
+    sellingPoint?: string;
+    userIntent?: string;
+};
+
 export type CanvasProductBreakdownPlan = {
     productName?: string;
     category?: string;
@@ -194,6 +212,7 @@ export type CanvasNodeMetadata = {
     editRequestSize?: string;
     inputOrder?: string[];
     agentVideoReferenceRoles?: { productNodeId: string; creatorNodeId?: string };
+    agentVideoBrief?: CanvasAgentVideoBrief;
     naturalWidth?: number;
     naturalHeight?: number;
     freeResize?: boolean;
@@ -289,6 +308,7 @@ export type CanvasAssistantSession = {
     id: string;
     title: string;
     messages: CanvasAssistantMessage[];
+    videoBrief?: CanvasAgentVideoBrief;
     createdAt: string;
     updatedAt: string;
 };

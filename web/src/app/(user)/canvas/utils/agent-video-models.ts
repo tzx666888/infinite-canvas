@@ -1,39 +1,25 @@
 import { compactVideoModelPickerOptions, normalizeVideoModelPickerValue, resolveConfiguredGoogleVideoModel } from "@/lib/google-video-routing";
-import { fixedVideoDurationOptions, fixedVideoResolution, googleVideoEntryMode, isGoogleVideoModel } from "@/lib/video-model-settings";
-import { isSeedanceVideoModel, seedanceSupportsGeneratedAudio } from "@/lib/seedance-video";
-import { modelMatchesCapability, modelOptionName, type AiConfig } from "@/stores/use-config-store";
+import { isGoogleVideoModel, supportsVideoReferenceCount, videoModelCapabilityContract, type VideoModelCapabilityContract } from "@/lib/video-model-settings";
+import { modelMatchesCapability, modelOptionLabel, type AiConfig } from "@/stores/use-config-store";
 
-import { AGENT_VIDEO_MODEL_OPTIONS, type AgentVideoModelOption } from "./agent-video-presets";
-
-export type AvailableAgentVideoModel = {
+export type AvailableAgentVideoModel = VideoModelCapabilityContract & {
     value: string;
-    spec?: AgentVideoModelOption;
-    durationSeconds: number;
-    resolution: "720p" | "1080p" | "1440p";
-    hasAudio: boolean;
-    recommendation: string;
+    label: string;
 };
 
 export function availableAgentVideoModels(config: AiConfig, size: string, referenceImageCount = 1): AvailableAgentVideoModel[] {
     const eligible = config.videoModels.filter((model) => modelMatchesCapability(model, "video"));
-    return compactVideoModelPickerOptions(eligible, size)
-        .filter((value) => routeIsConfigured({ ...config, models: eligible, videoModels: eligible }, value, size, referenceImageCount))
-        .map((value, originalIndex) => {
-            const spec = agentVideoModelSpec(value);
-            const durationOptions = fixedVideoDurationOptions(value);
-            const fixedResolution = fixedVideoResolution(value);
-            return {
-                value,
-                spec,
-                durationSeconds: spec?.durationSeconds || durationOptions?.at(-1) || 10,
-                resolution: spec?.resolution || (fixedResolution === "1440" ? "1440p" : fixedResolution === "1080" ? "1080p" : "720p"),
-                hasAudio: spec?.hasAudio ?? (!isSeedanceVideoModel(value) || seedanceSupportsGeneratedAudio(value)),
-                recommendation: spec?.recommendation || "",
-                originalIndex,
-            };
-        })
-        .sort((left, right) => modelEntryOrder(left.spec) - modelEntryOrder(right.spec) || left.originalIndex - right.originalIndex)
-        .map(({ originalIndex: _originalIndex, ...item }) => item);
+    return compactVideoModelPickerOptions(eligible, size).flatMap((value) => {
+        const capability = videoModelCapabilityContract(value);
+        if (!capability || !supportsVideoReferenceCount(value, referenceImageCount) || !routeIsConfigured({ ...config, models: eligible, videoModels: eligible }, value, size, referenceImageCount)) return [];
+        return [{ value, label: modelOptionLabel(config, value), ...capability }];
+    });
+}
+
+export function selectedAgentVideoModel(options: AvailableAgentVideoModel[], current: string) {
+    const values = options.map((item) => item.value);
+    const normalized = normalizeVideoModelPickerValue(values, current);
+    return values.includes(normalized) ? normalized : values[0] || "";
 }
 
 function routeIsConfigured(config: AiConfig, model: string, size: string, referenceImageCount: number) {
@@ -44,21 +30,4 @@ function routeIsConfigured(config: AiConfig, model: string, size: string, refere
     } catch {
         return false;
     }
-}
-
-export function selectedAgentVideoModel(options: AvailableAgentVideoModel[], current: string) {
-    const values = options.map((item) => item.value);
-    const normalized = normalizeVideoModelPickerValue(values, current);
-    if (values.includes(normalized)) return normalized;
-    return options.find((item) => googleVideoEntryMode(item.value) === "omni")?.value || values[0] || "";
-}
-
-export function agentVideoModelSpec(model: string): AgentVideoModelOption | undefined {
-    const modelId = modelOptionName(model).toLowerCase();
-    return AGENT_VIDEO_MODEL_OPTIONS.find((item) => (item.modelIds as readonly string[]).includes(modelId));
-}
-
-function modelEntryOrder(spec?: AgentVideoModelOption) {
-    if (!spec) return AGENT_VIDEO_MODEL_OPTIONS.length;
-    return AGENT_VIDEO_MODEL_OPTIONS.findIndex((item) => item.id === spec.id);
 }

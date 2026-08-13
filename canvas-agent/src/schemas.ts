@@ -5,6 +5,21 @@ const positionSchema = z.object({ x: z.number(), y: z.number() });
 const viewportSchema = z.object({ x: z.number(), y: z.number(), k: z.number() });
 const nodeTypeSchema = z.enum(["image", "text", "config", "audio"]);
 const generationModeSchema = z.enum(["text", "image", "audio"]);
+const videoBriefSchema = z.object({
+    productNodeId: z.string().optional(),
+    creatorNodeId: z.string().optional(),
+    videoType: z.enum(["product-showcase", "handsfree-demo", "creator", "unboxing", "tutorial", "pain-solution", "testimonial", "brand-film"]).optional(),
+    market: z.string().optional(),
+    platform: z.string().optional(),
+    language: z.string().optional(),
+    model: z.string().optional(),
+    seconds: z.number().optional(),
+    size: z.enum(["720x1280", "1280x720"]).optional(),
+    generateAudio: z.boolean().optional(),
+    withSubtitle: z.boolean().optional(),
+    sellingPoint: z.string().optional(),
+    userIntent: z.string().optional(),
+});
 
 export const toolNames = [
     "canvas_get_state",
@@ -20,7 +35,9 @@ export const toolNames = [
     "canvas_generate_text",
     "canvas_generate_image",
     "canvas_generate_audio",
-    "canvas_request_video_options",
+    "canvas_get_video_capabilities",
+    "canvas_update_video_brief",
+    "canvas_prepare_video",
     "canvas_update_node",
     "canvas_update_node_text",
     "canvas_move_nodes",
@@ -90,7 +107,9 @@ export const toolInputSchemas = {
     canvas_generate_text: generationFlowSchema.merge(generationOptionsSchema),
     canvas_generate_image: generationFlowSchema.merge(generationOptionsSchema),
     canvas_generate_audio: generationFlowSchema.merge(generationOptionsSchema),
-    canvas_request_video_options: z.object({ references: z.object({ productNodeId: z.string().optional(), creatorNodeId: z.string().optional() }).optional(), userIntent: z.string().optional() }),
+    canvas_get_video_capabilities: z.object({ size: z.enum(["720x1280", "1280x720"]).optional(), referenceImageCount: z.number().int().min(1).optional() }),
+    canvas_update_video_brief: videoBriefSchema,
+    canvas_prepare_video: z.object({ brief: videoBriefSchema, prompt: z.string(), confirmed: z.literal(true) }),
     canvas_update_node: z.object({ id: z.string(), patch: recordSchema.optional(), metadata: recordSchema.optional() }),
     canvas_update_node_text: z.object({ id: z.string(), text: z.string(), title: z.string().optional() }),
     canvas_move_nodes: z.object({ items: z.array(z.object({ id: z.string(), x: z.number().optional(), y: z.number().optional(), dx: z.number().optional(), dy: z.number().optional() })).min(1) }),
@@ -107,7 +126,7 @@ export const toolDescriptions: Record<ToolName, string> = {
     canvas_get_selection: "读取当前网页画布选中的节点。",
     canvas_export_snapshot: "导出当前画布快照，用于理解布局。",
     canvas_apply_ops: "批量操作当前网页画布。ops 支持 add_node、update_node、delete_node、delete_connections、connect_nodes、set_viewport、select_nodes、run_generation（仅文本、图片或音频）。",
-    canvas_create_node: "创建 text、image、config、audio 节点。适合创建占位图、媒体占位、配置节点或自定义 metadata 节点；视频必须使用视频创作卡。",
+    canvas_create_node: "创建 text、image、config、audio 节点。视频必须使用引导式视频准备工具。",
     canvas_create_text_node: "在当前画布创建单个文本节点。",
     canvas_create_text_nodes: "批量创建文本节点，适合生成标题、段落、脚本、说明等内容块。",
     canvas_create_config_node: "创建生成配置节点，可指定 text/image/audio 模式和生成参数，可选择立即触发生成。",
@@ -116,7 +135,9 @@ export const toolDescriptions: Record<ToolName, string> = {
     canvas_generate_text: "创建通用文本生成流程并立即触发生成。",
     canvas_generate_image: "创建通用图片生成流程并立即触发生成。",
     canvas_generate_audio: "创建通用音频生成流程并立即触发生成。",
-    canvas_request_video_options: "用户要求生成任何视频时调用。只打开统一的视频创作卡，不创建节点、不提交生成；可传已确认的产品或人物图片 id，角色不明确时留空让用户选择。",
+    canvas_get_video_capabilities: "读取当前网页已配置视频模型的真实时长、比例、清晰度、声音与参考图能力。选模型前必须调用。",
+    canvas_update_video_brief: "保存已经由客户确认的视频需求字段，然后继续用普通文本追问缺失信息。不创建节点。",
+    canvas_prepare_video: "客户明确确认需求和英文提示词后，创建普通视频节点并连接参考图，但不立即提交生成。",
     canvas_update_node: "更新节点基础字段或 metadata。",
     canvas_update_node_text: "更新文本节点内容和标题。",
     canvas_move_nodes: "移动一个或多个节点，支持绝对坐标或 dx/dy 偏移。",
@@ -125,5 +146,5 @@ export const toolDescriptions: Record<ToolName, string> = {
     canvas_connect_nodes: "批量连接节点。",
     canvas_select_nodes: "设置当前选中节点。",
     canvas_set_viewport: "调整画布视口。",
-    canvas_run_generation: "触发指定节点生成，通常用于配置节点或文本/图片/音频节点。视频必须使用视频创作卡。",
+    canvas_run_generation: "触发指定节点生成，通常用于配置节点或文本/图片/音频节点。Agent 不得用它触发视频。",
 };

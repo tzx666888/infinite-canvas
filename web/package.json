@@ -18,6 +18,7 @@
         "test:video-providers": "node --experimental-strip-types scripts/video-provider-isolation-regression.ts",
         "test:model-isolation": "node --experimental-strip-types scripts/model-parameter-isolation-regression.ts",
         "test:video-workbench": "node --experimental-strip-types scripts/video-workbench-prompt-regression.ts",
+        "test:agent-video-guide": "node --import ./scripts/agent-video-guide-loader.mjs scripts/agent-video-guide-regression.ts",
         "test:google-image": "node --experimental-strip-types scripts/google-image-model-regression.ts",
         "test:image-concurrency": "node --experimental-strip-types scripts/image-concurrency-regression.ts",
         "test:image-jobs": "node --experimental-strip-types scripts/image-job-recovery-regression.ts",

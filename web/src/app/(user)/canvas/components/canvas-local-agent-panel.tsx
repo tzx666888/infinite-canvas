@@ -7,12 +7,14 @@ import { ChevronDown, Copy, FolderOpen, History, KeyRound, Link2, PlugZap, Plus,
 import { motion } from "motion/react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { useEffectiveConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useCanvasAgentStore, type AgentAttachment, type AgentChatItem, type AgentEventLog, type AgentPanelTab, type AgentPendingToolCall, type AgentThreadSummary } from "../stores/use-canvas-agent-store";
 import { summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
+import { agentVideoCapabilityCatalog, agentVideoGuideIntro, mergeCanvasAgentVideoBrief, missingAgentVideoBriefFields, validateAgentVideoReferences, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
+import { CanvasNodeType, type CanvasAgentVideoBrief } from "../types";
 import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
-import type { GenerateAgentVideoOptions, GenerateAgentVideoResult } from "./canvas-video-options-card";
 
 const PANEL_MOTION_SECONDS = 0.5;
 const MAX_ATTACHMENTS = 6;
@@ -47,7 +49,7 @@ export function CanvasLocalAgentPanel({
     embedded,
     onApplyOps,
     onUndoOps,
-    onGenerateVideoFromReference,
+    onPrepareAgentVideo,
 }: {
     snapshot: CanvasAgentSnapshot;
     canUndoOps: boolean;
@@ -55,9 +57,10 @@ export function CanvasLocalAgentPanel({
     embedded?: boolean;
     onApplyOps: (ops: CanvasAgentOp[]) => unknown;
     onUndoOps: () => CanvasAgentSnapshot | null;
-    onGenerateVideoFromReference: (options: GenerateAgentVideoOptions) => Promise<GenerateAgentVideoResult>;
+    onPrepareAgentVideo: (input: PrepareCanvasAgentVideoInput) => PrepareCanvasAgentVideoResult;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const effectiveConfig = useEffectiveConfig();
     const user = useUserStore((state) => state.user);
     const { message, modal } = App.useApp();
     const {
@@ -92,6 +95,9 @@ export function CanvasLocalAgentPanel({
     const confirmToolsRef = useRef(confirmTools);
     const pendingToolRef = useRef<AgentPendingToolCall | null>(null);
     const onApplyOpsRef = useRef(onApplyOps);
+    const onPrepareAgentVideoRef = useRef(onPrepareAgentVideo);
+    const videoBriefRef = useRef<CanvasAgentVideoBrief>({});
+    const guidedSelectionRef = useRef("");
     const connectedRef = useRef(false);
     const errorLoggedRef = useRef(false);
     const attachmentUrlsRef = useRef(new Set<string>());
@@ -133,6 +139,9 @@ export function CanvasLocalAgentPanel({
     useEffect(() => {
         onApplyOpsRef.current = onApplyOps;
     }, [onApplyOps]);
+    useEffect(() => {
+        onPrepareAgentVideoRef.current = onPrepareAgentVideo;
+    }, [onPrepareAgentVideo]);
     useEffect(() => {
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
     }, [messages, pendingTool, waiting]);
@@ -279,7 +288,7 @@ export function CanvasLocalAgentPanel({
     };
 
     const handleToolCall = async (endpoint: string, token: string, payload: AgentPendingToolCall) => {
-        if (confirmToolsRef.current && payload.name === "canvas_apply_ops" && !isLegacyAgentVideoOp(payload.input)) {
+        if (confirmToolsRef.current && (payload.name === "canvas_apply_ops" || payload.name === "canvas_prepare_video")) {
             if (pendingToolRef.current) {
                 await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, error: "仍有待确认的画布工具调用" });
                 return;
@@ -294,23 +303,35 @@ export function CanvasLocalAgentPanel({
 
     const runToolCall = async (endpoint: string, token: string, payload: AgentPendingToolCall) => {
         try {
-            const input: { ops?: CanvasAgentOp[] } = payload.input || {};
+            const input: Record<string, unknown> & { ops?: CanvasAgentOp[] } = payload.input || {};
             setAgentState({ activity: payload.name === "canvas_apply_ops" ? "执行画布操作" : "读取画布", waiting: true });
             addEventLog(toolName(payload.name), payload, payload);
-            if (payload.name === "canvas_apply_ops" && isLegacyAgentVideoOp(payload.input)) {
-                const detail = legacyVideoOptionsDetail(payload.input);
-                await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result: detail });
-                setAgentState({ activity: "已打开视频创作卡", waiting: true });
-                addEventLog("视频创作卡已打开", detail, detail);
-                addMessage({ role: "tool", title: "视频创作参数", text: "请选择产品、人物和模型后生成。", detail });
+            if (payload.name === "canvas_get_video_capabilities") {
+                const size = stringText(input.size) || videoBriefRef.current.size || "720x1280";
+                const referenceImageCount = Math.max(1, Math.floor(Number(input.referenceImageCount) || (videoBriefRef.current.creatorNodeId ? 2 : 1)));
+                const result = { kind: "video-capabilities", size, referenceImageCount, models: agentVideoCapabilityCatalog(effectiveConfig, size, referenceImageCount) };
+                await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result });
+                addMessage({ role: "tool", title: "读取视频模型能力", text: `读取到 ${result.models.length} 个当前可用的视频模型。`, detail: result });
                 return;
             }
-            if (payload.name === "canvas_request_video_options") {
-                const detail = localVideoOptionsDetail(payload.input, snapshotRef.current);
-                await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result: detail });
-                setAgentState({ activity: "已打开视频创作卡", waiting: true });
-                addEventLog("视频创作卡已打开", detail, detail);
-                addMessage({ role: "tool", title: "视频创作参数", text: "请选择产品、人物和模型后生成。", detail });
+            if (payload.name === "canvas_update_video_brief") {
+                const brief = mergeCanvasAgentVideoBrief(videoBriefRef.current, localVideoBrief(input));
+                const referenceError = validateAgentVideoReferences(snapshotRef.current, brief);
+                if (referenceError) throw new Error(referenceError);
+                videoBriefRef.current = brief;
+                const result = { kind: "video-brief", brief, missingFields: missingAgentVideoBriefFields(brief) };
+                await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result });
+                addMessage({ role: "tool", title: "记录视频需求", text: "视频需求已记录，请继续用文字确认剩余信息。", detail: result });
+                return;
+            }
+            if (payload.name === "canvas_prepare_video") {
+                const brief = mergeCanvasAgentVideoBrief(videoBriefRef.current, localVideoBrief(objectField(input, "brief")));
+                const prepared = onPrepareAgentVideoRef.current({ brief, prompt: stringText(input.prompt), confirmed: input.confirmed === true });
+                if (!prepared.ok) throw new Error(prepared.error);
+                videoBriefRef.current = prepared.brief;
+                const result = { kind: "video-prepared", videoNodeId: prepared.videoNodeId, brief: prepared.brief };
+                await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result });
+                addMessage({ role: "tool", title: "视频节点已准备", text: "提示词和参考图已写入普通视频节点，请在画布中检查后点击生成。", detail: result });
                 return;
             }
             const result = payload.name === "canvas_apply_ops" ? onApplyOpsRef.current(input.ops || []) : snapshotRef.current;
@@ -400,6 +421,8 @@ export function CanvasLocalAgentPanel({
             ...patch,
         });
         pendingToolRef.current = null;
+        videoBriefRef.current = {};
+        guidedSelectionRef.current = "";
     }
 
     const startNewThread = async () => {
@@ -408,6 +431,8 @@ export function CanvasLocalAgentPanel({
         setAgentState({ loadingThreads: true });
         try {
             const data = await fetchAgentJson<AgentThreadResponse>(endpoint, token, "/agent/codex/threads/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ canvasId: projectId }) });
+            videoBriefRef.current = {};
+            guidedSelectionRef.current = "";
             setAgentState({ activeThreadId: data.thread?.id || data.workspace?.activeThreadId || "", messages: [], activeTab: "chat", activity: "新对话" });
             await loadThreads();
         } catch (error) {
@@ -428,6 +453,8 @@ export function CanvasLocalAgentPanel({
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({ canvasId: projectId }),
             });
+            videoBriefRef.current = {};
+            guidedSelectionRef.current = "";
             setAgentState({ activeThreadId: data.thread?.id || threadId, messages: normalizeHistoryMessages(data.messages || []), activeTab: "chat", activity: "已恢复会话" });
             await loadThreads();
         } catch (error) {
@@ -512,6 +539,16 @@ export function CanvasLocalAgentPanel({
         }
         pushMessage(next);
     };
+
+    useEffect(() => {
+        const selectedImages = snapshot.nodes.filter((node) => snapshot.selectedNodeIds.includes(node.id) && node.type === CanvasNodeType.Image && node.metadata?.content);
+        if (!connected || activeTab !== "chat" || messages.length || selectedImages.length !== 1) return;
+        const key = `${activeThreadId || "new"}:${selectedImages[0].id}`;
+        if (guidedSelectionRef.current === key) return;
+        guidedSelectionRef.current = key;
+        videoBriefRef.current = mergeCanvasAgentVideoBrief(videoBriefRef.current, { productNodeId: selectedImages[0].id });
+        addMessage({ role: "assistant", text: agentVideoGuideIntro(), detail: { kind: "video-guide-intro", productCandidateNodeId: selectedImages[0].id } });
+    }, [activeTab, activeThreadId, connected, messages.length, snapshot.nodes, snapshot.selectedNodeIds]);
 
     const addEventLog = (title: string, text: unknown, raw?: unknown) => {
         pushEventLog({ id: `${Date.now()}-${Math.random()}`, time: new Date().toLocaleTimeString(), title, text: normalizeText(text) || title, raw });
@@ -613,7 +650,7 @@ export function CanvasLocalAgentPanel({
                     <div ref={listRef} className="thin-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
                         {!messages.length && !pendingTool && !waiting ? <AgentChatStarter theme={theme} connected={connected} onPick={(prompt) => setAgentState({ prompt })} onOpenSetup={() => switchAgentTab("setup")} /> : null}
                         {messages.map((item) => (
-                            <AgentChatMessage key={item.id} item={agentMessageToChatMessage(item)} theme={theme} user={user} nodes={snapshot.nodes} onGenerateVideoFromReference={onGenerateVideoFromReference} />
+                            <AgentChatMessage key={item.id} item={agentMessageToChatMessage(item)} theme={theme} user={user} />
                         ))}
                         {pendingTool ? (
                             <AgentPendingToolCard
@@ -1088,7 +1125,9 @@ function toolName(name: string) {
     if (name === "canvas_generate_text") return "生成文本";
     if (name === "canvas_generate_image") return "生成图片";
     if (name === "canvas_generate_audio") return "生成音频";
-    if (name === "canvas_request_video_options") return "选择视频创作参数";
+    if (name === "canvas_get_video_capabilities") return "读取视频模型能力";
+    if (name === "canvas_update_video_brief") return "记录视频需求";
+    if (name === "canvas_prepare_video") return "准备视频节点";
     if (name === "canvas_update_node") return "更新节点";
     if (name === "canvas_update_node_text") return "更新文本";
     if (name === "canvas_move_nodes") return "移动节点";
@@ -1153,56 +1192,24 @@ function objectField(value: unknown, key: string) {
     return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
 }
 
-function localVideoOptionsDetail(input: unknown, snapshot: CanvasAgentSnapshot) {
-    const roleInput = objectField(input, "references");
-    const productNodeId = stringText(objectField(roleInput, "productNodeId")).trim();
-    const creatorNodeId = stringText(objectField(roleInput, "creatorNodeId")).trim();
-    if (productNodeId && creatorNodeId && productNodeId === creatorNodeId) throw new Error("产品参考图和人物参考图不能是同一张图片。");
-    const ids = [productNodeId, creatorNodeId].filter(Boolean);
-    const nodeById = new Map(snapshot.nodes.map((node) => [node.id, node]));
-    const invalidId = ids.find((id) => {
-        const node = nodeById.get(id);
-        return !node || node.type !== "image" || !node.metadata?.content?.trim();
-    });
-    if (invalidId) throw new Error(`参考图片不可用：${invalidId}。请改用画布中的有效图片，或留空让用户在卡片选择。`);
-    return {
-        kind: "video-options",
-        references: { ...(productNodeId ? { productNodeId } : {}), ...(creatorNodeId ? { creatorNodeId } : {}) },
-        userIntent: stringText(objectField(input, "userIntent")).trim() || "基于参考产品生成真实视频",
-    };
-}
-
-function isLegacyAgentVideoOp(input: unknown) {
-    const ops = objectField(input, "ops");
-    return Array.isArray(ops) && ops.some((op) => {
-        const value = objectField(op, "type");
-        const metadata = objectField(op, "metadata");
-        const patch = objectField(op, "patch");
-        return (
-            (value === "run_generation" && objectField(op, "mode") === "video") ||
-            (value === "add_node" && (objectField(op, "nodeType") === "video" || objectField(metadata, "generationMode") === "video")) ||
-            (value === "update_node" && (objectField(metadata, "generationMode") === "video" || objectField(patch, "type") === "video" || objectField(objectField(patch, "metadata"), "generationMode") === "video"))
-        );
-    });
-}
-
-function legacyVideoOptionsDetail(input: unknown) {
-    const ops = objectField(input, "ops");
-    const sourcePrompt = Array.isArray(ops)
-        ? ops
-              .map((op) => {
-                  const metadata = objectField(op, "metadata");
-                  const content = stringText(objectField(metadata, "content")).trim();
-                  const composer = stringText(objectField(metadata, "composerContent")).trim();
-                  return content || (composer.includes("@[node:") ? "" : composer);
-              })
-              .find(Boolean)
-        : "";
-    return {
-        kind: "video-options",
-        references: {},
-        userIntent: sourcePrompt || "基于画布中的参考图生成真实视频",
-    };
+function localVideoBrief(value: unknown): Partial<CanvasAgentVideoBrief> {
+    return Object.fromEntries(
+        Object.entries({
+            productNodeId: stringText(objectField(value, "productNodeId")).trim() || undefined,
+            creatorNodeId: stringText(objectField(value, "creatorNodeId")).trim() || undefined,
+            videoType: stringText(objectField(value, "videoType")) || undefined,
+            market: stringText(objectField(value, "market")).trim() || undefined,
+            platform: stringText(objectField(value, "platform")).trim() || undefined,
+            language: stringText(objectField(value, "language")).trim() || undefined,
+            model: stringText(objectField(value, "model")).trim() || undefined,
+            seconds: typeof objectField(value, "seconds") === "number" ? objectField(value, "seconds") : undefined,
+            size: stringText(objectField(value, "size")) || undefined,
+            generateAudio: typeof objectField(value, "generateAudio") === "boolean" ? objectField(value, "generateAudio") : undefined,
+            withSubtitle: typeof objectField(value, "withSubtitle") === "boolean" ? objectField(value, "withSubtitle") : undefined,
+            sellingPoint: stringText(objectField(value, "sellingPoint")).trim() || undefined,
+            userIntent: stringText(objectField(value, "userIntent")).trim() || undefined,
+        }).filter(([, item]) => item !== undefined),
+    ) as Partial<CanvasAgentVideoBrief>;
 }
 
 function numberField(value: unknown, key: string) {

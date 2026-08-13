@@ -87,6 +87,19 @@ const creativePrompt = compileVideoWorkbenchPrompt("A silent tracking shot follo
 assert.doesNotMatch(creativePrompt, /never silent or music-only/i);
 assert.match(creativePrompt, /Do not invent dialogue/i);
 
+const commerceWithoutSpeech = compileVideoWorkbenchPrompt("A clean product reveal moves from a wide counter shot to one practical hand demonstration and a final hero close-up.", {
+    mode: "commerce",
+    model: "omni_portrait",
+    duration: 10,
+    aspectRatio: "9:16",
+    referenceMode: "i2v",
+    referenceCount: 1,
+    sourcePrompt: "真实商品展示，有环境声和音乐",
+});
+assert.match(commerceWithoutSpeech, /commercial ambience and music/i);
+assert.match(commerceWithoutSpeech, /Do not invent dialogue/i);
+assert.doesNotMatch(commerceWithoutSpeech, /Say the exact Spoken script/i);
+
 assert.deepEqual(workbenchSpeechWordRange(6), [10, 14]);
 assert.deepEqual(workbenchSpeechWordRange(10), [18, 24]);
 assert.deepEqual(workbenchSpeechWordRange(15), [26, 34]);

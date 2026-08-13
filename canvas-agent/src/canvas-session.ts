@@ -55,7 +55,7 @@ export class CanvasSession {
             const ids = new Set(this.canvasState?.selectedNodeIds || []);
             return { nodes: (this.canvasState?.nodes || []).filter((node) => ids.has(node.id)).map(compactNode) };
         }
-        if (tool === "canvas_request_video_options") return await this.requestCanvasTool(tool, input);
+        if (["canvas_get_video_capabilities", "canvas_update_video_brief", "canvas_prepare_video"].includes(tool)) return await this.requestCanvasTool(tool, input);
         if (tool === "canvas_create_node") {
             const data = input as { nodeType: CanvasNodeType; title?: string; x?: number; y?: number; width?: number; height?: number; metadata?: Record<string, unknown> };
             input = { ops: [{ type: "add_node", nodeType: data.nodeType, title: data.title, position: { x: data.x ?? nextCanvasX(this.canvasState), y: data.y ?? 0 }, width: data.width, height: data.height, metadata: data.metadata }] };

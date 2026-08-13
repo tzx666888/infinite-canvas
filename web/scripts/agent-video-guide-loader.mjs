@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { registerHooks } from "node:module";
-import { pathToFileURL } from "node:url";
+import ts from "typescript";
 
-const sourceRoot = process.env.AGENT_VIDEO_SOURCE_ROOT ? pathToFileURL(`${process.env.AGENT_VIDEO_SOURCE_ROOT.replace(/\/$/u, "")}/`) : new URL("../src/", import.meta.url);
+const sourceRoot = new URL("../src/", import.meta.url);
 
 registerHooks({
     resolve(specifier, context, nextResolve) {
@@ -19,5 +19,14 @@ registerHooks({
             }
         }
         return nextResolve(specifier, context);
+    },
+    load(url, context, nextLoad) {
+        if (!/\.tsx?$/u.test(url)) return nextLoad(url, context);
+        const loaded = nextLoad(url, { ...context, format: "module" });
+        const result = ts.transpileModule(String(loaded.source), {
+            fileName: new URL(url).pathname,
+            compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+        });
+        return { format: "module", source: result.outputText, shortCircuit: true };
     },
 });

@@ -10,6 +10,8 @@ export type VideoWorkbenchPromptContext = {
     referenceMode: VideoReferenceMode;
     referenceCount: number;
     sourcePrompt: string;
+    withSubtitles?: boolean;
+    directionWordLimit?: number;
 };
 
 export const VIDEO_WORKBENCH_PROMPT_MARKER = "WORKBENCH-DIRECTED VIDEO.";
@@ -20,22 +22,26 @@ export function compileVideoWorkbenchPrompt(direction: string, context: VideoWor
     const duration = Math.max(1, Math.floor(context.duration || 6));
     const referenceDirection = workbenchReferenceDirection(context.referenceMode, context.referenceCount);
     const audioDirection =
-        context.mode === "commerce" && !requestsNoSpeech(context.sourcePrompt)
+        context.mode === "commerce" && hasWorkbenchSpokenScript(direction)
             ? [
                   "Audio lock: clear natural commercial speech, never silent or music-only.",
                   "Say the exact Spoken script once.",
                   "Lip-sync only the opening sentence on the same readable face, then continue the same voice off-screen over detail shots; never speak on a hidden or frozen mouth.",
               ].join(" ")
-            : "Follow the requested sound design exactly. Do not invent dialogue when the direction requests ambient sound, music only, or silence.";
+            : context.mode === "commerce" && !requestsNoSpeech(context.sourcePrompt)
+              ? "Use coherent commercial ambience and music that fit the direction. Do not invent dialogue when no Spoken script is provided."
+              : "Follow the requested sound design exactly. Do not invent dialogue when the direction requests ambient sound, music only, or silence.";
 
     return [
         VIDEO_WORKBENCH_PROMPT_MARKER,
         `Create exactly ${duration} seconds of polished ${aspectText(context.aspectRatio)} footage.`,
         referenceDirection,
-        compactDirection(direction),
+        compactDirection(direction, context.directionWordLimit),
         audioDirection,
         "Preserve the adult face, hair, wardrobe, body proportions, product geometry, scale, colors, labels, object count, and background.",
-        "Use hard cuts; no morphing, stretching, blending, duplicates, captions, prices, extra products, or invented claims.",
+        context.withSubtitles
+            ? "Use hard cuts; no morphing, stretching, blending, duplicates, prices, extra products, or invented claims. Only the requested synchronized subtitle may appear."
+            : "Use hard cuts; no morphing, stretching, blending, duplicates, captions, prices, extra products, or invented claims.",
     ]
         .filter(Boolean)
         .join(" ")
@@ -89,14 +95,15 @@ function normalizeDirection(value: string) {
         .trim();
 }
 
-function compactDirection(value: string) {
+function compactDirection(value: string, requestedMaximum?: number) {
     const normalized = normalizeDirection(value);
-    if (wordCount(normalized) <= MAX_DIRECTION_WORDS) return normalized;
+    const maximum = Math.max(MAX_DIRECTION_WORDS, Math.min(180, Math.floor(requestedMaximum || MAX_DIRECTION_WORDS)));
+    if (wordCount(normalized) <= maximum) return normalized;
     const scriptMatch = normalized.match(/Spoken script\s*:\s*["“][^"”]+["”]/i);
-    if (!scriptMatch || scriptMatch.index === undefined) return limitWords(normalized, MAX_DIRECTION_WORDS);
+    if (!scriptMatch || scriptMatch.index === undefined) return limitWords(normalized, maximum);
     const script = scriptMatch[0];
     const visualDirection = `${normalized.slice(0, scriptMatch.index)} ${normalized.slice(scriptMatch.index + script.length)}`.replace(/\s+/g, " ").trim();
-    const visualBudget = Math.max(12, MAX_DIRECTION_WORDS - wordCount(script));
+    const visualBudget = Math.max(12, maximum - wordCount(script));
     const limitedVisual = limitWords(visualDirection, visualBudget);
     const sentenceEnd = Math.max(limitedVisual.lastIndexOf("."), limitedVisual.lastIndexOf("!"), limitedVisual.lastIndexOf("?"));
     const completeVisual = wordCount(visualDirection) > visualBudget && sentenceEnd >= limitedVisual.length * 0.55 ? limitedVisual.slice(0, sentenceEnd + 1) : limitedVisual;
