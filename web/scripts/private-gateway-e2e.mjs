@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -18,7 +19,16 @@ const upstream = createServer(async (request, response) => {
     for await (const chunk of request) chunks.push(chunk);
     const bodyText = Buffer.concat(chunks).toString("utf8");
     const body = parseJson(bodyText);
-    requests.push({ method: request.method, url: request.url, authorization: request.headers.authorization, body });
+    requests.push({
+        method: request.method,
+        url: request.url,
+        authorization: request.headers.authorization,
+        canvasUserId: request.headers["x-canvas-user-id"],
+        canvasUsername: request.headers["x-canvas-username"],
+        canvasRequestId: request.headers["x-canvas-request-id"],
+        canvasAttribution: request.headers["x-canvas-attribution"],
+        body,
+    });
     response.setHeader("Content-Type", "application/json");
 
     if (request.method === "POST" && request.url === "/api/internal/canvas/auth") {
@@ -26,6 +36,10 @@ const upstream = createServer(async (request, response) => {
         assert.equal(request.headers["x-canvas-auth-secret"], "legacy-auth-shared-secret-0123456789abcdef");
         if (body?.username === "legacy-user" && body?.password === "oldpass") {
             response.end(JSON.stringify({ success: true, data: { id: 88, username: "legacy-user", display_name: "Legacy User", role: 1, canvas_credits: 25 } }));
+            return;
+        }
+        if (body?.username === "刘" && body?.password === "ChineseUserPassword123!") {
+            response.end(JSON.stringify({ success: true, data: { id: 63, username: "刘", display_name: "刘", role: 1, canvas_credits: 20 } }));
             return;
         }
         response.statusCode = 401;
@@ -163,6 +177,33 @@ try {
     assert.equal(legacySecondLogin.response.status, 200);
     assert.equal(legacySecondLogin.body.user.credits, 25, "subsequent station logins must not apply migration credits twice");
     assert.equal(legacyAuthCalls, 1, "after migration, the existing account must authenticate entirely inside the Canvas");
+
+    const chineseLogin = await requestJson(`${origin}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: origin },
+        body: JSON.stringify({ username: "刘", password: "ChineseUserPassword123!" }),
+    });
+    assert.equal(chineseLogin.response.status, 200, JSON.stringify(chineseLogin.body));
+    const chineseCookie = chineseLogin.response.headers.get("set-cookie")?.split(";")[0];
+    const chineseKeyResult = await requestJson(`${origin}/api/account/keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: origin, Cookie: chineseCookie },
+        body: JSON.stringify({ name: "Chinese Username E2E Key" }),
+    });
+    assert.equal(chineseKeyResult.response.status, 201, JSON.stringify(chineseKeyResult.body));
+    const chineseCanvasKey = chineseKeyResult.body.key;
+    const chineseRequestStart = requests.length;
+    const chineseModels = await requestJson(`${origin}/api/gateway/v1/models`, { headers: { Authorization: `Bearer ${chineseCanvasKey}` } });
+    assert.equal(chineseModels.response.status, 200, JSON.stringify(chineseModels.body));
+    const chineseUpstreamRequest = requests.slice(chineseRequestStart).find((item) => item.url === "/v1/models");
+    assert.ok(chineseUpstreamRequest?.canvasUserId, "the migrated account must keep its signed Canvas identity");
+    assert.equal(chineseUpstreamRequest?.canvasUsername, "utf8-b64:5YiY", "non-ASCII usernames must use a header-safe UTF-8 encoding");
+    const chinesePayload = `${chineseUpstreamRequest.canvasUserId}\n${chineseUpstreamRequest.canvasUsername}\n${chineseUpstreamRequest.canvasRequestId}`;
+    assert.equal(
+        chineseUpstreamRequest.canvasAttribution,
+        createHmac("sha256", "legacy-auth-shared-secret-0123456789abcdef").update(chinesePayload).digest("hex"),
+        "the attribution signature must cover the encoded header value",
+    );
 
     const invite = await requestJson(`${origin}/api/admin/invitations`, {
         method: "POST",
@@ -349,6 +390,7 @@ try {
                 passed: true,
                 login: "station-session",
                 legacyMigration: "local-after-first-login",
+                unicodeUsernameAttribution: "ok",
                 inviteRegistration: "ok",
                 keyRevocation: "immediate",
                 models: models.body.data.length,
