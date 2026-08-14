@@ -97,9 +97,9 @@ import { buildCanvasResourceReferences, buildInputMentionReferences, buildNodeMe
 import { composePromptWithUpstreamText } from "../utils/prompt-composition";
 import { selectLeafFailureIds } from "../utils/retry-selection";
 import { canvasNodeErrorMessage } from "../utils/node-error-display";
-import { resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
+import { inferDirectVideoReferencePair, resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
 import { imageJobFailureMetadata, isCanvasImageJobResultUrl, shouldRecoverCanvasImageJob, stageCanvasImageJobResult } from "../utils/image-job-recovery";
-import { prepareCanvasAgentVideo, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
+import { lockPreparedAgentVideoConfig, prepareCanvasAgentVideo, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
 import type { VideoGenerationPreflightResult } from "../utils/video-generation-preflight";
 import type { CanvasAgentMode } from "../components/canvas-agent-chat-ui";
 import {
@@ -6155,7 +6155,7 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
     const resolvedModel = configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : config.model || defaultConfig.model);
     const nodeOwnsVideoTiming = node?.type === CanvasNodeType.Video || node?.type === CanvasNodeType.Config;
     const resolvedVideoSeconds = (nodeOwnsVideoTiming ? node?.metadata?.seconds : undefined) || config.videoSeconds || defaultConfig.videoSeconds;
-    return {
+    return lockPreparedAgentVideoConfig({
         ...config,
         model: resolvedModel,
         imageModel: mode === "image" ? resolvedModel : config.imageModel,
@@ -6174,7 +6174,7 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
         audioSpeed: node?.metadata?.audioSpeed || config.audioSpeed || defaultConfig.audioSpeed,
         audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,
         count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultConfig.count),
-    };
+    }, mode === "video" ? node : undefined);
 }
 
 function resolveGenerationProvenance(node: CanvasNodeData | undefined, override?: GenerationProvenance): GenerationProvenance {
@@ -6711,7 +6711,7 @@ function limitInlinePrompt(value: string, maxChars: number) {
 
 function buildDirectProductLockVideoContext(prompt: string, referenceImages: ReferenceImage[], storyboardReferenceCount: number, model: string, productScaleMode = "auto") {
     if (storyboardReferenceCount > 0 || referenceImages.length < 2 || !isGoogleCanvasVideoModel(model)) return null;
-    const pair = inferDirectReferencePair(prompt, referenceImages.length);
+    const pair = inferDirectVideoReferencePair(prompt, referenceImages.length);
     if (!pair) return null;
     const baseReference = referenceImages[pair.base - 1];
     const productReference = referenceImages[pair.reference - 1];
@@ -6916,21 +6916,6 @@ function videoBridgeErrorMessage(error: unknown) {
 
 function isGoogleCanvasVideoModel(model: string) {
     return isGoogleVideoModel(model);
-}
-
-function inferDirectReferencePair(prompt: string, referenceCount: number) {
-    const imageRef = String.raw`(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*([1-9]\d*)`;
-    const directedMatchers = [
-        new RegExp(`${imageRef}\\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using)\\s*${imageRef}`, "i"),
-        new RegExp(`${imageRef}\\s*(?:带|带着|拿|拿着|手持|展示|使用|融入|融合|加入|植入|结合|搭配|with|featuring|holding|using|showing|including|include|add(?:ing)?)\\s*${imageRef}(?:\\s*(?:产品|商品|物品|道具|object|product|item))?`, "i"),
-    ];
-    const match = directedMatchers.map((matcher) => prompt.match(matcher)).find(Boolean);
-    if (!match) return null;
-    const base = Number(match[1]);
-    const reference = Number(match[2]);
-    if (!Number.isFinite(base) || !Number.isFinite(reference)) return null;
-    if (base < 1 || reference < 1 || base > referenceCount || reference > referenceCount || base === reference) return null;
-    return { base, reference };
 }
 
 function stripImageMentionRoles(prompt: string) {

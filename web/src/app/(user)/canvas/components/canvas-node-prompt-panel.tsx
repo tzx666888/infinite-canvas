@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, LoaderCircle, Sparkles, Square } from "lucide-react";
+import { ArrowUp, LoaderCircle, LockKeyhole, Sparkles, Square } from "lucide-react";
 import { App, Button, Dropdown } from "antd";
 
 import { ModelPicker } from "@/components/model-picker";
@@ -34,6 +34,7 @@ import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textare
 import { extractCommerceVideoPlan } from "../utils/video-prompt-compiler";
 import { canvasNodeErrorMessage } from "../utils/node-error-display";
 import { canvasVideoModelSelectionPatch, selectReferenceImageVideoModel } from "../utils/video-reference-model";
+import { lockPreparedAgentVideoConfig } from "../utils/canvas-agent-video-guide";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasCommerceVideoPlan, type CanvasNodeData, type CanvasPromptSourceKind } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 
@@ -83,6 +84,7 @@ export function CanvasNodePromptPanel({
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const mode = defaultMode(node.type, globalConfig.videoModels.length > 0);
     const config = buildNodeConfig(globalConfig, node, mode);
+    const guidedVideoBrief = mode === "video" ? node.metadata?.agentVideoBrief : undefined;
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
@@ -292,10 +294,24 @@ export function CanvasNodePromptPanel({
                             />
                         </>
                     ) : mode === "video" ? (
-                        <>
-                            <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, canvasVideoModelSelectionPatch(model))} capability="video" onMissingConfig={() => openConfigDialog(true)} />
-                            <CanvasVideoSettingsPopover config={config} buttonClassName="!h-10 !max-w-[170px] !justify-start !rounded-full !px-3" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
-                        </>
+                        guidedVideoBrief ? (
+                            <>
+                                <ModelPicker config={{ ...config, videoModels: [config.model] }} value={config.model} onChange={() => undefined} capability="video" className="!h-10" />
+                                <span
+                                    className="inline-flex h-10 items-center gap-1.5 rounded-full border px-3 text-xs"
+                                    style={{ borderColor: theme.node.stroke, background: theme.node.fill, color: theme.node.muted }}
+                                    title="模型、时长、画幅和声音已按 Agent 提示词锁定；如需修改，请重新运行视频引导。"
+                                >
+                                    <LockKeyhole className="size-3.5" />
+                                    {guidedVideoBrief.seconds} 秒 · {guidedVideoBrief.size === "1280x720" ? "横屏" : "竖屏"} · {guidedVideoBrief.generateAudio ? "有声" : "无声"}
+                                </span>
+                            </>
+                        ) : (
+                            <>
+                                <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, canvasVideoModelSelectionPatch(model))} capability="video" onMissingConfig={() => openConfigDialog(true)} />
+                                <CanvasVideoSettingsPopover config={config} buttonClassName="!h-10 !max-w-[170px] !justify-start !rounded-full !px-3" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
+                            </>
+                        )
                     ) : mode === "audio" ? (
                         <>
                             <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="audio" onMissingConfig={() => openConfigDialog(true)} />
@@ -400,7 +416,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
     const defaultModel = mode === "image" ? globalConfig.imageModel : mode === "video" ? globalConfig.videoModel : mode === "audio" ? globalConfig.audioModel : globalConfig.textModel;
     const configuredModel = node.metadata?.model;
     const resolvedModel = configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : globalConfig.model || defaultConfig.model);
-    return {
+    return lockPreparedAgentVideoConfig({
         ...globalConfig,
         model: resolvedModel,
         imageModel: mode === "image" ? resolvedModel : globalConfig.imageModel,
@@ -419,7 +435,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultConfig.audioSpeed,
         audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
         count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
-    };
+    }, mode === "video" ? node : undefined);
 }
 
 function promptPlaceholder(mode: CanvasNodeGenerationMode, hasImageContent: boolean, hasTextContent: boolean) {

@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 
-import { videoAspectRatioForSize, videoModelCapabilityContract, videoReferenceMode } from "@/lib/video-model-settings";
-import { compileVideoWorkbenchPrompt } from "@/lib/video-workbench-prompt";
+import { videoAspectRatioForSize, videoModelCapabilityContract } from "@/lib/video-model-settings";
+import { hasWorkbenchSpokenScript, VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 import { NODE_DEFAULT_SIZE } from "../constants";
@@ -11,15 +11,15 @@ import { availableAgentVideoModels, selectedAgentVideoModel, type AvailableAgent
 import { nodeSizeFromRatio } from "./canvas-node-size";
 import { resolveReferenceImageVideoConfig } from "./video-reference-model";
 
-export const AGENT_VIDEO_TYPE_OPTIONS: ReadonlyArray<{ value: CanvasAgentVideoType; label: string; needsCreator?: boolean }> = [
-    { value: "product-showcase", label: "产品展示" },
-    { value: "handsfree-demo", label: "手部演示" },
-    { value: "creator", label: "达人出镜", needsCreator: true },
-    { value: "unboxing", label: "开箱" },
-    { value: "tutorial", label: "教程演示" },
-    { value: "pain-solution", label: "痛点解决" },
-    { value: "testimonial", label: "买家证言", needsCreator: true },
-    { value: "brand-film", label: "品牌广告" },
+export const AGENT_VIDEO_TYPE_OPTIONS: ReadonlyArray<{ value: CanvasAgentVideoType; label: string; description?: string; needsCreator?: boolean }> = [
+    { value: "creator", label: "达人出镜", description: "带货推荐 · 需要人物图", needsCreator: true },
+    { value: "handsfree-demo", label: "手部演示", description: "只出现双手与产品" },
+    { value: "product-showcase", label: "纯产品展示", description: "不出现人物" },
+    { value: "unboxing", label: "开箱", description: "拆包装并展示产品" },
+    { value: "tutorial", label: "教程演示", description: "清楚展示一次用法" },
+    { value: "pain-solution", label: "痛点解决", description: "只使用已确认的真实痛点" },
+    { value: "testimonial", label: "买家证言", description: "需要人物图", needsCreator: true },
+    { value: "brand-film", label: "品牌广告", description: "氛围与品牌质感" },
 ];
 
 export type PrepareCanvasAgentVideoInput = {
@@ -52,10 +52,19 @@ export type CanvasAgentVideoGuideQuestion = {
 };
 
 const MARKET_OPTIONS = ["菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国"];
+const ENGLISH_MARKETS: Record<string, string> = {
+    菲律宾: "the Philippines",
+    马来西亚: "Malaysia",
+    印度尼西亚: "Indonesia",
+    泰国: "Thailand",
+    越南: "Vietnam",
+    中国: "China",
+};
 const PLATFORM_OPTIONS: Record<string, string[]> = {
     中国: ["抖音", "快手"],
     default: ["TikTok Shop", "Shopee", "Lazada"],
 };
+const ENGLISH_PLATFORMS: Record<string, string> = { 抖音: "Douyin", 快手: "Kuaishou" };
 const LANGUAGE_OPTIONS: Record<string, string[]> = {
     菲律宾: ["Filipino", "English"],
     马来西亚: ["Bahasa Melayu", "English", "中文"],
@@ -87,8 +96,8 @@ export function nextAgentVideoGuideQuestion(config: AiConfig, brief: CanvasAgent
         return {
             ...shared,
             title: "想做哪种视频？",
-            hint: "选择最接近的用途，后面的提示词结构会随之变化。",
-            options: AGENT_VIDEO_TYPE_OPTIONS.map((item) => ({ label: item.label, patch: { videoType: item.value } })),
+            hint: "真人带货优先选“达人出镜”；不想出现人物时再选“纯产品展示”。",
+            options: AGENT_VIDEO_TYPE_OPTIONS.map((item) => ({ label: item.label, description: item.description, patch: { videoType: item.value } })),
         };
     }
     if (key === "creatorNodeId") return { ...shared, title: "选择出镜人物", hint: "人物图与产品图会分别锁定，避免模型把两者混在一起。", options: [] };
@@ -113,7 +122,7 @@ export function nextAgentVideoGuideQuestion(config: AiConfig, brief: CanvasAgent
         };
     }
     const referenceCount = needsCreator ? 2 : 1;
-    const catalog = agentVideoCapabilityCatalog(config, brief.size, referenceCount);
+    const catalog = agentVideoCapabilityCatalog(config, brief.size, referenceCount, brief.videoType);
     if (key === "model") {
         return {
             ...shared,
@@ -182,7 +191,10 @@ export function nextAgentVideoGuideQuestion(config: AiConfig, brief: CanvasAgent
 }
 
 export function agentVideoDraftRequest(brief: CanvasAgentVideoBrief) {
-    return `快捷选项已全部完成。不要重复提问，也不要修改已选参数。请直接读取当前模型能力，先输出简洁中文需求摘要，再输出一条 60–100 个英文词、适配所选模型的完整视频提示词，最后等待我确认。已选需求：${JSON.stringify(cleanBrief(brief))}`;
+    const speechRule = brief.generateAudio
+        ? `必须包含且只包含一条能在当前时长内自然说完的 ${brief.language || "当地语言"} 口播，格式严格为 Spoken script: "..."。${brief.withSubtitle ? "字幕必须逐字复用这句口播，不得另写字幕。" : "不要生成画面字幕。"}`
+        : "禁止口播、旁白和 Spoken script，不要生成画面字幕。";
+    return `快捷选项已全部完成。不要重复提问，也不要修改已选参数。请直接读取当前模型能力，先输出简洁中文需求摘要，再输出一条 45–85 个英文词的连续创作指令，最后等待我确认。提示词只写一个主要场景、最多三个可见节拍，并明确真实产品交互、镜头、光线和参考图身份。${speechRule} 不得写标题、Markdown、时间表或未确认的功效宣称。已选需求：${JSON.stringify(cleanBrief(brief))}`;
 }
 
 export function agentVideoConfirmRequest() {
@@ -212,19 +224,40 @@ export function mergeCanvasAgentVideoBrief(current: CanvasAgentVideoBrief | unde
     });
 }
 
-export function agentVideoCapabilityCatalog(config: AiConfig, size = "720x1280", referenceImageCount = 1) {
-    return availableAgentVideoModels(config, normalizeVideoSize(size), Math.max(1, referenceImageCount)).map((item) => ({
-        model: item.value,
-        label: item.label,
-        durations: item.durationRange ? `${item.durationRange[0]}-${item.durationRange[1]} 秒` : item.durations.map((value) => `${value} 秒`).join(" / "),
-        durationOptions: item.durations,
-        durationRange: item.durationRange,
-        sizes: item.sizes,
-        resolution: `${item.resolution}p`,
-        referenceImageLimit: item.referenceImageLimit,
-        generatedAudio: item.supportsGeneratedAudio,
-        promptProfile: item.promptProfile,
-    }));
+export function agentVideoCapabilityCatalog(config: AiConfig, size = "720x1280", referenceImageCount = 1, videoType?: CanvasAgentVideoType) {
+    return availableAgentVideoModels(config, normalizeVideoSize(size), Math.max(1, referenceImageCount))
+        .filter((item) => agentVideoPromptProfileSupportsType(item.promptProfile, videoType))
+        .map((item) => ({
+            model: item.value,
+            label: item.label,
+            durations: item.durationRange ? `${item.durationRange[0]}-${item.durationRange[1]} 秒` : item.durations.map((value) => `${value} 秒`).join(" / "),
+            durationOptions: item.durations,
+            durationRange: item.durationRange,
+            sizes: item.sizes,
+            resolution: `${item.resolution}p`,
+            referenceImageLimit: item.referenceImageLimit,
+            generatedAudio: item.supportsGeneratedAudio,
+            promptProfile: item.promptProfile,
+        }));
+}
+
+export function agentVideoPromptProfileSupportsType(promptProfile: AvailableAgentVideoModel["promptProfile"], videoType?: CanvasAgentVideoType) {
+    return !(agentVideoTypeNeedsCreator(videoType) && promptProfile === "first-last-frame");
+}
+
+export function lockPreparedAgentVideoConfig(config: AiConfig, node?: CanvasNodeData): AiConfig {
+    const brief = node?.metadata?.agentVideoBrief;
+    if (!brief?.model) return config;
+    const capability = videoModelCapabilityContract(brief.model);
+    return {
+        ...config,
+        model: brief.model,
+        videoModel: brief.model,
+        size: brief.size || config.size,
+        videoSeconds: brief.seconds ? String(brief.seconds) : config.videoSeconds,
+        vquality: node?.metadata?.vquality || capability?.resolution || config.vquality,
+        videoGenerateAudio: brief.generateAudio === undefined ? config.videoGenerateAudio : String(brief.generateAudio),
+    };
 }
 
 export function missingAgentVideoBriefFields(brief: CanvasAgentVideoBrief) {
@@ -331,38 +364,51 @@ export function prepareCanvasAgentVideo(config: AiConfig, snapshot: CanvasAgentS
 }
 
 function compileGuidedVideoPrompt(brief: CanvasAgentVideoBrief & { model: string; seconds: number; size: "720x1280" | "1280x720" }, direction: string, capability: AvailableAgentVideoModel) {
-    const body = direction.replace(/\s+/g, " ").trim();
-    if (body.length < 80) throw new Error("视频提示词必须包含主体动作、场景、镜头、光线和产品展示方式，并控制为 60–100 个英文词。");
-    if (body.length > 1600) throw new Error("视频提示词过长，请压缩为 60–100 个英文词的一条连续创作指令。");
+    const body = direction
+        .replace(/^\s*WORKBENCH-DIRECTED VIDEO\.?\s*/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (body.length < 80) throw new Error("视频提示词必须包含主体动作、场景、镜头、光线和产品展示方式，并控制为 45–85 个英文词。");
+    if (body.length > 1200) throw new Error("视频提示词过长，请压缩为 45–85 个英文词的一条连续创作指令。");
     if (/data:image|base64|blob:/i.test(body)) throw new Error("视频提示词不能包含图片数据或临时链接。");
-    const latinWords = body.match(/[A-Za-z][A-Za-z0-9'’-]*/g)?.length || 0;
-    if (latinWords < 60 || latinWords > 100) throw new Error("视频提示词必须以英文为主，并控制为 60–100 个英文词；当地语言只放在引号内的口播中。");
+    const latinWords = countLatinWords(body);
+    if (latinWords < 45 || latinWords > 85) throw new Error("视频提示词必须以英文为主，并控制为 45–85 个英文词；当地语言只放在引号内的口播中。");
+    if (brief.generateAudio && !hasWorkbenchSpokenScript(body)) throw new Error('开启声音时必须提供一条格式为 Spoken script: "..." 的已确认口播。');
+    if (!brief.generateAudio && hasWorkbenchSpokenScript(body)) throw new Error("关闭声音时不得包含 Spoken script。");
     const roleBinding = brief.creatorNodeId
-        ? "<IMAGE_1> is the approved adult presenter and scene reference. <IMAGE_1> holds and demonstrates <IMAGE_2>, the exact product identity reference."
-        : "<IMAGE_1> is the exact product identity reference and must remain unchanged.";
-    const shotBudget = brief.seconds <= 10 ? "Use one coherent setting and no more than three visible beats." : "Use no more than two related settings and four visible beats.";
+        ? "Image 1 holding Image 2 product is the required presenter-product reference."
+        : "<IMAGE_1> is the exact product identity and must remain unchanged.";
+    const market = ENGLISH_MARKETS[brief.market || ""] || brief.market;
+    const platform = ENGLISH_PLATFORMS[brief.platform || ""] || brief.platform;
+    const spec = `Create exactly ${brief.seconds} seconds of ${videoAspectRatioForSize(brief.size)} ${platform} commerce footage for ${market}.`;
+    const shotBudget = brief.seconds <= 10 ? "Use one setting and up to three visible beats." : "Use up to two related settings and four visible beats.";
     const profileRule =
         capability.promptProfile === "first-last-frame"
-            ? "Treat ordered images only as temporal frame anchors."
+            ? "Use references only as temporal frame anchors."
             : capability.promptProfile === "image-anchor"
-              ? "Treat the attached image as an exact visual identity anchor, not a loose style reference."
+              ? "Treat the attached image as the exact identity anchor, not a loose style reference."
               : capability.promptProfile === "multimodal"
-                ? "Use each attached image in its declared role and keep every identity distinct."
-                : "Use ordered images as distinct identity references, never blend their identities.";
-    const soundRule = brief.generateAudio ? `Use natural ${brief.language} audio suitable for ${brief.platform}.` : "No speech, narration, music, or generated sound.";
-    const subtitleRule = brief.withSubtitle ? "Render only one synchronized subtitle line at a time in the bottom safe area." : "No captions or on-screen text.";
-    const sourcePrompt = [roleBinding, shotBudget, profileRule, body, soundRule, subtitleRule].join(" ");
-    return compileVideoWorkbenchPrompt(sourcePrompt, {
-        mode: "commerce",
-        model: brief.model,
-        duration: brief.seconds,
-        aspectRatio: videoAspectRatioForSize(brief.size),
-        referenceMode: videoReferenceMode(brief.model, brief.creatorNodeId ? 2 : 1),
-        referenceCount: brief.creatorNodeId ? 2 : 1,
-        sourcePrompt,
-        withSubtitles: Boolean(brief.withSubtitle),
-        directionWordLimit: 180,
-    });
+                ? "Keep each attached image in its declared role and never blend identities."
+                : "Keep ordered reference identities distinct and never blend them.";
+    const soundRule = brief.generateAudio
+        ? brief.withSubtitle
+            ? `Use one natural ${brief.language} voice, say the exact Spoken script once, and render that same line as one synchronized subtitle.`
+            : `Use one natural ${brief.language} voice and say the exact Spoken script once; no captions or on-screen text.`
+        : "No speech, narration, music, captions, or on-screen text.";
+    const identityRule = brief.creatorNodeId
+        ? "Preserve presenter face, hair, wardrobe and proportions, plus product geometry, scale, colors, parts, logo and label placement."
+        : "Preserve product geometry, scale, colors, parts, logo and label placement.";
+    const negativeRule = brief.creatorNodeId
+        ? "No identity drift, distorted anatomy, extra fingers, product-person hybrid, product warping, invented label or claim, duplicate, or watermark."
+        : "No warping, resizing, invented labels or claims, duplicates, floating objects, or watermarks.";
+    const compiled = [VIDEO_WORKBENCH_PROMPT_MARKER, spec, roleBinding, shotBudget, profileRule, body, soundRule, identityRule, negativeRule].join(" ").replace(/\s+/g, " ").trim();
+    const finalWords = countLatinWords(compiled);
+    if (finalWords < 90 || finalWords > 170) throw new Error(`最终视频提示词必须控制为 90–170 个英文词，当前为 ${finalWords} 个；不能重复包装或堆叠规则。`);
+    return compiled;
+}
+
+function countLatinWords(value: string) {
+    return value.match(/[A-Za-z][A-Za-z0-9'’-]*/g)?.length || 0;
 }
 
 function validateDuration(seconds: number, capability: AvailableAgentVideoModel) {

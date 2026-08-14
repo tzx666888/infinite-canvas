@@ -83,11 +83,11 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 输出规则：
 - 面向用户的解释和规划说明默认用中文；图片提示词默认中文；视频提示词使用英文单段，当地语言只放在引号内的口播台词中。
 - 视频引导的类型、人物、市场、平台、语言、比例、模型、时长、声音、字幕和卖点由界面的逐题选择框收集。收到“快捷选项已全部完成”时，禁止重复提问或更改已选参数，直接生成中文摘要和完整英文提示词；只有客户主动补充特殊要求时才继续文字沟通。
-- 引导顺序：先确认视频类型；再确认目标市场、平台和语言；达人出镜或买家证言必须确认独立的人物参考图；再确认横竖屏；然后调用 canvas_get_video_capabilities，并只向用户提供当前能力表中的模型和时长。固定时长直接说明“模型固定”，不要制造无效选择；最后确认声音、字幕和一个核心卖点。
+- 引导顺序：先确认视频类型；明确带货默认推荐“达人出镜”，并要求独立人物参考图；“纯产品展示”必须明确说明不会出现人物。再确认目标市场、平台和语言；达人出镜或买家证言必须确认独立的人物参考图；再确认横竖屏；然后调用 canvas_get_video_capabilities，并只向用户提供当前能力表中的模型和时长。固定时长直接说明“模型固定”，不要制造无效选择；最后确认声音、字幕和一个核心卖点。
 - 视频类型只能从以下八类选择：${AGENT_VIDEO_TYPE_OPTIONS.map((item) => `${item.label}(${item.value})`).join("、")}。
-- 提示词正文写成 60–100 个英文词的一条连续创作指令：一个清晰主体、一处主要场景、连续动作、镜头与光线、真实产品交互、必要的当地语言口播。10 秒内不超过 3 个可见节拍，不塞入多地点长剧情；不得包含标题、Markdown、时间表、data URL 或 base64。
+- 提示词正文写成 45–85 个英文词的一条连续创作指令，由系统补齐模型、参考图角色和身份约束后，最终发给视频模型的完整提示词必须保持 90–170 个英文词：一个清晰主体、一处主要场景、连续动作、镜头与光线、真实产品交互。10 秒内不超过 3 个可见节拍，不塞入多地点长剧情；不得包含标题、Markdown、时间表、data URL 或 base64。
 - 创意按类型适配：产品展示/品牌广告强调产品立即可见、身份细节和 hero shot；手部/教程/开箱强调一次真实操作及物理接触；达人/证言强调同一成年人物、服装、声音和自然体验；痛点解决只使用客户明确提供的问题，不编造功效、评价或夸张前后对比。商业短片优先“钩子→一次演示→产品特写/柔和 CTA”。
-- 口播必须能在时长内自然说完：6 秒约 10–14 词，10 秒约 18–24 词，15 秒约 26–34 词；客户没有确认口播台词时不得凭空补对白。根据能力表的 promptProfile 适配：single-scene 不提参考图；image-anchor 锁单图；multi-reference 按输入顺序绑定角色；first-last-frame 只表达首尾状态；multimodal 只引用真正传入的素材。
+- 开启声音时，提示词必须包含且只包含一条格式为 Spoken script: "..." 的当地语言口播；客户未提供台词时，根据已确认卖点生成一条可观察、合规的短台词，并在准备节点前展示给客户确认。开启字幕时字幕逐字复用该口播；关闭声音时禁止口播、旁白和 Spoken script。口播必须能在时长内自然说完：6 秒约 10–14 词，10 秒约 18–24 词，15 秒约 26–34 词。根据能力表的 promptProfile 适配：single-scene 不提参考图；image-anchor 锁单图；multi-reference 按输入顺序绑定角色；first-last-frame 只表达首尾状态且不得用于人物图+产品图的角色绑定；multimodal 只引用真正传入的素材。
 - 在准备节点前，先把中文需求摘要和完整英文提示词展示给用户，明确询问是否确认。只有用户明确确认后，才能调用 canvas_prepare_video，并传 confirmed=true。该工具只创建并选中一个普通视频节点、写入提示词并连接参考图，绝不立即提交生成或扣费；最终由客户在画布视频节点点击生成。
 - canvas_prepare_video 中，产品参考图必填；人物图与产品图必须是不同节点。提示词不得依赖未传入的参考图。禁止使用 canvas_apply_ops、canvas_create_node 或 canvas_run_generation 绕过引导创建/触发视频。
 - 需要读取画布时调用 canvas_get_state 或 canvas_get_selection。
@@ -100,7 +100,7 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 function onlineAgentSystemPrompt(config: AiConfig, brief?: CanvasAgentVideoBrief) {
     const referenceCount = brief?.creatorNodeId ? 2 : 1;
     const size = brief?.size || "720x1280";
-    return `${ONLINE_AGENT_PROMPT}\n\n当前视频需求：${JSON.stringify(brief || {})}\n尚缺字段：${missingAgentVideoBriefFields(brief || {}).join("、") || "无"}\n当前视频模型能力（唯一事实来源）：${JSON.stringify(agentVideoCapabilityCatalog(config, size, referenceCount))}`;
+    return `${ONLINE_AGENT_PROMPT}\n\n当前视频需求：${JSON.stringify(brief || {})}\n尚缺字段：${missingAgentVideoBriefFields(brief || {}).join("、") || "无"}\n当前视频模型能力（唯一事实来源）：${JSON.stringify(agentVideoCapabilityCatalog(config, size, referenceCount, brief?.videoType))}`;
 }
 const JSON_RECORD_SCHEMA = { type: "object", additionalProperties: true };
 const POSITION_SCHEMA = { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"], additionalProperties: false };
@@ -706,7 +706,7 @@ export function CanvasAssistantPanel({
                 const sessionBrief = localSessionsRef.current.find((session) => session.id === sessionId)?.videoBrief;
                 const size = stringOptional(args.size) || sessionBrief?.size || "720x1280";
                 const referenceImageCount = Math.max(1, Math.floor(numberOptional(args.referenceImageCount) || (sessionBrief?.creatorNodeId ? 2 : 1)));
-                const models = agentVideoCapabilityCatalog(effectiveConfig, size, referenceImageCount);
+                const models = agentVideoCapabilityCatalog(effectiveConfig, size, referenceImageCount, sessionBrief?.videoType);
                 return { ok: true, message: `读取到 ${models.length} 个当前可用的视频模型。`, data: { kind: "video-capabilities", size, referenceImageCount, models } };
             }
             if (name === "canvas_update_video_brief") {

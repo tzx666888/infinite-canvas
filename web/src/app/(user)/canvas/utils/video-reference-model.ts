@@ -57,6 +57,21 @@ export function canvasVideoModelSelectionPatch(model: string) {
     return { model };
 }
 
+export function inferDirectVideoReferencePair(prompt: string, referenceCount: number) {
+    const imageRef = String.raw`(?:@?\s*)?(?:图片|图像|图|image|img|photo|picture)\s*([1-9]\d*)`;
+    const directedMatchers = [
+        new RegExp(`${imageRef}\\s*(?:参考|参照|借鉴|依据|按照|根据|reference|references|refer(?:s)? to|based on|using)\\s*${imageRef}`, "i"),
+        new RegExp(`${imageRef}\\s*(?:带|带着|拿|拿着|手持|展示|使用|融入|融合|加入|植入|结合|搭配|with|featuring|holding|using|showing|including|include|add(?:ing)?)\\s*${imageRef}(?:\\s*(?:产品|商品|物品|道具|object|product|item))?`, "i"),
+    ];
+    const match = directedMatchers.map((matcher) => prompt.match(matcher)).find(Boolean);
+    if (!match) return null;
+    const base = Number(match[1]);
+    const reference = Number(match[2]);
+    if (!Number.isFinite(base) || !Number.isFinite(reference)) return null;
+    if (base < 1 || reference < 1 || base > referenceCount || reference > referenceCount || base === reference) return null;
+    return { base, reference };
+}
+
 function googleVideoSize(model: string, requestedSize: string) {
     const value = modelOptionName(model).toLowerCase();
     if (value.includes("portrait")) return "720x1280";

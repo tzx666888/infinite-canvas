@@ -23,11 +23,23 @@ type CanvasAgentVideoGuideCardProps = {
 };
 
 export function CanvasAgentVideoGuideCard({ brief, config, nodes, phase, busy, theme, onChoose, onGeneratePrompt, onConfirmPrompt, onReset }: CanvasAgentVideoGuideCardProps) {
-    if (!brief.productNodeId || phase === "prepared") return null;
+    if (!brief.productNodeId) return null;
     const question = nextAgentVideoGuideQuestion(config, brief);
     const product = nodes.find((node) => node.id === brief.productNodeId);
     const creatorCandidates = nodes.filter((node) => node.id !== brief.productNodeId && node.type === CanvasNodeType.Image && node.metadata?.content?.trim());
     const cardStyle = { borderColor: theme.node.stroke, background: theme.toolbar.panel, color: theme.node.text };
+
+    if (phase === "prepared") {
+        return (
+            <GuideShell theme={theme} style={cardStyle}>
+                <GuideHeader theme={theme} eyebrow="已准备" title="视频节点已按所选模型锁定" hint="需要更换模型、时长或人物时，请重新走一次引导，提示词会同步重编译。" />
+                <button type="button" disabled={busy} className="mt-3 flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border px-4 text-sm font-medium transition hover:opacity-75 disabled:cursor-not-allowed disabled:opacity-45" style={{ borderColor: theme.node.stroke }} onClick={onReset}>
+                    <RotateCcw className="size-4" />
+                    重新制作视频
+                </button>
+            </GuideShell>
+        );
+    }
 
     if (phase === "drafting") {
         return (

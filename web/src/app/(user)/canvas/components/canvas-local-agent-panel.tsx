@@ -325,7 +325,7 @@ export function CanvasLocalAgentPanel({
             if (payload.name === "canvas_get_video_capabilities") {
                 const size = stringText(input.size) || videoBriefRef.current.size || "720x1280";
                 const referenceImageCount = Math.max(1, Math.floor(Number(input.referenceImageCount) || (videoBriefRef.current.creatorNodeId ? 2 : 1)));
-                const result = { kind: "video-capabilities", size, referenceImageCount, models: agentVideoCapabilityCatalog(effectiveConfig, size, referenceImageCount) };
+                const result = { kind: "video-capabilities", size, referenceImageCount, models: agentVideoCapabilityCatalog(effectiveConfig, size, referenceImageCount, videoBriefRef.current.videoType) };
                 await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result });
                 addMessage({ role: "tool", title: "读取视频模型能力", text: `读取到 ${result.models.length} 个当前可用的视频模型。`, detail: result });
                 return;
