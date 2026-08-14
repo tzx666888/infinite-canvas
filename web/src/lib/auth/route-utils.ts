@@ -64,7 +64,7 @@ export async function currentAuthUser(): Promise<AuthUser | null> {
 
 export async function requireRootUser() {
     const user = await requireAuthUser();
-    if (user.role !== "root") throw new AuthError("没有此操作权限", 403);
+    if (user.role !== "root" || user.username.trim().toLowerCase() !== "root") throw new AuthError("没有此操作权限", 403);
     return user;
 }
 

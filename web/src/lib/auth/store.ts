@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { AuthError } from "./auth-error.ts";
 import { canvasDatabase, withImmediateTransaction, type CanvasDatabase } from "./database.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
-import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, PaymentOrderSummary } from "./types.ts";
+import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserSummary, PaymentOrderSummary } from "./types.ts";
 
 type AccountRow = Record<string, unknown>;
 type ApiKeyIdentity = { keyId: string; user: AuthUser };
@@ -75,6 +75,22 @@ function toAuthUser(row: AccountRow): AuthUser {
         role: row.role === "root" ? "root" : "member",
         credits: Number(row.credits || 0),
         createdAt: String(row.created_at),
+    };
+}
+
+function toManagedUserSummary(row: AccountRow): ManagedUserSummary {
+    return {
+        id: String(row.id),
+        username: String(row.username),
+        displayName: String(row.display_name),
+        role: row.role === "root" ? "root" : "member",
+        provider: row.provider === "local" || row.provider === "tokaxis" ? row.provider : "migrated",
+        status: row.status === "disabled" ? "disabled" : "active",
+        credits: Number(row.credits || 0),
+        activeKeyCount: Number(row.active_key_count || 0),
+        createdAt: String(row.created_at),
+        updatedAt: String(row.updated_at),
+        lastLoginAt: row.last_login_at ? String(row.last_login_at) : null,
     };
 }
 
@@ -435,6 +451,80 @@ export async function adjustUserCredits(input: { rootUserId: string; username: s
     });
 }
 
+export async function listManagedUsers(input: { rootUserId: string; query?: string }) {
+    const database = canvasDatabase();
+    requireRoot(database, input.rootUserId);
+    const query = input.query?.trim().toLocaleLowerCase() || "";
+    const rows = database
+        .prepare(
+            `SELECT a.*, COUNT(CASE WHEN k.revoked_at IS NULL THEN 1 END) AS active_key_count
+             FROM accounts a
+             LEFT JOIN api_keys k ON k.user_id = a.id
+             GROUP BY a.id
+             ORDER BY CASE WHEN lower(a.username) = 'root' THEN 0 ELSE 1 END, a.created_at DESC
+             LIMIT 1000`,
+        )
+        .all();
+    return rows.map(toManagedUserSummary).filter((user) => !query || user.username.toLocaleLowerCase().includes(query) || user.displayName.toLocaleLowerCase().includes(query));
+}
+
+export async function updateManagedUser(input: { rootUserId: string; userId: string; displayName?: string; role?: "root" | "member"; status?: "active" | "disabled" }) {
+    return withImmediateTransaction((database) => {
+        requireRoot(database, input.rootUserId);
+        const account = database.prepare("SELECT * FROM accounts WHERE id = ?").get(input.userId);
+        if (!account) throw new AuthError("用户不存在", 404);
+
+        const isPrimaryRoot = String(account.username).trim().toLowerCase() === "root";
+        if (isPrimaryRoot && input.role === "member") throw new AuthError("不能降低主 root 账号权限", 409);
+        if (isPrimaryRoot && input.status === "disabled") throw new AuthError("不能禁用主 root 账号", 409);
+
+        const updates: string[] = [];
+        const values: unknown[] = [];
+        if (input.displayName !== undefined) {
+            const displayName = input.displayName.trim();
+            if (!displayName) throw new AuthError("显示名称不能为空");
+            if (displayName.length > 80) throw new AuthError("显示名称不能超过 80 个字符");
+            updates.push("display_name = ?");
+            values.push(displayName);
+        }
+        if (input.role !== undefined) {
+            if (input.role !== "root" && input.role !== "member") throw new AuthError("用户角色不正确");
+            updates.push("role = ?");
+            values.push(input.role);
+        }
+        if (input.status !== undefined) {
+            if (input.status !== "active" && input.status !== "disabled") throw new AuthError("用户状态不正确");
+            updates.push("status = ?");
+            values.push(input.status);
+        }
+        if (!updates.length) throw new AuthError("没有需要修改的内容");
+
+        updates.push("updated_at = ?");
+        values.push(now(), input.userId);
+        database.prepare(`UPDATE accounts SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+        const updated = database
+            .prepare(
+                `SELECT a.*, COUNT(CASE WHEN k.revoked_at IS NULL THEN 1 END) AS active_key_count
+                 FROM accounts a LEFT JOIN api_keys k ON k.user_id = a.id
+                 WHERE a.id = ? GROUP BY a.id`,
+            )
+            .get(input.userId);
+        return toManagedUserSummary(updated!);
+    });
+}
+
+export async function revokeManagedUserKeys(input: { rootUserId: string; userId: string }) {
+    return withImmediateTransaction((database) => {
+        requireRoot(database, input.rootUserId);
+        const account = database.prepare("SELECT username FROM accounts WHERE id = ?").get(input.userId);
+        if (!account) throw new AuthError("用户不存在", 404);
+        if (String(account.username).trim().toLowerCase() === "root") throw new AuthError("不能批量撤销主 root 账号的 Key", 409);
+        const timestamp = now();
+        const result = database.prepare("UPDATE api_keys SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").run(timestamp, input.userId);
+        return { revokedCount: Number(result.changes) };
+    });
+}
+
 export function reserveCredits(input: { userId: string; apiKeyId: string; requestId: string; model: string; amount: number; units: number; unit: string; upstreamPath?: string; reuseWindowMs?: number; remark?: string }): CreditReservation {
     const requestedAmount = Math.max(0, Math.ceil(input.amount));
     return withImmediateTransaction((database) => {
@@ -523,7 +613,7 @@ export function listSubmittedBillingTasks(limit = 100): SubmittedBillingTask[] {
 }
 
 function requireRoot(database: CanvasDatabase, userId: string) {
-    if (!database.prepare("SELECT id FROM accounts WHERE id = ? AND role = 'root' AND status = 'active'").get(userId)) throw new AuthError("没有此操作权限", 403);
+    if (!database.prepare("SELECT id FROM accounts WHERE id = ? AND role = 'root' AND status = 'active' AND username = 'root' COLLATE NOCASE").get(userId)) throw new AuthError("没有此操作权限", 403);
 }
 
 function insertLedger(database: CanvasDatabase, input: { userId: string; type: CreditLedgerEntry["type"]; amount: number; balanceAfter: number; requestId?: string; model?: string; units?: number; remark: string }) {

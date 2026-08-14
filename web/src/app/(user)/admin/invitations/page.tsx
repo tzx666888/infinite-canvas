@@ -49,7 +49,7 @@ export default function InvitationManagementPage() {
 
     useEffect(() => {
         if (!user) return;
-        if (user.role !== "root") {
+        if (user.role !== "root" || user.username.trim().toLowerCase() !== "root") {
             router.replace("/");
             return;
         }
@@ -87,7 +87,7 @@ export default function InvitationManagementPage() {
         });
     };
 
-    if (!user || user.role !== "root") return null;
+    if (!user || user.role !== "root" || user.username.trim().toLowerCase() !== "root") return null;
 
     return (
         <main className="h-full overflow-y-auto bg-background px-5 py-8 sm:px-8">

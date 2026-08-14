@@ -10,6 +10,20 @@ export type AuthUser = {
     createdAt: string;
 };
 
+export type ManagedUserSummary = {
+    id: string;
+    username: string;
+    displayName: string;
+    role: AccountRole;
+    provider: "local" | "migrated" | "tokaxis";
+    status: "active" | "disabled";
+    credits: number;
+    activeKeyCount: number;
+    createdAt: string;
+    updatedAt: string;
+    lastLoginAt: string | null;
+};
+
 export type InviteSummary = {
     id: string;
     label: string;

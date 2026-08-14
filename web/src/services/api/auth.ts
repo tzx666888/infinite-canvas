@@ -1,4 +1,4 @@
-import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, PaymentMethod, PaymentOrderSummary, PaymentPackage } from "@/lib/auth/types";
+import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserSummary, PaymentMethod, PaymentOrderSummary, PaymentPackage } from "@/lib/auth/types";
 
 type AuthResponse = { user: AuthUser };
 
@@ -75,6 +75,19 @@ export async function fetchWallet() {
 
 export async function adjustAccountCredits(input: { username: string; amount: number; remark?: string }) {
     return requestAuth<{ user: AuthUser; credits: number }>("/api/admin/credits", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function fetchManagedUsers(query = "") {
+    const search = query.trim() ? `?query=${encodeURIComponent(query.trim())}` : "";
+    return requestAuth<{ users: ManagedUserSummary[] }>(`/api/admin/users${search}`);
+}
+
+export async function updateManagedUser(userId: string, input: { displayName?: string; role?: "root" | "member"; status?: "active" | "disabled" }) {
+    return requestAuth<{ user: ManagedUserSummary }>(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export async function revokeManagedUserKeys(userId: string) {
+    return requestAuth<{ revokedCount: number }>(`/api/admin/users/${encodeURIComponent(userId)}/keys`, { method: "DELETE", body: "{}" });
 }
 
 export async function fetchPaymentConfig() {

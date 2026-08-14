@@ -199,11 +199,7 @@ try {
     assert.ok(chineseUpstreamRequest?.canvasUserId, "the migrated account must keep its signed Canvas identity");
     assert.equal(chineseUpstreamRequest?.canvasUsername, "utf8-b64:5YiY", "non-ASCII usernames must use a header-safe UTF-8 encoding");
     const chinesePayload = `${chineseUpstreamRequest.canvasUserId}\n${chineseUpstreamRequest.canvasUsername}\n${chineseUpstreamRequest.canvasRequestId}`;
-    assert.equal(
-        chineseUpstreamRequest.canvasAttribution,
-        createHmac("sha256", "legacy-auth-shared-secret-0123456789abcdef").update(chinesePayload).digest("hex"),
-        "the attribution signature must cover the encoded header value",
-    );
+    assert.equal(chineseUpstreamRequest.canvasAttribution, createHmac("sha256", "legacy-auth-shared-secret-0123456789abcdef").update(chinesePayload).digest("hex"), "the attribution signature must cover the encoded header value");
 
     const invite = await requestJson(`${origin}/api/admin/invitations`, {
         method: "POST",
@@ -219,6 +215,61 @@ try {
     });
     assert.equal(registered.response.status, 200, JSON.stringify(registered.body));
     assert.equal(registered.body.user.credits, 20);
+    const memberCookie = registered.response.headers.get("set-cookie")?.split(";")[0];
+    assert.ok(memberCookie, "registration must issue a member session cookie");
+
+    const memberUserList = await requestJson(`${origin}/api/admin/users`, { headers: { Cookie: memberCookie } });
+    assert.equal(memberUserList.response.status, 403, "ordinary users must never access user management");
+    const rootUserList = await requestJson(`${origin}/api/admin/users`, { headers: { Cookie: cookie } });
+    assert.equal(rootUserList.response.status, 200, JSON.stringify(rootUserList.body));
+    const managedMember = rootUserList.body.users.find((item) => item.username === "invited-user");
+    assert.ok(managedMember, "root must see registered users");
+
+    const memberKeyResult = await requestJson(`${origin}/api/account/keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: origin, Cookie: memberCookie },
+        body: JSON.stringify({ name: "Managed Member Key" }),
+    });
+    assert.equal(memberKeyResult.response.status, 201, JSON.stringify(memberKeyResult.body));
+    const revokeMemberKeys = await requestJson(`${origin}/api/admin/users/${managedMember.id}/keys`, {
+        method: "DELETE",
+        headers: { Origin: origin, Cookie: cookie },
+    });
+    assert.equal(revokeMemberKeys.response.status, 200, JSON.stringify(revokeMemberKeys.body));
+    assert.equal(revokeMemberKeys.body.revokedCount, 1);
+    const revokedMemberKeyModels = await requestJson(`${origin}/api/gateway/v1/models`, { headers: { Authorization: `Bearer ${memberKeyResult.body.key}` } });
+    assert.equal(revokedMemberKeyModels.response.status, 401, "root must be able to revoke a user's active Canvas keys");
+
+    const promoteMember = await requestJson(`${origin}/api/admin/users/${managedMember.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Origin: origin, Cookie: cookie },
+        body: JSON.stringify({ displayName: "Managed Member", role: "root" }),
+    });
+    assert.equal(promoteMember.response.status, 200, JSON.stringify(promoteMember.body));
+    const promotedUserList = await requestJson(`${origin}/api/admin/users`, { headers: { Cookie: memberCookie } });
+    assert.equal(promotedUserList.response.status, 403, "only the canonical root account may modify users, even if another account has a root role");
+    const restoreMemberRole = await requestJson(`${origin}/api/admin/users/${managedMember.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Origin: origin, Cookie: cookie },
+        body: JSON.stringify({ role: "member", status: "disabled" }),
+    });
+    assert.equal(restoreMemberRole.response.status, 200, JSON.stringify(restoreMemberRole.body));
+    const disabledMemberSession = await requestJson(`${origin}/api/auth/me`, { headers: { Cookie: memberCookie } });
+    assert.equal(disabledMemberSession.body.user, null, "disabled users must be signed out immediately");
+    const enableMember = await requestJson(`${origin}/api/admin/users/${managedMember.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Origin: origin, Cookie: cookie },
+        body: JSON.stringify({ status: "active" }),
+    });
+    assert.equal(enableMember.response.status, 200, JSON.stringify(enableMember.body));
+
+    const managedRoot = rootUserList.body.users.find((item) => item.username === "root");
+    const disableRoot = await requestJson(`${origin}/api/admin/users/${managedRoot.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Origin: origin, Cookie: cookie },
+        body: JSON.stringify({ status: "disabled", role: "member" }),
+    });
+    assert.equal(disableRoot.response.status, 409, "the primary root account must be protected from lockout");
     const reusedInvite = await requestJson(`${origin}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Origin: origin },
@@ -392,6 +443,8 @@ try {
                 legacyMigration: "local-after-first-login",
                 unicodeUsernameAttribution: "ok",
                 inviteRegistration: "ok",
+                userManagement: "root-only",
+                rootLockoutProtection: "ok",
                 keyRevocation: "immediate",
                 models: models.body.data.length,
                 agent: "ok",
