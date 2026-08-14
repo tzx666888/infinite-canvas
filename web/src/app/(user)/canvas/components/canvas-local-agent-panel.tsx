@@ -7,14 +7,16 @@ import { ChevronDown, Copy, FolderOpen, History, KeyRound, Link2, PlugZap, Plus,
 import { motion } from "motion/react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { imageToDataUrl } from "@/services/image-storage";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useCanvasAgentStore, type AgentAttachment, type AgentChatItem, type AgentEventLog, type AgentPanelTab, type AgentPendingToolCall, type AgentThreadSummary } from "../stores/use-canvas-agent-store";
 import { summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
-import { agentVideoCapabilityCatalog, agentVideoGuideIntro, mergeCanvasAgentVideoBrief, missingAgentVideoBriefFields, validateAgentVideoReferences, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
-import { CanvasNodeType, type CanvasAgentVideoBrief } from "../types";
+import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, agentVideoGuideIntro, mergeCanvasAgentVideoBrief, missingAgentVideoBriefFields, validateAgentVideoReferences, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
+import { CanvasNodeType, type CanvasAgentVideoBrief, type CanvasAgentVideoGuidePhase } from "../types";
 import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
+import { CanvasAgentVideoGuideCard } from "./canvas-agent-video-guide-card";
 
 const PANEL_MOTION_SECONDS = 0.5;
 const MAX_ATTACHMENTS = 6;
@@ -90,6 +92,8 @@ export function CanvasLocalAgentPanel({
         clearEventLogs,
     } = useCanvasAgentStore();
     const [resizing, setResizing] = useState(false);
+    const [videoBrief, setVideoBrief] = useState<CanvasAgentVideoBrief>({});
+    const [videoGuidePhase, setVideoGuidePhase] = useState<CanvasAgentVideoGuidePhase>("collecting");
     const listRef = useRef<HTMLDivElement>(null);
     const snapshotRef = useRef(snapshot);
     const confirmToolsRef = useRef(confirmTools);
@@ -97,12 +101,21 @@ export function CanvasLocalAgentPanel({
     const onApplyOpsRef = useRef(onApplyOps);
     const onPrepareAgentVideoRef = useRef(onPrepareAgentVideo);
     const videoBriefRef = useRef<CanvasAgentVideoBrief>({});
+    const videoGuidePhaseRef = useRef<CanvasAgentVideoGuidePhase>("collecting");
     const guidedSelectionRef = useRef("");
     const connectedRef = useRef(false);
     const errorLoggedRef = useRef(false);
     const attachmentUrlsRef = useRef(new Set<string>());
     const clientIdRef = useRef(typeof crypto === "undefined" ? `${Date.now()}` : crypto.randomUUID());
     const endpoint = useMemo(() => url.trim().replace(/\/$/, ""), [url]);
+    const updateVideoBrief = (next: CanvasAgentVideoBrief) => {
+        videoBriefRef.current = next;
+        setVideoBrief(next);
+    };
+    const updateVideoGuidePhase = (next: CanvasAgentVideoGuidePhase) => {
+        videoGuidePhaseRef.current = next;
+        setVideoGuidePhase(next);
+    };
     const loadThreads = useCallback(async () => {
         const projectId = snapshotRef.current.projectId;
         if ((!connectedRef.current && !useCanvasAgentStore.getState().connected) || !projectId) return;
@@ -177,9 +190,11 @@ export function CanvasLocalAgentPanel({
             setAgentState({ activity: "出错", waiting: false });
             addMessage({ role: "error", title: "错误", text: normalizeText(message) });
             addEventLog("错误", message, message);
+            if (videoGuidePhaseRef.current === "drafting") updateVideoGuidePhase("collecting");
         });
         source.addEventListener("agent_done", () => {
             setAgentState({ activity: "完成", waiting: false, sending: false });
+            if (videoGuidePhaseRef.current === "drafting") updateVideoGuidePhase("review");
             void loadThreads();
         });
         source.onerror = () => {
@@ -214,9 +229,9 @@ export function CanvasLocalAgentPanel({
         return () => clearTimeout(timer);
     }, [connected, endpoint, snapshot, token]);
 
-    const sendPrompt = async () => {
-        const text = prompt.trim();
-        const files = attachments;
+    const sendPrompt = async (textOverride?: string, detail?: unknown, displayText?: string, fileOverride?: AgentAttachment[]) => {
+        const text = (textOverride ?? prompt).trim();
+        const files = fileOverride || (textOverride === undefined ? attachments : []);
         const requestPrompt = promptWithAttachments(text, files);
         if (!connected || !requestPrompt || sending || waiting) return;
         if (attachmentPayloadBytes(files) > MAX_ATTACHMENT_PAYLOAD_BYTES) {
@@ -224,7 +239,7 @@ export function CanvasLocalAgentPanel({
             return;
         }
         setAgentState({ activity: "发送中", sending: true, waiting: true });
-        addMessage({ role: "user", text: text || "发送了图片", attachments: files });
+        addMessage({ role: "user", text: displayText || text || "发送了图片", attachments: displayText ? undefined : files, detail });
         addEventLog("用户发送", { text, attachments: files.map(({ name, type, size }) => ({ name, type, size })) });
         try {
             const res = await fetch(`${endpoint}/agent/codex/turn?token=${encodeURIComponent(token)}`, {
@@ -243,6 +258,7 @@ export function CanvasLocalAgentPanel({
             setAgentState({ prompt: "", attachments: [] });
         } catch (error) {
             setAgentState({ activity: "发送失败", waiting: false });
+            if (videoGuidePhaseRef.current === "drafting") updateVideoGuidePhase("collecting");
             addMessage({ role: "error", title: "发送失败", text: error instanceof Error ? error.message : "发送失败" });
             addEventLog("发送失败", error);
         } finally {
@@ -318,7 +334,7 @@ export function CanvasLocalAgentPanel({
                 const brief = mergeCanvasAgentVideoBrief(videoBriefRef.current, localVideoBrief(input));
                 const referenceError = validateAgentVideoReferences(snapshotRef.current, brief);
                 if (referenceError) throw new Error(referenceError);
-                videoBriefRef.current = brief;
+                updateVideoBrief(brief);
                 const result = { kind: "video-brief", brief, missingFields: missingAgentVideoBriefFields(brief) };
                 await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result });
                 addMessage({ role: "tool", title: "记录视频需求", text: "视频需求已记录，请继续用文字确认剩余信息。", detail: result });
@@ -328,7 +344,8 @@ export function CanvasLocalAgentPanel({
                 const brief = mergeCanvasAgentVideoBrief(videoBriefRef.current, localVideoBrief(objectField(input, "brief")));
                 const prepared = onPrepareAgentVideoRef.current({ brief, prompt: stringText(input.prompt), confirmed: input.confirmed === true });
                 if (!prepared.ok) throw new Error(prepared.error);
-                videoBriefRef.current = prepared.brief;
+                updateVideoBrief(prepared.brief);
+                updateVideoGuidePhase("prepared");
                 const result = { kind: "video-prepared", videoNodeId: prepared.videoNodeId, brief: prepared.brief };
                 await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result });
                 addMessage({ role: "tool", title: "视频节点已准备", text: "提示词和参考图已写入普通视频节点，请在画布中检查后点击生成。", detail: result });
@@ -421,7 +438,8 @@ export function CanvasLocalAgentPanel({
             ...patch,
         });
         pendingToolRef.current = null;
-        videoBriefRef.current = {};
+        updateVideoBrief({});
+        updateVideoGuidePhase("collecting");
         guidedSelectionRef.current = "";
     }
 
@@ -431,7 +449,8 @@ export function CanvasLocalAgentPanel({
         setAgentState({ loadingThreads: true });
         try {
             const data = await fetchAgentJson<AgentThreadResponse>(endpoint, token, "/agent/codex/threads/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ canvasId: projectId }) });
-            videoBriefRef.current = {};
+            updateVideoBrief({});
+            updateVideoGuidePhase("collecting");
             guidedSelectionRef.current = "";
             setAgentState({ activeThreadId: data.thread?.id || data.workspace?.activeThreadId || "", messages: [], activeTab: "chat", activity: "新对话" });
             await loadThreads();
@@ -453,7 +472,8 @@ export function CanvasLocalAgentPanel({
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({ canvasId: projectId }),
             });
-            videoBriefRef.current = {};
+            updateVideoBrief({});
+            updateVideoGuidePhase("collecting");
             guidedSelectionRef.current = "";
             setAgentState({ activeThreadId: data.thread?.id || threadId, messages: normalizeHistoryMessages(data.messages || []), activeTab: "chat", activity: "已恢复会话" });
             await loadThreads();
@@ -542,16 +562,48 @@ export function CanvasLocalAgentPanel({
 
     useEffect(() => {
         const selectedImages = snapshot.nodes.filter((node) => snapshot.selectedNodeIds.includes(node.id) && node.type === CanvasNodeType.Image && node.metadata?.content);
-        if (!connected || activeTab !== "chat" || messages.length || selectedImages.length !== 1) return;
+        if (!connected || activeTab !== "chat" || selectedImages.length !== 1) return;
         const key = `${activeThreadId || "new"}:${selectedImages[0].id}`;
         if (guidedSelectionRef.current === key) return;
         guidedSelectionRef.current = key;
-        videoBriefRef.current = mergeCanvasAgentVideoBrief(videoBriefRef.current, { productNodeId: selectedImages[0].id });
+        if (videoBriefRef.current.productNodeId === selectedImages[0].id) return;
+        updateVideoBrief({ productNodeId: selectedImages[0].id });
+        updateVideoGuidePhase("collecting");
         addMessage({ role: "assistant", text: agentVideoGuideIntro(), detail: { kind: "video-guide-intro", productCandidateNodeId: selectedImages[0].id } });
     }, [activeTab, activeThreadId, connected, messages.length, snapshot.nodes, snapshot.selectedNodeIds]);
 
     const addEventLog = (title: string, text: unknown, raw?: unknown) => {
         pushEventLog({ id: `${Date.now()}-${Math.random()}`, time: new Date().toLocaleTimeString(), title, text: normalizeText(text) || title, raw });
+    };
+
+    const chooseVideoGuideOption = (patch: Partial<CanvasAgentVideoBrief>, label: string) => {
+        if (sending || waiting) return;
+        updateVideoBrief(mergeCanvasAgentVideoBrief(videoBriefRef.current, patch));
+        updateVideoGuidePhase("collecting");
+        addEventLog("视频引导选择", { label, patch });
+    };
+
+    const generateVideoGuidePrompt = async () => {
+        if (sending || waiting) return;
+        updateVideoGuidePhase("drafting");
+        try {
+            const files = await videoGuideAttachments(snapshotRef.current, videoBriefRef.current);
+            await sendPrompt(agentVideoDraftRequest(videoBriefRef.current), { kind: "video-guide-draft-request" }, "选项已完成，请生成适配提示词", files);
+        } catch (error) {
+            updateVideoGuidePhase("collecting");
+            addMessage({ role: "error", title: "参考图读取失败", text: error instanceof Error ? error.message : "参考图读取失败" });
+        }
+    };
+
+    const confirmVideoGuidePrompt = () => {
+        if (sending || waiting) return;
+        void sendPrompt(agentVideoConfirmRequest(), { kind: "video-guide-confirm" }, "确认提示词，准备视频节点");
+    };
+
+    const resetVideoGuide = () => {
+        if (!videoBriefRef.current.productNodeId || sending || waiting) return;
+        updateVideoBrief({ productNodeId: videoBriefRef.current.productNodeId });
+        updateVideoGuidePhase("collecting");
     };
 
     const handleAgentEvent = (event: AgentEventPayload) => {
@@ -560,7 +612,10 @@ export function CanvasLocalAgentPanel({
         const nextActivity = activityText(event);
         if (nextActivity) setAgentState({ activity: nextActivity });
         if (event.type === "turn.started") setAgentState({ waiting: true });
-        if (event.type === "turn.completed" || event.type === "turn.failed" || event.type === "error") setAgentState({ waiting: false, sending: false });
+        if (event.type === "turn.completed" || event.type === "turn.failed" || event.type === "error") {
+            setAgentState({ waiting: false, sending: false });
+            if ((event.type === "turn.failed" || event.type === "error") && videoGuidePhaseRef.current === "drafting") updateVideoGuidePhase("collecting");
+        }
         const item = formatAgentEvent(event);
         if (item) {
             if (item.role === "error") setAgentState({ waiting: false, sending: false });
@@ -652,6 +707,20 @@ export function CanvasLocalAgentPanel({
                         {messages.map((item) => (
                             <AgentChatMessage key={item.id} item={agentMessageToChatMessage(item)} theme={theme} user={user} />
                         ))}
+                        {videoBrief.productNodeId ? (
+                            <CanvasAgentVideoGuideCard
+                                brief={videoBrief}
+                                config={effectiveConfig}
+                                nodes={snapshot.nodes}
+                                phase={videoGuidePhase}
+                                busy={sending || waiting}
+                                theme={theme}
+                                onChoose={chooseVideoGuideOption}
+                                onGeneratePrompt={() => void generateVideoGuidePrompt()}
+                                onConfirmPrompt={confirmVideoGuidePrompt}
+                                onReset={resetVideoGuide}
+                            />
+                        ) : null}
                         {pendingTool ? (
                             <AgentPendingToolCard
                                 summary={summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)}
@@ -668,10 +737,10 @@ export function CanvasLocalAgentPanel({
                         attachments={attachments.map(agentAttachmentToChatAttachment)}
                         disabled={!connected}
                         sending={sending || waiting}
-                        placeholder="询问本地 AI 助手，或让它操作画布"
+                        placeholder={videoBrief.productNodeId && videoGuidePhase !== "prepared" ? "可选：补充特殊要求（也可以直接点选）" : "询问本地 AI 助手，或让它操作画布"}
                         theme={theme}
                         onPromptChange={(prompt) => setAgentState({ prompt })}
-                        onSubmit={sendPrompt}
+                        onSubmit={() => void sendPrompt()}
                         onAddFiles={addAttachments}
                         onRemoveAttachment={removeAttachment}
                         left={
@@ -1210,6 +1279,20 @@ function localVideoBrief(value: unknown): Partial<CanvasAgentVideoBrief> {
             userIntent: stringText(objectField(value, "userIntent")).trim() || undefined,
         }).filter(([, item]) => item !== undefined),
     ) as Partial<CanvasAgentVideoBrief>;
+}
+
+async function videoGuideAttachments(snapshot: CanvasAgentSnapshot, brief: CanvasAgentVideoBrief): Promise<AgentAttachment[]> {
+    const ids = [brief.creatorNodeId, brief.productNodeId].filter((value): value is string => Boolean(value));
+    return await Promise.all(
+        ids.map(async (id) => {
+            const node = snapshot.nodes.find((item) => item.id === id);
+            const content = node?.metadata?.content?.trim();
+            if (!node || node.type !== CanvasNodeType.Image || !content) throw new Error(`参考图片不可用：${id}`);
+            const dataUrl = await imageToDataUrl({ url: content, storageKey: node.metadata?.storageKey });
+            if (!dataUrl?.startsWith("data:image/")) throw new Error(`参考图片无法读取：${node.title || id}`);
+            return { id: node.id, name: node.title || node.id, type: node.metadata?.mimeType || "image/png", size: dataUrl.length, url: content, dataUrl };
+        }),
+    );
 }
 
 function numberField(value: unknown, key: string) {

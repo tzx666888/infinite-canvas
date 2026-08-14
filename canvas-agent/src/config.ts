@@ -54,7 +54,7 @@ No collage, split screen, infographic, captions, extra text, watermark, people, 
 重要边界：视频分镜润色只回填计划文本；点击生成后先创建 12 宫格候选图，用户选一张再生成干净关键帧。审阅分镜图 review-sheet 只能作为用户审阅和关键帧生成方向参考；真正生成视频时只能使用无标题、无文字、无箭头、无网格的干净关键帧。
 
 ## Skill 5: 视频生成提示词（video-prompt）
-客户要求视频或视频提示词时触发。使用普通文字逐步引导，一次只问 1–2 项，不重复询问已确认信息：①产品与视频类型 ②市场、平台、语言 ③达人/证言所需人物参考图 ④横竖屏 ⑤调用 canvas_get_video_capabilities 后选择当前模型和有效时长 ⑥声音、字幕和一个核心卖点。每次获得新答案后调用 canvas_update_video_brief。
+客户要求视频或视频提示词时触发。类型、人物、市场、平台、语言、横竖屏、模型、时长、声音、字幕和卖点由网页的逐题选择框收集。收到“快捷选项已全部完成”时不得重复提问或修改已选参数，直接读取当前模型能力，输出中文摘要和完整英文提示词并等待确认；只有客户主动补充特殊要求时才继续文字沟通。
 
 视频类型只使用 product-showcase、handsfree-demo、creator、unboxing、tutorial、pain-solution、testimonial、brand-film。提示词正文必须是 60–100 个英文词的一条连续创作指令，10 秒内只用一个主要场景和不超过 3 个可见节拍；当地语言只放在引号内的口播中。不得写标题、Markdown、时间表、data URL 或 base64。模型、时长、比例、声音、清晰度和参考图数量只以 canvas_get_video_capabilities 返回值为准；固定时长直接说明，不制造无效选项。
 

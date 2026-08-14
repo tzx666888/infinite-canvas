@@ -3,7 +3,7 @@ import fs from "node:fs";
 
 import { CanvasNodeType, type CanvasNodeData } from "../src/app/(user)/canvas/types.ts";
 import type { CanvasAgentSnapshot } from "../src/app/(user)/canvas/utils/canvas-agent-ops.ts";
-import { agentVideoCapabilityCatalog, prepareCanvasAgentVideo } from "../src/app/(user)/canvas/utils/canvas-agent-video-guide.ts";
+import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, nextAgentVideoGuideQuestion, prepareCanvasAgentVideo } from "../src/app/(user)/canvas/utils/canvas-agent-video-guide.ts";
 import { defaultConfig, modelOptionName } from "../src/stores/use-config-store.ts";
 
 const product = imageNode("product", 100, 120);
@@ -27,6 +27,33 @@ assert.equal(omni.generatedAudio, true);
 assert.ok(minimax, "configured MiniMax H3 route must be discovered from the central capability contract");
 assert.deepEqual(minimax.durationRange, [5, 15]);
 assert.equal(minimax.resolution, "1440p");
+
+const guidedBrief = {
+    productNodeId: product.id,
+    videoType: "creator" as const,
+    creatorNodeId: creator.id,
+    market: "印度尼西亚",
+    platform: "TikTok Shop",
+    language: "Bahasa Indonesia",
+    size: "720x1280" as const,
+};
+assert.equal(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id })?.key, "videoType", "guide must ask exactly one next question");
+assert.equal(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id, videoType: "creator" })?.key, "creatorNodeId");
+assert.deepEqual(nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market: undefined })?.options.map((item) => item.label), ["菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国"]);
+assert.deepEqual(nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market: "中国", platform: undefined })?.options.map((item) => item.label), ["抖音", "快手"]);
+const modelQuestion = nextAgentVideoGuideQuestion(defaultConfig, guidedBrief);
+assert.equal(modelQuestion?.key, "model");
+assert.equal(modelQuestion?.options.some((item) => item.patch.model === omni.model), true, "model choices must come from the central capability contract");
+const omniDurationQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, model: omni.model });
+assert.deepEqual(omniDurationQuestion?.options.map((item) => item.label), ["10 秒（模型固定）"]);
+const h3DurationQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, model: minimax.model });
+assert.deepEqual(h3DurationQuestion?.options.map((item) => item.label), ["5 秒", "10 秒", "15 秒"]);
+const noAudioQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, model: omni.model, seconds: 10, generateAudio: false });
+assert.deepEqual(noAudioQuestion?.options.map((item) => item.patch.withSubtitle), [false], "silent video must not offer an invalid subtitle choice");
+const readyBrief = { ...guidedBrief, model: omni.model, seconds: 10, generateAudio: false, withSubtitle: false, sellingPoint: "突出产品外观与质感" };
+assert.equal(nextAgentVideoGuideQuestion(defaultConfig, readyBrief), null);
+assert.match(agentVideoDraftRequest(readyBrief), /不要重复提问/);
+assert.match(agentVideoConfirmRequest(), /confirmed=true/);
 
 const productDirection =
     "Open on the exact product standing upright on a clean Indonesian kitchen counter under warm window light, then let an adult hand lift it at realistic scale, demonstrate one smooth practical use, and return it beside the package for a crisp hero close-up. Keep the same silhouette, colors, materials, labels, part count, and proportions throughout, with restrained camera motion and believable contact shadows.";
@@ -140,6 +167,9 @@ console.log(
                 subtitleSwitch: "PASS",
                 noAutomaticGeneration: "PASS",
                 orientationRouteFamily: "PASS",
+                oneClickQuestionSequence: "PASS",
+                dynamicModelAndDurationChoices: "PASS",
+                noTypingRequired: "PASS",
             },
             guards: {
                 explicitConfirmation: "PASS",

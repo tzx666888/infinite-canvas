@@ -33,7 +33,165 @@ export type PrepareCanvasAgentVideoResult =
     | { ok: false; error: string; errorKind: "invalid_args" | "missing_node_id" | "exec_failed" };
 
 export function agentVideoGuideIntro() {
-    return "我看到你选中了一张图片。如果这是产品图，我会一步步帮你把视频需求问清楚，再写成适配当前模型的提示词。先告诉我想做哪一种：产品展示、手部演示、达人出镜、开箱、教程、痛点解决、买家证言，还是品牌广告？";
+    return "产品参考图已锁定。接下来每次只需点选一项，不用打字；选完后我会按模型能力生成可直接使用的视频提示词。";
+}
+
+export type CanvasAgentVideoGuideOption = {
+    label: string;
+    description?: string;
+    patch: Partial<CanvasAgentVideoBrief>;
+};
+
+export type CanvasAgentVideoGuideQuestion = {
+    key: "videoType" | "creatorNodeId" | "market" | "platform" | "language" | "size" | "model" | "seconds" | "generateAudio" | "withSubtitle" | "sellingPoint";
+    title: string;
+    hint: string;
+    options: CanvasAgentVideoGuideOption[];
+    step: number;
+    total: number;
+};
+
+const MARKET_OPTIONS = ["菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国"];
+const PLATFORM_OPTIONS: Record<string, string[]> = {
+    中国: ["抖音", "快手"],
+    default: ["TikTok Shop", "Shopee", "Lazada"],
+};
+const LANGUAGE_OPTIONS: Record<string, string[]> = {
+    菲律宾: ["Filipino", "English"],
+    马来西亚: ["Bahasa Melayu", "English", "中文"],
+    印度尼西亚: ["Bahasa Indonesia"],
+    泰国: ["ภาษาไทย"],
+    越南: ["Tiếng Việt"],
+    中国: ["中文"],
+};
+
+export function nextAgentVideoGuideQuestion(config: AiConfig, brief: CanvasAgentVideoBrief): CanvasAgentVideoGuideQuestion | null {
+    const needsCreator = agentVideoTypeNeedsCreator(brief.videoType);
+    const keys: CanvasAgentVideoGuideQuestion["key"][] = [
+        "videoType",
+        ...(needsCreator ? (["creatorNodeId"] as const) : []),
+        "market",
+        "platform",
+        "language",
+        "size",
+        "model",
+        "seconds",
+        "generateAudio",
+        "withSubtitle",
+        "sellingPoint",
+    ];
+    const key = keys.find((item) => brief[item] === undefined || brief[item] === "");
+    if (!key) return null;
+    const shared = { key, step: keys.indexOf(key) + 1, total: keys.length };
+    if (key === "videoType") {
+        return {
+            ...shared,
+            title: "想做哪种视频？",
+            hint: "选择最接近的用途，后面的提示词结构会随之变化。",
+            options: AGENT_VIDEO_TYPE_OPTIONS.map((item) => ({ label: item.label, patch: { videoType: item.value } })),
+        };
+    }
+    if (key === "creatorNodeId") return { ...shared, title: "选择出镜人物", hint: "人物图与产品图会分别锁定，避免模型把两者混在一起。", options: [] };
+    if (key === "market") return { ...shared, title: "投放哪个市场？", hint: "市场会决定语言、平台习惯和表达方式。", options: MARKET_OPTIONS.map((value) => ({ label: value, patch: { market: value } })) };
+    if (key === "platform") {
+        const values = PLATFORM_OPTIONS[brief.market || ""] || PLATFORM_OPTIONS.default;
+        return { ...shared, title: "投放到哪个平台？", hint: "只显示当前市场常用的平台。", options: values.map((value) => ({ label: value, patch: { platform: value } })) };
+    }
+    if (key === "language") {
+        const values = LANGUAGE_OPTIONS[brief.market || ""] || ["English"];
+        return { ...shared, title: "口播使用什么语言？", hint: "提示词主体仍用英文，只有口播台词使用这里选择的语言。", options: values.map((value) => ({ label: value, patch: { language: value } })) };
+    }
+    if (key === "size") {
+        return {
+            ...shared,
+            title: "选择画面方向",
+            hint: "短视频带货通常优先竖屏，也可以选择横屏。",
+            options: [
+                { label: "竖屏 9:16", description: "720 × 1280", patch: { size: "720x1280" } },
+                { label: "横屏 16:9", description: "1280 × 720", patch: { size: "1280x720" } },
+            ],
+        };
+    }
+    const referenceCount = needsCreator ? 2 : 1;
+    const catalog = agentVideoCapabilityCatalog(config, brief.size, referenceCount);
+    if (key === "model") {
+        return {
+            ...shared,
+            title: "选择视频模型",
+            hint: `已按 ${brief.size === "1280x720" ? "横屏" : "竖屏"}和 ${referenceCount} 张参考图自动筛选。以后新增模型也会从能力表自动出现在这里。`,
+            options: catalog.map((item) => ({
+                label: item.label,
+                description: `${item.durations} · ${item.resolution} · 最多 ${item.referenceImageLimit} 张参考图${item.generatedAudio ? " · 支持声音" : " · 无声"}`,
+                patch: { model: item.model },
+            })),
+        };
+    }
+    const capability = catalog.find((item) => sameModelSelection(item.model, brief.model || ""));
+    if (key === "seconds") {
+        const values = capability?.durationOptions.length
+            ? capability.durationOptions
+            : capability?.durationRange
+              ? Array.from({ length: capability.durationRange[1] - capability.durationRange[0] + 1 }, (_, index) => capability.durationRange![0] + index)
+              : [];
+        return {
+            ...shared,
+            title: "选择视频时长",
+            hint: values.length === 1 ? "该模型时长固定，无需猜测。" : "这里只显示所选模型真实支持的时长。",
+            options: values.map((value) => ({ label: `${value} 秒${values.length === 1 ? "（模型固定）" : ""}`, patch: { seconds: value } })),
+        };
+    }
+    if (key === "generateAudio") {
+        const supported = Boolean(capability?.generatedAudio);
+        return {
+            ...shared,
+            title: "需要生成声音吗？",
+            hint: supported ? "可生成自然环境声与已确认语言的口播。" : "该模型当前不支持生成声音，已自动限制为无声。",
+            options: supported
+                ? [
+                      { label: "开启声音", patch: { generateAudio: true } },
+                      { label: "关闭声音", patch: { generateAudio: false } },
+                  ]
+                : [{ label: "无声（模型限制）", patch: { generateAudio: false } }],
+        };
+    }
+    if (key === "withSubtitle") {
+        return {
+            ...shared,
+            title: "画面内需要字幕吗？",
+            hint: brief.generateAudio ? "字幕会跟随口播，一次只显示一行。" : "无声视频不生成字幕。",
+            options: brief.generateAudio
+                ? [
+                      { label: "开启字幕", patch: { withSubtitle: true } },
+                      { label: "关闭字幕", patch: { withSubtitle: false } },
+                  ]
+                : [{ label: "关闭字幕", patch: { withSubtitle: false } }],
+        };
+    }
+    return {
+        ...shared,
+        title: "这条视频重点展示什么？",
+        hint: "不确定就让 Agent 从产品图提炼，避免客户还要打字。",
+        options: [
+            { label: "Agent 自动提炼", description: "根据产品图选择一个可观察、合规的卖点", patch: { sellingPoint: "根据产品参考图提炼一个可观察、合规的核心卖点" } },
+            { label: "外观与质感", patch: { sellingPoint: "突出产品外观、材质与表面质感" } },
+            { label: "使用方法", patch: { sellingPoint: "清楚展示一次真实使用方法" } },
+            { label: "便携易用", patch: { sellingPoint: "突出便携性与操作便利性" } },
+            { label: "真实场景体验", patch: { sellingPoint: "展示产品在真实生活场景中的自然使用体验" } },
+        ],
+    };
+}
+
+export function agentVideoDraftRequest(brief: CanvasAgentVideoBrief) {
+    return `快捷选项已全部完成。不要重复提问，也不要修改已选参数。请直接读取当前模型能力，先输出简洁中文需求摘要，再输出一条 60–100 个英文词、适配所选模型的完整视频提示词，最后等待我确认。已选需求：${JSON.stringify(cleanBrief(brief))}`;
+}
+
+export function agentVideoConfirmRequest() {
+    return "确认使用刚才展示的完整英文提示词。请调用 canvas_prepare_video，confirmed=true；只准备并选中普通视频节点，不要自动生成视频。";
+}
+
+export function agentVideoBriefSummary(brief: CanvasAgentVideoBrief) {
+    const type = AGENT_VIDEO_TYPE_OPTIONS.find((item) => item.value === brief.videoType)?.label;
+    return [type, brief.market, brief.platform, brief.language, brief.model ? modelOptionName(brief.model) : "", brief.size === "1280x720" ? "横屏" : "竖屏", brief.seconds ? `${brief.seconds} 秒` : "", brief.generateAudio ? "有声" : "无声", brief.withSubtitle ? "有字幕" : "无字幕"].filter(Boolean).join(" · ");
 }
 
 export function mergeCanvasAgentVideoBrief(current: CanvasAgentVideoBrief | undefined, patch: Partial<CanvasAgentVideoBrief>) {
@@ -225,7 +383,7 @@ function sameModelSelection(left: string, right: string) {
     return Boolean(leftCapability && rightCapability && leftCapability.routeFamily === rightCapability.routeFamily);
 }
 
-function agentVideoTypeNeedsCreator(type?: CanvasAgentVideoType) {
+export function agentVideoTypeNeedsCreator(type?: CanvasAgentVideoType) {
     return AGENT_VIDEO_TYPE_OPTIONS.some((item) => item.value === type && item.needsCreator);
 }
 

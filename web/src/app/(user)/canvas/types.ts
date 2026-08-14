@@ -24,6 +24,7 @@ export type CanvasImageGenerationType = "generation" | "edit";
 export type CanvasPromptSourceKind = "user_typed" | "builtin_template" | "agent_generated" | "prompt_library";
 
 export type CanvasAgentVideoType = "product-showcase" | "handsfree-demo" | "creator" | "unboxing" | "tutorial" | "pain-solution" | "testimonial" | "brand-film";
+export type CanvasAgentVideoGuidePhase = "collecting" | "drafting" | "review" | "prepared";
 
 export type CanvasAgentVideoBrief = {
     productNodeId?: string;
@@ -309,6 +310,7 @@ export type CanvasAssistantSession = {
     title: string;
     messages: CanvasAssistantMessage[];
     videoBrief?: CanvasAgentVideoBrief;
+    videoGuidePhase?: CanvasAgentVideoGuidePhase;
     createdAt: string;
     updatedAt: string;
 };

@@ -20,6 +20,7 @@ import { DiaTextReveal } from "@/components/ui/dia-text-reveal";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { CanvasPromptLibrary } from "./canvas-prompt-library";
 import { AgentChatComposer, AgentChatMessage, AgentModeSwitch, AgentPanelTabs, AgentWorkingMessage, type CanvasAgentChatMessage, type CanvasAgentMode } from "./canvas-agent-chat-ui";
+import { CanvasAgentVideoGuideCard } from "./canvas-agent-video-guide-card";
 import { CanvasLocalAgentPanel } from "./canvas-local-agent-panel";
 import { NODE_DEFAULT_SIZE } from "../constants";
 import { CanvasNodeType, type CanvasAgentVideoBrief, type CanvasAssistantMessage, type CanvasAssistantReference, type CanvasAssistantSession, type CanvasNodeData } from "../types";
@@ -29,6 +30,8 @@ import { prepareToolArguments, ToolArgumentValidationError } from "../utils/canv
 import {
     AGENT_VIDEO_TYPE_OPTIONS,
     agentVideoCapabilityCatalog,
+    agentVideoConfirmRequest,
+    agentVideoDraftRequest,
     agentVideoGuideIntro,
     mergeCanvasAgentVideoBrief,
     missingAgentVideoBriefFields,
@@ -79,7 +82,7 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 
 输出规则：
 - 面向用户的解释和规划说明默认用中文；图片提示词默认中文；视频提示词使用英文单段，当地语言只放在引号内的口播台词中。
-- 视频创作只使用纯文本引导，不显示参数卡片。一次只问 1–2 个问题，不重复询问已经确认的信息；每次获得新答案后调用 canvas_update_video_brief 保存白名单字段。
+- 视频引导的类型、人物、市场、平台、语言、比例、模型、时长、声音、字幕和卖点由界面的逐题选择框收集。收到“快捷选项已全部完成”时，禁止重复提问或更改已选参数，直接生成中文摘要和完整英文提示词；只有客户主动补充特殊要求时才继续文字沟通。
 - 引导顺序：先确认视频类型；再确认目标市场、平台和语言；达人出镜或买家证言必须确认独立的人物参考图；再确认横竖屏；然后调用 canvas_get_video_capabilities，并只向用户提供当前能力表中的模型和时长。固定时长直接说明“模型固定”，不要制造无效选择；最后确认声音、字幕和一个核心卖点。
 - 视频类型只能从以下八类选择：${AGENT_VIDEO_TYPE_OPTIONS.map((item) => `${item.label}(${item.value})`).join("、")}。
 - 提示词正文写成 60–100 个英文词的一条连续创作指令：一个清晰主体、一处主要场景、连续动作、镜头与光线、真实产品交互、必要的当地语言口播。10 秒内不超过 3 个可见节拍，不塞入多地点长剧情；不得包含标题、Markdown、时间表、data URL 或 base64。
@@ -412,11 +415,12 @@ export function CanvasAssistantPanel({
 
     useEffect(() => {
         const selectedImages = allSelectedReferences.filter((item) => item.type === CanvasNodeType.Image);
-        if (agentMode !== "online" || !activeSession || activeSession.messages.length || selectedImages.length !== 1) return;
+        if (agentMode !== "online" || !activeSession || selectedImages.length !== 1) return;
         const key = `${activeSession.id}:${selectedImages[0].id}`;
         if (guidedSelectionRef.current === key) return;
         guidedSelectionRef.current = key;
-        updateSession(activeSession.id, (session) => ({ ...session, videoBrief: mergeCanvasAgentVideoBrief(session.videoBrief, { productNodeId: selectedImages[0].id }) }));
+        if (activeSession.videoBrief?.productNodeId === selectedImages[0].id && activeSession.videoGuidePhase) return;
+        updateSession(activeSession.id, (session) => ({ ...session, videoBrief: { productNodeId: selectedImages[0].id }, videoGuidePhase: "collecting" }));
         appendMessage(activeSession.id, { id: nanoid(), role: "assistant", text: agentVideoGuideIntro(), detail: { kind: "video-guide-intro", productCandidateNodeId: selectedImages[0].id } });
     }, [activeSession, agentMode, allSelectedReferences]);
     const addOnlineLog = (title: string, data?: unknown) => setOnlineLogs((prev) => [{ id: nanoid(), time: new Date().toLocaleTimeString(), title, data }, ...prev].slice(0, 80));
@@ -453,6 +457,7 @@ export function CanvasAssistantPanel({
         if (!context) return;
         if (assistantText) context.assistantText = assistantText;
         turnTelemetryRef.current.delete(assistantId);
+        updateSession(context.sessionId, (session) => (session.videoGuidePhase === "drafting" ? { ...session, videoGuidePhase: assistantText ? "review" : "collecting" } : session));
         track("agent_turn", {
             canvasId: context.canvasId,
             userMessageLength: context.userMessageText.length,
@@ -540,11 +545,11 @@ export function CanvasAssistantPanel({
         cleanupImages({ sessions: [session] });
     };
 
-    const sendMessage = async (text: string, history: CanvasAssistantMessage[], savedReferences?: CanvasAssistantReference[]) => {
+    const sendMessage = async (text: string, history: CanvasAssistantMessage[], savedReferences?: CanvasAssistantReference[], detail?: unknown, displayText?: string) => {
         const requestConfig = { ...effectiveConfig, model: effectiveConfig.textModel || effectiveConfig.model };
         if (!isAiConfigReady(requestConfig, requestConfig.model)) {
             openConfigDialog(true);
-            return;
+            return false;
         }
 
         const session = activeSession || createSession();
@@ -555,7 +560,8 @@ export function CanvasAssistantPanel({
         }
 
         const refs = savedReferences || selectedReferences;
-        const userMessage: CanvasAssistantMessage = { id: nanoid(), role: "user", text, references: refs };
+        const requestMessage: CanvasAssistantMessage = { id: nanoid(), role: "user", text, references: refs, detail };
+        const userMessage: CanvasAssistantMessage = displayText ? { ...requestMessage, text: displayText } : requestMessage;
         const assistantId = nanoid();
         turnTelemetryRef.current.set(assistantId, {
             startedAt: Date.now(),
@@ -572,7 +578,8 @@ export function CanvasAssistantPanel({
         addOnlineLog("发送请求", { text, selectedNodeIds: snapshotRef.current.selectedNodeIds, nodeCount: snapshotRef.current.nodes.length, connectionCount: snapshotRef.current.connections.length });
         setPrompt("");
         setIsRunning(true);
-        void runOnlineAgentStep(session.id, assistantId, history, userMessage, { step: 1 });
+        void runOnlineAgentStep(session.id, assistantId, history, requestMessage, { step: 1 });
+        return true;
     };
 
     const runOnlineAgentStep = async (sessionId: string, assistantId: string, history: CanvasAssistantMessage[], userMessage: CanvasAssistantMessage, loop: OnlineLoopContext) => {
@@ -715,7 +722,7 @@ export function CanvasAssistantPanel({
                 const brief = mergeCanvasAgentVideoBrief(previous, readVideoBrief(args.brief));
                 const prepared = onPrepareAgentVideo({ brief, prompt: stringOptional(args.prompt), confirmed: args.confirmed === true });
                 if (!prepared.ok) return { ok: false, message: prepared.error, errorKind: prepared.errorKind };
-                updateSession(sessionId, (session) => ({ ...session, videoBrief: prepared.brief }));
+                updateSession(sessionId, (session) => ({ ...session, videoBrief: prepared.brief, videoGuidePhase: "prepared" }));
                 return { ok: true, message: "视频节点已准备完成。提示词和参考图已写入，请在画布节点检查后点击生成。", data: { kind: "video-prepared", videoNodeId: prepared.videoNodeId, brief: prepared.brief } };
             }
             const ops = markAgentPromptOps(onlineToolToOps(name, args, current, effectiveConfig));
@@ -827,6 +834,38 @@ export function CanvasAssistantPanel({
         await sendMessage(text, messages);
     };
 
+    const chooseVideoGuideOption = (patch: Partial<CanvasAgentVideoBrief>, label: string) => {
+        if (!activeSession || isRunning) return;
+        updateSession(activeSession.id, (session) => ({
+            ...session,
+            videoBrief: mergeCanvasAgentVideoBrief(session.videoBrief, patch),
+            videoGuidePhase: "collecting",
+            updatedAt: new Date().toISOString(),
+        }));
+        addOnlineLog("视频引导选择", { label, patch });
+    };
+
+    const generateVideoGuidePrompt = async () => {
+        if (!activeSession?.videoBrief || isRunning) return;
+        const brief = activeSession.videoBrief;
+        const referenceIds = [brief.creatorNodeId, brief.productNodeId].filter((value): value is string => Boolean(value));
+        const references = buildAssistantReferences(nodes, new Set(referenceIds));
+        if (await sendMessage(agentVideoDraftRequest(brief), messages, references, { kind: "video-guide-draft-request" }, "选项已完成，请生成适配提示词")) {
+            updateSession(activeSession.id, (session) => ({ ...session, videoGuidePhase: "drafting" }));
+        }
+    };
+
+    const confirmVideoGuidePrompt = () => {
+        if (!activeSession || isRunning) return;
+        void sendMessage(agentVideoConfirmRequest(), messages, [], { kind: "video-guide-confirm" }, "确认提示词，准备视频节点");
+    };
+
+    const resetVideoGuide = () => {
+        if (!activeSession?.videoBrief?.productNodeId || isRunning) return;
+        const productNodeId = activeSession.videoBrief.productNodeId;
+        updateSession(activeSession.id, (session) => ({ ...session, videoBrief: { productNodeId }, videoGuidePhase: "collecting" }));
+    };
+
     const addImagesToCanvas = (files: FileList | File[] | null) => {
         const file = Array.from(files || []).find((item) => item.type.startsWith("image/"));
         if (file) onPasteImage(file);
@@ -935,6 +974,20 @@ export function CanvasAssistantPanel({
                                     {message.references?.length ? <MessageReferences message={message} /> : null}
                                 </div>
                             ))}
+                            {activeSession?.videoBrief?.productNodeId ? (
+                                <CanvasAgentVideoGuideCard
+                                    brief={activeSession.videoBrief}
+                                    config={effectiveConfig}
+                                    nodes={nodes}
+                                    phase={activeSession.videoGuidePhase || "collecting"}
+                                    busy={isRunning}
+                                    theme={theme}
+                                    onChoose={chooseVideoGuideOption}
+                                    onGeneratePrompt={() => void generateVideoGuidePrompt()}
+                                    onConfirmPrompt={confirmVideoGuidePrompt}
+                                    onReset={resetVideoGuide}
+                                />
+                            ) : null}
                             {isRunning ? <AgentWorkingMessage theme={theme} /> : null}
                         </>
                     ) : (
@@ -969,7 +1022,7 @@ export function CanvasAssistantPanel({
                     <AgentChatComposer
                         prompt={prompt}
                         sending={isRunning}
-                        placeholder="描述你想让 Agent 如何操作画布"
+                        placeholder={activeSession?.videoBrief?.productNodeId && activeSession.videoGuidePhase !== "prepared" ? "可选：补充特殊要求（也可以直接点选）" : "描述你想让 Agent 如何操作画布"}
                         theme={theme}
                         onPromptChange={setPrompt}
                         onSubmit={submit}
