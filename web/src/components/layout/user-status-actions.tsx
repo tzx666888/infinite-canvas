@@ -2,7 +2,7 @@
 
 import { useEffect, type CSSProperties } from "react";
 import { Avatar, Dropdown } from "antd";
-import { CreditCard, Keyboard, KeyRound, LogIn, LogOut, Settings2 } from "lucide-react";
+import { Keyboard, KeyRound, LogIn, LogOut, Settings2 } from "lucide-react";
 import type { ItemType } from "antd/es/menu/interface";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -96,7 +96,7 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
                     aria-label={`可用积分 ${creditsLabel}`}
                     title="可用积分"
                 >
-                    <CreditCard className="size-3.5" />
+                    <span className="text-sm leading-none" aria-hidden="true">✨</span>
                     <span className="tabular-nums">{creditsLabel}</span>
                     <span className="hidden md:inline">积分</span>
                 </Link>

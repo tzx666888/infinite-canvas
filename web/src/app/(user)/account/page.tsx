@@ -24,7 +24,6 @@ export default function AccountPage() {
     const syncModelsFromKey = useConfigStore((state) => state.syncModelsFromKey);
     const [apiKeys, setApiKeys] = useState<CanvasApiKeySummary[]>([]);
     const [credits, setCredits] = useState(0);
-    const [creditsPerYuan, setCreditsPerYuan] = useState(10);
     const [ledger, setLedger] = useState<CreditLedgerEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [creating, setCreating] = useState(false);
@@ -41,7 +40,6 @@ export default function AccountPage() {
             const [keyResult, wallet] = await Promise.all([fetchCanvasApiKeys(), fetchWallet()]);
             setApiKeys(keyResult.apiKeys);
             setCredits(wallet.credits);
-            setCreditsPerYuan(wallet.creditsPerYuan);
             setLedger(wallet.ledger);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "账户信息读取失败");
@@ -120,18 +118,13 @@ export default function AccountPage() {
                     </Button>
                 </header>
 
-                <section className="grid gap-5 border-y border-stone-200 py-6 dark:border-stone-800 sm:grid-cols-2">
+                <section className="border-y border-stone-200 py-6 dark:border-stone-800">
                     <div>
                         <div className="flex items-center gap-2 text-sm text-stone-500">
                             <CreditCard className="size-4" />
                             可用积分
                         </div>
                         <div className="mt-2 text-3xl font-semibold tabular-nums">{credits}</div>
-                    </div>
-                    <div>
-                        <div className="text-sm text-stone-500">充值换算</div>
-                        <div className="mt-2 text-xl font-semibold">1 元 = {creditsPerYuan} 积分</div>
-                        <div className="mt-1 text-xs text-stone-500">当前由管理员确认收款后充入，所有变动都有流水记录。</div>
                     </div>
                 </section>
 
@@ -194,7 +187,7 @@ export default function AccountPage() {
                                 确认调整
                             </Button>
                         </div>
-                        <p className="mt-2 text-xs text-stone-500">正数为充值，负数为扣减；例如 10 元充值填写 100 积分。</p>
+                        <p className="mt-2 text-xs text-stone-500">正数为充值，负数为扣减。</p>
                     </section>
                 ) : null}
 
