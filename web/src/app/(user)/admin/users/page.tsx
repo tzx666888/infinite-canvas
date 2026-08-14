@@ -177,7 +177,7 @@ export default function UserManagementPage() {
                     rowKey="id"
                     loading={loading}
                     dataSource={users}
-                    pagination={{ pageSize: 15, showSizeChanger: true, pageSizeOptions: [15, 30, 50], showTotal: (total) => `共 ${total} 个用户` }}
+                    pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (total) => `共 ${total} 个用户` }}
                     scroll={{ x: 1120 }}
                     columns={[
                         {

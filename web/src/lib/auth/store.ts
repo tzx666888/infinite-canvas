@@ -457,7 +457,7 @@ export async function listManagedUsers(input: { rootUserId: string; query?: stri
     const query = input.query?.trim().toLocaleLowerCase() || "";
     const rows = database
         .prepare(
-            `SELECT a.*, COUNT(CASE WHEN k.revoked_at IS NULL THEN 1 END) AS active_key_count
+            `SELECT a.*, COUNT(CASE WHEN k.id IS NOT NULL AND k.revoked_at IS NULL THEN 1 END) AS active_key_count
              FROM accounts a
              LEFT JOIN api_keys k ON k.user_id = a.id
              GROUP BY a.id
@@ -504,7 +504,7 @@ export async function updateManagedUser(input: { rootUserId: string; userId: str
         database.prepare(`UPDATE accounts SET ${updates.join(", ")} WHERE id = ?`).run(...values);
         const updated = database
             .prepare(
-                `SELECT a.*, COUNT(CASE WHEN k.revoked_at IS NULL THEN 1 END) AS active_key_count
+                `SELECT a.*, COUNT(CASE WHEN k.id IS NOT NULL AND k.revoked_at IS NULL THEN 1 END) AS active_key_count
                  FROM accounts a LEFT JOIN api_keys k ON k.user_id = a.id
                  WHERE a.id = ? GROUP BY a.id`,
             )

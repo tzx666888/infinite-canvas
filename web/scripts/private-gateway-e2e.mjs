@@ -224,6 +224,7 @@ try {
     assert.equal(rootUserList.response.status, 200, JSON.stringify(rootUserList.body));
     const managedMember = rootUserList.body.users.find((item) => item.username === "invited-user");
     assert.ok(managedMember, "root must see registered users");
+    assert.equal(managedMember.activeKeyCount, 0, "users without keys must report zero active keys");
 
     const memberKeyResult = await requestJson(`${origin}/api/account/keys`, {
         method: "POST",
@@ -239,6 +240,8 @@ try {
     assert.equal(revokeMemberKeys.body.revokedCount, 1);
     const revokedMemberKeyModels = await requestJson(`${origin}/api/gateway/v1/models`, { headers: { Authorization: `Bearer ${memberKeyResult.body.key}` } });
     assert.equal(revokedMemberKeyModels.response.status, 401, "root must be able to revoke a user's active Canvas keys");
+    const userListAfterKeyRevocation = await requestJson(`${origin}/api/admin/users`, { headers: { Cookie: cookie } });
+    assert.equal(userListAfterKeyRevocation.body.users.find((item) => item.username === "invited-user")?.activeKeyCount, 0, "revoked keys must disappear from the active-key count");
 
     const promoteMember = await requestJson(`${origin}/api/admin/users/${managedMember.id}`, {
         method: "PATCH",
