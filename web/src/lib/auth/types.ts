@@ -41,3 +41,24 @@ export type CreditLedgerEntry = {
     remark: string;
     createdAt: string;
 };
+
+export type PaymentMethod = {
+    type: string;
+    name: string;
+};
+
+export type PaymentPackage = {
+    amountYuan: number;
+    credits: number;
+};
+
+export type PaymentOrderSummary = {
+    id: string;
+    status: "pending" | "paid" | "expired";
+    amountYuan: number;
+    credits: number;
+    paymentMethod: string;
+    createdAt: string;
+    paidAt: string | null;
+    expiresAt: string;
+};

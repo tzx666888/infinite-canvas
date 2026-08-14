@@ -97,6 +97,22 @@ export function canvasDatabase() {
             updated_at TEXT NOT NULL
         );
         CREATE UNIQUE INDEX IF NOT EXISTS billing_upstream_task_idx ON billing_transactions(upstream_task_id) WHERE upstream_task_id IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS payment_orders (
+            id TEXT PRIMARY KEY,
+            order_no TEXT NOT NULL UNIQUE,
+            user_id TEXT NOT NULL REFERENCES accounts(id),
+            payment_method TEXT NOT NULL,
+            amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+            credits INTEGER NOT NULL CHECK (credits > 0),
+            status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'expired')),
+            provider_trade_no TEXT,
+            created_at TEXT NOT NULL,
+            paid_at TEXT,
+            expires_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS payment_orders_user_idx ON payment_orders(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS payment_orders_status_idx ON payment_orders(status, expires_at);
     `);
     try {
         database.exec("ALTER TABLE billing_transactions ADD COLUMN upstream_path TEXT");

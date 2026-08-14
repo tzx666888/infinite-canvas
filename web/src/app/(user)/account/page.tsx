@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { App, Button, Input, InputNumber, Modal, Table, Tag } from "antd";
+import { App, Button, Input, InputNumber, Modal, Radio, Table, Tag } from "antd";
 import { Copy, Plus, RefreshCw, ShieldCheck, Trash2, WalletCards } from "lucide-react";
 
-import { adjustAccountCredits, createCanvasApiKey, fetchCanvasApiKeys, fetchWallet, revokeCanvasApiKey } from "@/services/api/auth";
+import { adjustAccountCredits, createCanvasApiKey, createPaymentOrder, fetchCanvasApiKeys, fetchPaymentConfig, fetchPaymentOrder, fetchWallet, revokeCanvasApiKey } from "@/services/api/auth";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
-import type { CanvasApiKeySummary, CreditLedgerEntry } from "@/lib/auth/types";
+import type { CanvasApiKeySummary, CreditLedgerEntry, PaymentMethod, PaymentOrderSummary, PaymentPackage } from "@/lib/auth/types";
 
 const ledgerLabels: Record<CreditLedgerEntry["type"], string> = {
     recharge: "充值",
@@ -33,6 +33,14 @@ export default function AccountPage() {
     const [adjustUsername, setAdjustUsername] = useState("");
     const [adjustAmount, setAdjustAmount] = useState(100);
     const [adjusting, setAdjusting] = useState(false);
+    const [topUpOpen, setTopUpOpen] = useState(false);
+    const [topUpPackages, setTopUpPackages] = useState<PaymentPackage[]>([]);
+    const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+    const [selectedPackage, setSelectedPackage] = useState<number | null>(null);
+    const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("");
+    const [loadingPaymentConfig, setLoadingPaymentConfig] = useState(false);
+    const [creatingPayment, setCreatingPayment] = useState(false);
+    const [pendingPayment, setPendingPayment] = useState<PaymentOrderSummary | null>(null);
 
     const refresh = useCallback(async () => {
         setLoading(true);
@@ -102,17 +110,72 @@ export default function AccountPage() {
         }
     };
 
-    const openCreditTopUp = () => {
-        if (user?.role === "root") {
-            document.getElementById("credit-management")?.scrollIntoView({ behavior: "smooth", block: "center" });
-            return;
+    const openCreditTopUp = async () => {
+        setLoadingPaymentConfig(true);
+        try {
+            const config = await fetchPaymentConfig();
+            setTopUpPackages(config.packages);
+            setPaymentMethods(config.methods);
+            setSelectedPackage(config.packages[0]?.amountYuan || null);
+            setSelectedPaymentMethod(config.methods[0]?.type || "");
+            setTopUpOpen(true);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "在线支付暂时不可用");
+        } finally {
+            setLoadingPaymentConfig(false);
         }
-        modal.info({
-            title: "增加积分",
-            content: "请联系管理员确认充值，到账后积分会自动显示在本页。",
-            okText: "知道了",
-        });
     };
+
+    const submitPaymentForm = (form: { action: string; fields: Record<string, string> }) => {
+        const element = document.createElement("form");
+        element.method = "POST";
+        element.action = form.action;
+        element.target = "canvas-payment";
+        for (const [name, value] of Object.entries(form.fields)) {
+            const input = document.createElement("input");
+            input.type = "hidden";
+            input.name = name;
+            input.value = value;
+            element.appendChild(input);
+        }
+        document.body.appendChild(element);
+        element.submit();
+        element.remove();
+    };
+
+    const beginPayment = async () => {
+        if (!selectedPackage || !selectedPaymentMethod) return message.warning("请选择充值金额和支付方式");
+        const paymentWindow = window.open("about:blank", "canvas-payment", "noopener,noreferrer");
+        setCreatingPayment(true);
+        try {
+            const result = await createPaymentOrder({ amountYuan: selectedPackage, paymentMethod: selectedPaymentMethod });
+            submitPaymentForm(result.form);
+            setPendingPayment(result.order);
+            setTopUpOpen(false);
+            if (!paymentWindow) message.info("支付页面已在当前窗口打开，完成付款后会自动返回账户页。");
+        } catch (error) {
+            paymentWindow?.close();
+            message.error(error instanceof Error ? error.message : "支付订单创建失败");
+        } finally {
+            setCreatingPayment(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!pendingPayment || pendingPayment.status !== "pending") return;
+        const timer = window.setInterval(() => {
+            void fetchPaymentOrder(pendingPayment.id)
+                .then(async ({ order }) => {
+                    setPendingPayment(order.status === "pending" ? order : null);
+                    if (order.status === "paid") {
+                        message.success(`${order.credits} 积分已到账`);
+                        await Promise.all([refresh(), useUserStore.getState().refreshUser()]);
+                    }
+                })
+                .catch(() => undefined);
+        }, 3_000);
+        return () => window.clearInterval(timer);
+    }, [message, pendingPayment, refresh]);
 
     return (
         <main className="h-full overflow-y-auto bg-background px-5 py-8 sm:px-8">
@@ -133,13 +196,15 @@ export default function AccountPage() {
                 <section className="grid gap-5 border-y border-stone-200 py-6 dark:border-stone-800 sm:grid-cols-2">
                     <div>
                         <div className="flex items-center gap-2 text-sm text-stone-500">
-                            <span className="text-base leading-none" aria-hidden="true">✨</span>
+                            <span className="text-base leading-none" aria-hidden="true">
+                                ✨
+                            </span>
                             可用积分
                         </div>
                         <div className="mt-2 text-3xl font-semibold tabular-nums">{credits}</div>
                     </div>
                     <div className="flex items-center sm:justify-end">
-                        <Button type="primary" icon={<Plus className="size-4" />} onClick={openCreditTopUp}>
+                        <Button type="primary" icon={<Plus className="size-4" />} onClick={() => void openCreditTopUp()} loading={loadingPaymentConfig}>
                             增加积分
                         </Button>
                     </div>
@@ -244,6 +309,31 @@ export default function AccountPage() {
                 <div className="flex items-center gap-2 border border-stone-200 bg-stone-50 p-3 font-mono text-sm dark:border-stone-700 dark:bg-stone-900">
                     <span className="min-w-0 flex-1 break-all">{createdKey}</span>
                     <Button type="text" icon={<Copy className="size-4" />} aria-label="复制画布 Key" onClick={() => void navigator.clipboard.writeText(createdKey).then(() => message.success("画布 Key 已复制"))} />
+                </div>
+            </Modal>
+
+            <Modal title="增加积分" open={topUpOpen} onCancel={() => setTopUpOpen(false)} onOk={() => void beginPayment()} okText="去支付" cancelText="取消" confirmLoading={creatingPayment} destroyOnHidden>
+                <div className="space-y-5">
+                    <div>
+                        <div className="mb-2 text-sm text-stone-500">充值金额</div>
+                        <Radio.Group value={selectedPackage} onChange={(event) => setSelectedPackage(event.target.value)} className="flex flex-wrap gap-2">
+                            {topUpPackages.map((item) => (
+                                <Radio.Button key={item.amountYuan} value={item.amountYuan}>
+                                    {item.credits.toLocaleString()} 积分 · ¥{item.amountYuan}
+                                </Radio.Button>
+                            ))}
+                        </Radio.Group>
+                    </div>
+                    <div>
+                        <div className="mb-2 text-sm text-stone-500">支付方式</div>
+                        <Radio.Group value={selectedPaymentMethod} onChange={(event) => setSelectedPaymentMethod(event.target.value)} className="flex flex-wrap gap-2">
+                            {paymentMethods.map((method) => (
+                                <Radio.Button key={method.type} value={method.type}>
+                                    {method.name}
+                                </Radio.Button>
+                            ))}
+                        </Radio.Group>
+                    </div>
                 </div>
             </Modal>
         </main>

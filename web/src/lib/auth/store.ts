@@ -3,10 +3,11 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { AuthError } from "./auth-error.ts";
 import { canvasDatabase, withImmediateTransaction, type CanvasDatabase } from "./database.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
-import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary } from "./types.ts";
+import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, PaymentOrderSummary } from "./types.ts";
 
 type AccountRow = Record<string, unknown>;
 type ApiKeyIdentity = { keyId: string; user: AuthUser };
+type PaymentOrderRow = Record<string, unknown>;
 
 export type CreatedCanvasApiKey = { key: string; apiKey: CanvasApiKeySummary };
 export type CreditReservation = { requestId: string; amount: number; status: "reserved" | "submitted" | "settled" | "refunded" };
@@ -109,6 +110,19 @@ function toApiKeySummary(row: AccountRow): CanvasApiKeySummary {
     };
 }
 
+function toPaymentOrderSummary(row: PaymentOrderRow): PaymentOrderSummary {
+    return {
+        id: String(row.id),
+        status: row.status === "paid" ? "paid" : row.status === "expired" ? "expired" : "pending",
+        amountYuan: Number(row.amount_cents) / 100,
+        credits: Number(row.credits),
+        paymentMethod: String(row.payment_method),
+        createdAt: String(row.created_at),
+        paidAt: row.paid_at ? String(row.paid_at) : null,
+        expiresAt: String(row.expires_at),
+    };
+}
+
 export async function ensureBootstrapRoot() {
     const usernameInput = process.env.CANVAS_BOOTSTRAP_ROOT_USERNAME?.trim();
     const passwordInput = process.env.CANVAS_BOOTSTRAP_ROOT_PASSWORD || "";
@@ -160,7 +174,18 @@ export async function claimExternalAccount(input: { id: number; username: string
                 .prepare(`UPDATE accounts SET username = ?, display_name = ?, role = ?, provider = 'migrated', external_id = ?, password_hash = ?, credits = ?, status = 'active', updated_at = ?, last_login_at = ? WHERE id = ?`)
                 .run(username, input.displayName.trim() || username, role, externalId, passwordHash, nextCredits, timestamp, timestamp, existing.id);
             if (migrationCredits) insertLedger(database, { userId: String(existing.id), type: "migration_credit", amount: migrationCredits, balanceAfter: nextCredits, remark: "旧账户首次迁移积分" });
-            return toAuthUser({ ...existing, username, display_name: input.displayName.trim() || username, role, provider: "migrated", external_id: externalId, password_hash: passwordHash, credits: nextCredits, updated_at: timestamp, last_login_at: timestamp });
+            return toAuthUser({
+                ...existing,
+                username,
+                display_name: input.displayName.trim() || username,
+                role,
+                provider: "migrated",
+                external_id: externalId,
+                password_hash: passwordHash,
+                credits: nextCredits,
+                updated_at: timestamp,
+                last_login_at: timestamp,
+            });
         }
         const id = randomUUID();
         database
@@ -292,6 +317,93 @@ export async function walletSummary(userId: string) {
     if (!account) throw new AuthError("账户不存在", 404);
     const ledger = database.prepare("SELECT * FROM credit_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT 100").all(userId).map(toLedgerEntry);
     return { credits: Number(account.credits), creditsPerYuan: 10, ledger };
+}
+
+function expirePendingPaymentOrders(database: CanvasDatabase) {
+    database.prepare("UPDATE payment_orders SET status = 'expired', updated_at = ? WHERE status = 'pending' AND expires_at <= ?").run(now(), now());
+}
+
+function createPaymentOrderNo() {
+    return `VCP${randomUUID().replace(/-/g, "").slice(0, 25).toUpperCase()}`;
+}
+
+export type CreatedPaymentOrder = {
+    order: PaymentOrderSummary;
+    orderNo: string;
+    amountCents: number;
+};
+
+export function createPaymentOrder(input: { userId: string; amountYuan: number; credits: number; paymentMethod: string }): CreatedPaymentOrder {
+    const amountYuan = Math.floor(input.amountYuan);
+    const credits = Math.floor(input.credits);
+    if (!Number.isInteger(amountYuan) || amountYuan < 1 || !Number.isInteger(credits) || credits < 1) throw new AuthError("充值金额不正确");
+    return withImmediateTransaction((database) => {
+        const account = database.prepare("SELECT id FROM accounts WHERE id = ? AND status = 'active'").get(input.userId);
+        if (!account) throw new AuthError("账户不存在", 404);
+        expirePendingPaymentOrders(database);
+        const existing = database
+            .prepare("SELECT * FROM payment_orders WHERE user_id = ? AND payment_method = ? AND amount_cents = ? AND credits = ? AND status = 'pending' AND expires_at > ? ORDER BY created_at DESC LIMIT 1")
+            .get(input.userId, input.paymentMethod, amountYuan * 100, credits, now());
+        if (existing) return { order: toPaymentOrderSummary(existing), orderNo: String(existing.order_no), amountCents: Number(existing.amount_cents) };
+
+        const timestamp = now();
+        const row = {
+            id: randomUUID(),
+            order_no: createPaymentOrderNo(),
+            user_id: input.userId,
+            payment_method: input.paymentMethod,
+            amount_cents: amountYuan * 100,
+            credits,
+            status: "pending",
+            created_at: timestamp,
+            paid_at: null,
+            expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+            updated_at: timestamp,
+        };
+        database
+            .prepare("INSERT INTO payment_orders (id, order_no, user_id, payment_method, amount_cents, credits, status, created_at, paid_at, expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run(row.id, row.order_no, row.user_id, row.payment_method, row.amount_cents, row.credits, row.status, row.created_at, row.paid_at, row.expires_at, row.updated_at);
+        return { order: toPaymentOrderSummary(row), orderNo: row.order_no, amountCents: row.amount_cents };
+    });
+}
+
+export function getPaymentOrderForUser(userId: string, orderId: string) {
+    return withImmediateTransaction((database) => {
+        expirePendingPaymentOrders(database);
+        const order = database.prepare("SELECT * FROM payment_orders WHERE id = ? AND user_id = ?").get(orderId, userId);
+        if (!order) throw new AuthError("充值订单不存在", 404);
+        return toPaymentOrderSummary(order);
+    });
+}
+
+export function completePaymentOrder(input: { orderNo: string; amountCents: number; providerTradeNo?: string }) {
+    return withImmediateTransaction((database) => {
+        const order = database.prepare("SELECT * FROM payment_orders WHERE order_no = ?").get(input.orderNo);
+        if (!order) throw new AuthError("充值订单不存在", 404);
+        if (Number(order.amount_cents) !== input.amountCents) throw new AuthError("充值金额校验失败", 400, "payment_amount_mismatch");
+        if (order.status === "paid") return { order: toPaymentOrderSummary(order), newlyPaid: false };
+        if (order.status !== "pending" && order.status !== "expired") throw new AuthError("充值订单已失效", 409, "payment_order_expired");
+
+        const timestamp = now();
+        const update = database
+            .prepare("UPDATE payment_orders SET status = 'paid', provider_trade_no = ?, paid_at = ?, updated_at = ? WHERE id = ? AND status IN ('pending', 'expired')")
+            .run(input.providerTradeNo?.slice(0, 128) || null, timestamp, timestamp, order.id);
+        if (!Number(update.changes)) {
+            const refreshed = database.prepare("SELECT * FROM payment_orders WHERE id = ?").get(order.id);
+            return { order: toPaymentOrderSummary(refreshed || order), newlyPaid: false };
+        }
+        database.prepare("UPDATE accounts SET credits = credits + ?, updated_at = ? WHERE id = ?").run(Number(order.credits), timestamp, order.user_id);
+        const balance = Number(database.prepare("SELECT credits FROM accounts WHERE id = ?").get(order.user_id)?.credits || 0);
+        insertLedger(database, {
+            userId: String(order.user_id),
+            type: "recharge",
+            amount: Number(order.credits),
+            balanceAfter: balance,
+            requestId: `payment:${String(order.id)}`,
+            remark: "在线支付充值",
+        });
+        return { order: toPaymentOrderSummary({ ...order, status: "paid", provider_trade_no: input.providerTradeNo || null, paid_at: timestamp, updated_at: timestamp }), newlyPaid: true };
+    });
 }
 
 export async function adjustUserCredits(input: { rootUserId: string; username: string; amount: number; remark?: string }) {

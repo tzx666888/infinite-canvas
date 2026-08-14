@@ -1,4 +1,4 @@
-import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary } from "@/lib/auth/types";
+import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, PaymentMethod, PaymentOrderSummary, PaymentPackage } from "@/lib/auth/types";
 
 type AuthResponse = { user: AuthUser };
 
@@ -75,4 +75,16 @@ export async function fetchWallet() {
 
 export async function adjustAccountCredits(input: { username: string; amount: number; remark?: string }) {
     return requestAuth<{ user: AuthUser; credits: number }>("/api/admin/credits", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function fetchPaymentConfig() {
+    return requestAuth<{ enabled: boolean; methods: PaymentMethod[]; packages: PaymentPackage[] }>("/api/account/payments/config");
+}
+
+export async function createPaymentOrder(input: { amountYuan: number; paymentMethod: string }) {
+    return requestAuth<{ order: PaymentOrderSummary; form: { action: string; fields: Record<string, string> } }>("/api/account/payments/orders", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function fetchPaymentOrder(orderId: string) {
+    return requestAuth<{ order: PaymentOrderSummary }>(`/api/account/payments/orders/${encodeURIComponent(orderId)}`);
 }

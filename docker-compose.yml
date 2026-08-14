@@ -1,11 +1,12 @@
 services:
   app:
-    image: infinite-canvas:v3.0.87
+    image: infinite-canvas:v3.0.88
     container_name: infinite-canvas
     network_mode: host
     env_file:
       - /opt/infinite-canvas-secrets/tokaxis-canvas-proxy.env
       - /opt/infinite-canvas-secrets/canvas-auth.env
+      - /opt/infinite-canvas-secrets/canvas-payment.env
     environment:
       PORT: "3100"
       TOKAXIS_INTERNAL_ORIGIN: "http://127.0.0.1:3000"
