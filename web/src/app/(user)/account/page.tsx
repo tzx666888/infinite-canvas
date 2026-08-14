@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { App, Button, Input, InputNumber, Modal, Table, Tag } from "antd";
-import { Copy, CreditCard, Plus, RefreshCw, ShieldCheck, Trash2, WalletCards } from "lucide-react";
+import { Copy, Plus, RefreshCw, ShieldCheck, Trash2, WalletCards } from "lucide-react";
 
 import { adjustAccountCredits, createCanvasApiKey, fetchCanvasApiKeys, fetchWallet, revokeCanvasApiKey } from "@/services/api/auth";
 import { useConfigStore } from "@/stores/use-config-store";
@@ -102,6 +102,18 @@ export default function AccountPage() {
         }
     };
 
+    const openCreditTopUp = () => {
+        if (user?.role === "root") {
+            document.getElementById("credit-management")?.scrollIntoView({ behavior: "smooth", block: "center" });
+            return;
+        }
+        modal.info({
+            title: "增加积分",
+            content: "请联系管理员确认充值，到账后积分会自动显示在本页。",
+            okText: "知道了",
+        });
+    };
+
     return (
         <main className="h-full overflow-y-auto bg-background px-5 py-8 sm:px-8">
             <div className="mx-auto max-w-5xl space-y-9">
@@ -118,13 +130,18 @@ export default function AccountPage() {
                     </Button>
                 </header>
 
-                <section className="border-y border-stone-200 py-6 dark:border-stone-800">
+                <section className="grid gap-5 border-y border-stone-200 py-6 dark:border-stone-800 sm:grid-cols-2">
                     <div>
                         <div className="flex items-center gap-2 text-sm text-stone-500">
-                            <CreditCard className="size-4" />
+                            <span className="text-base leading-none" aria-hidden="true">✨</span>
                             可用积分
                         </div>
                         <div className="mt-2 text-3xl font-semibold tabular-nums">{credits}</div>
+                    </div>
+                    <div className="flex items-center sm:justify-end">
+                        <Button type="primary" icon={<Plus className="size-4" />} onClick={openCreditTopUp}>
+                            增加积分
+                        </Button>
                     </div>
                 </section>
 
@@ -175,7 +192,7 @@ export default function AccountPage() {
                 </section>
 
                 {user?.role === "root" ? (
-                    <section className="border-y border-stone-200 py-6 dark:border-stone-800">
+                    <section id="credit-management" className="border-y border-stone-200 py-6 dark:border-stone-800">
                         <div className="mb-4 flex items-center gap-2">
                             <ShieldCheck className="size-4" />
                             <h2 className="text-lg font-semibold">积分管理</h2>
