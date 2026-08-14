@@ -52,6 +52,7 @@ type SubmitImageJobInput = {
     body: ArrayBuffer;
     billingRequestId?: string;
     userId: string;
+    attributionHeaders?: Record<string, string>;
 };
 
 type ImageOutputSource = {
@@ -237,6 +238,7 @@ async function executeImageJob(job: StoredImageJob, input: SubmitImageJobInput, 
                 Authorization: input.authorization,
                 "Content-Type": input.contentType,
                 "Accept-Encoding": "identity",
+                ...(input.attributionHeaders || {}),
             },
             body: new Uint8Array(input.body),
             cache: "no-store",

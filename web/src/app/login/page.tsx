@@ -86,6 +86,7 @@ export default function LoginPage() {
                             ]}
                         />
                     </Form.Item>
+                    {mode === "register" ? <p className="-mt-2 mb-4 text-center text-sm text-stone-500 dark:text-stone-400">获取邀请码 QQ：2119159600</p> : null}
                     <Form.Item name="username" label="用户名" rules={[{ required: true, message: "请输入用户名" }]}>
                         <Input prefix={<UserRound className="size-4" />} autoComplete="username" placeholder={mode === "login" ? "输入用户名" : "3-32 位小写字母、数字或 _ -"} />
                     </Form.Item>

@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { authErrorResponse } from "@/lib/auth/auth-error";
+import { buildCanvasAttributionHeaders } from "@/lib/gateway/attribution";
 import { currentAuthUser } from "@/lib/auth/route-utils";
 import { authenticateCanvasApiKey } from "@/lib/auth/store";
 import { refundGatewayReservation, reserveGatewayRequest, type GatewayReservation } from "@/lib/gateway/billing";
@@ -44,6 +45,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
             body: await request.arrayBuffer(),
             billingRequestId: reservation?.requestId,
             userId: identity.user.id,
+            attributionHeaders: Object.fromEntries(buildCanvasAttributionHeaders({ userId: identity.user.id, username: identity.user.username }, `image:${identity.user.id}:${jobId}`).entries()),
         });
         // The persisted image job now owns settlement/refund for this reservation.
         reservation = null;

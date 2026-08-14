@@ -6,6 +6,7 @@ import type { NextRequest } from "next/server";
 import { AuthError, authErrorResponse } from "../../../../lib/auth/auth-error.ts";
 import { authenticateCanvasApiKey } from "../../../../lib/auth/store.ts";
 import { ensureGatewayTaskReconciler, finalizeGatewayResponse, publicModelPrices, reconcileGatewayTaskResponse, refundGatewayReservation, reserveGatewayRequest, settleGatewayReservation, type GatewayReservation } from "../../../../lib/gateway/billing.ts";
+import { buildCanvasAttributionHeaders } from "../../../../lib/gateway/attribution.ts";
 import { sanitizeGatewayErrorResponse } from "../../../../lib/gateway/errors.ts";
 import { storeTemporaryMediaDataUrl } from "../../../../lib/temporary-media.ts";
 
@@ -26,7 +27,26 @@ const FORWARDED_PATHS = [
     /^v1\/contents\/generations\/tasks(?:\/[^/]+)?$/,
     /^v1\/models$/,
 ];
-const STRIPPED_REQUEST_HEADERS = ["accept-encoding", "authorization", "x-tokaxis-api-key", "cookie", "host", "content-length", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"];
+const STRIPPED_REQUEST_HEADERS = [
+    "accept-encoding",
+    "authorization",
+    "x-tokaxis-api-key",
+    "x-canvas-user-id",
+    "x-canvas-username",
+    "x-canvas-attribution",
+    "x-canvas-request-id",
+    "cookie",
+    "host",
+    "content-length",
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+];
 const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "content-length", "transfer-encoding", "x-oneapi-request-id", "x-oneapi-node", "x-oneapi-version"];
 const GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE = "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
 const TOKAXIS_ASYNC_VIDEO_MODELS = new Set(["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimax-h3-c4"]);
@@ -71,20 +91,19 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         STRIPPED_REQUEST_HEADERS.forEach((name) => headers.delete(name));
         headers.set("Authorization", authorization);
         headers.set("Accept-Encoding", "identity");
-        headers.set("X-Canvas-User-Id", identity.user.id);
-        headers.set("X-Canvas-Username", identity.user.username);
-        headers.set("X-Canvas-Request-Id", request.headers.get("x-canvas-request-id")?.trim() || randomUUID());
+        const canvasRequestId = request.headers.get("x-canvas-request-id")?.trim() || randomUUID();
+        buildCanvasAttributionHeaders({ userId: identity.user.id, username: identity.user.username }, canvasRequestId).forEach((value, key) => headers.set(key, value));
 
         let videoModel = "";
         if (request.method === "POST" && path === "v1/videos/generations") {
             videoModel = await videoGenerationRequestModel(request);
             if (!isTokaxisAsyncVideoModel(videoModel)) {
-                if (isTokaxisLegacyGrokVideoModel(videoModel)) return finishGatewayResponse(await proxyLegacyGrokVideoGeneration(request, authorization), reservation);
+                if (isTokaxisLegacyGrokVideoModel(videoModel)) return finishGatewayResponse(await proxyLegacyGrokVideoGeneration(request, authorization, headers), reservation);
                 return finishGatewayResponse(Response.json({ error: { code: "unsupported_video_model", message: `视频模型 ${videoModel || "(空)"} 不支持此生成接口` } }, { status: 400 }), reservation);
             }
         }
         const legacyVideoTaskId = request.method === "GET" ? /^v1\/videos\/([^/]+)$/.exec(path)?.[1] : undefined;
-        if (legacyVideoTaskId && legacyGrokVideoTaskIds.has(legacyVideoTaskId)) return reconcileGatewayTaskResponse(path, await proxyLegacyGrokVideoPoll(upstreamUrl, authorization, legacyVideoTaskId));
+        if (legacyVideoTaskId && legacyGrokVideoTaskIds.has(legacyVideoTaskId)) return reconcileGatewayTaskResponse(path, await proxyLegacyGrokVideoPoll(upstreamUrl, authorization, legacyVideoTaskId, headers));
 
         let body: ArrayBuffer | undefined;
         try {
@@ -129,9 +148,10 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
 async function filterPublicModelCatalog(upstreamResponse: Response, responseHeaders: Headers) {
     const payload = await upstreamResponse.json().catch(() => null);
     const allowedModels = new Set(Object.keys(publicModelPrices()).map((model) => model.toLowerCase()));
-    const data = payload && typeof payload === "object" && "data" in payload && Array.isArray((payload as { data?: unknown }).data)
-        ? (payload as { data: unknown[] }).data.filter((item) => item && typeof item === "object" && typeof (item as { id?: unknown }).id === "string" && allowedModels.has((item as { id: string }).id.toLowerCase()))
-        : [];
+    const data =
+        payload && typeof payload === "object" && "data" in payload && Array.isArray((payload as { data?: unknown }).data)
+            ? (payload as { data: unknown[] }).data.filter((item) => item && typeof item === "object" && typeof (item as { id?: unknown }).id === "string" && allowedModels.has((item as { id: string }).id.toLowerCase()))
+            : [];
     const filteredPayload = payload && typeof payload === "object" && !Array.isArray(payload) ? { ...(payload as Record<string, unknown>), data } : { object: "list", data };
     responseHeaders.set("Content-Type", "application/json; charset=utf-8");
     return new Response(JSON.stringify(filteredPayload), { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: responseHeaders });
@@ -192,7 +212,7 @@ function isTokaxisLegacyGrokVideoModel(model: string) {
     return TOKAXIS_LEGACY_GROK_VIDEO_MODELS.has(model.trim().toLowerCase().split("::").at(-1) || "");
 }
 
-async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorization: string) {
+async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorization: string, upstreamHeaders: Headers) {
     try {
         const payload = (await request.json()) as LegacyGrokVideoPayload;
         if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("视频请求必须是 JSON 对象");
@@ -226,7 +246,7 @@ async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorizatio
         };
 
         try {
-            const { upstreamResponse, responseText, attempt } = await postLegacyGrokVideoJson(body, authorization);
+            const { upstreamResponse, responseText, attempt } = await postLegacyGrokVideoJson(body, authorization, upstreamHeaders);
             if (!upstreamResponse.ok) {
                 console.error("[tokaxis-proxy] legacy video upstream failed", {
                     status: upstreamResponse.status,
@@ -263,15 +283,18 @@ function videoSubmissionUnknownResponse(upstreamStatus?: number) {
     return Response.json({ error: { code: "video_submission_result_unknown", message, ...(upstreamStatus ? { upstream_status: upstreamStatus } : {}) } }, { status: 424 });
 }
 
-async function postLegacyGrokVideoJson(body: Record<string, unknown>, authorization: string) {
+async function postLegacyGrokVideoJson(body: Record<string, unknown>, authorization: string, upstreamHeaders: Headers) {
     const upstreamUrl = new URL(`${UPSTREAM_ORIGIN}/v1/videos`);
     const requestBody = JSON.stringify(body);
     // Creating a video is billable and the upstream contract has no shared
     // idempotency key. A timeout/disconnect/5xx can occur after the task was
     // accepted, so this proxy must never create a second task automatically.
+    const headers = new Headers(upstreamHeaders);
+    headers.set("Authorization", authorization);
+    headers.set("Content-Type", "application/json");
     const upstreamResponse = await fetch(upstreamUrl, {
         method: "POST",
-        headers: { Authorization: authorization, "Content-Type": "application/json" },
+        headers,
         body: requestBody,
         cache: "no-store",
     });
@@ -301,8 +324,10 @@ function isNonRetryableGrokVideoCapacityFailure(text: string) {
     );
 }
 
-async function proxyLegacyGrokVideoPoll(upstreamUrl: URL, authorization: string, taskId: string) {
-    const upstreamResponse = await fetch(upstreamUrl, { method: "GET", headers: { Authorization: authorization }, cache: "no-store" });
+async function proxyLegacyGrokVideoPoll(upstreamUrl: URL, authorization: string, taskId: string, upstreamHeaders: Headers) {
+    const headers = new Headers(upstreamHeaders);
+    headers.set("Authorization", authorization);
+    const upstreamResponse = await fetch(upstreamUrl, { method: "GET", headers, cache: "no-store" });
     const responseText = await upstreamResponse.text();
     const payload = parseJson(responseText);
     if (!payload) return new Response(responseText, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: jsonResponseHeaders(upstreamResponse.headers) });
