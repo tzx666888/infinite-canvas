@@ -5,14 +5,14 @@ import { hasWorkbenchSpokenScript, VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/v
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 import { NODE_DEFAULT_SIZE } from "../constants";
-import { CanvasNodeType, type CanvasAgentVideoBrief, type CanvasAgentVideoType, type CanvasNodeData } from "../types";
+import { CanvasNodeType, type CanvasAgentVideoBrief, type CanvasAgentVideoGuidePhase, type CanvasAgentVideoType, type CanvasNodeData } from "../types";
 import type { CanvasAgentOp, CanvasAgentSnapshot } from "./canvas-agent-ops";
 import { availableAgentVideoModels, selectedAgentVideoModel, type AvailableAgentVideoModel } from "./agent-video-models";
 import { nodeSizeFromRatio } from "./canvas-node-size";
 import { resolveReferenceImageVideoConfig } from "./video-reference-model";
 
 export const AGENT_VIDEO_TYPE_OPTIONS: ReadonlyArray<{ value: CanvasAgentVideoType; label: string; description?: string; needsCreator?: boolean }> = [
-    { value: "creator", label: "达人出镜", description: "带货推荐 · 需要人物图", needsCreator: true },
+    { value: "creator", label: "达人出镜（选参考模特）", description: "带货推荐 · 下一步从画布选择模特图", needsCreator: true },
     { value: "handsfree-demo", label: "手部演示", description: "只出现双手与产品" },
     { value: "product-showcase", label: "纯产品展示", description: "不出现人物" },
     { value: "unboxing", label: "开箱", description: "拆包装并展示产品" },
@@ -34,6 +34,11 @@ export type PrepareCanvasAgentVideoResult =
 
 export function agentVideoGuideIntro() {
     return "产品参考图已锁定。接下来每次只需点选一项，不用打字；选完后我会按模型能力生成可直接使用的视频提示词。";
+}
+
+export function shouldRestartAgentVideoGuide(brief: CanvasAgentVideoBrief | undefined, phase: CanvasAgentVideoGuidePhase | undefined, text: string) {
+    if (!brief?.productNodeId || !isAgentVideoCreationRequest(text)) return false;
+    return phase === "prepared" || missingAgentVideoBriefFields(brief).length === 0;
 }
 
 export type CanvasAgentVideoGuideOption = {
@@ -96,11 +101,11 @@ export function nextAgentVideoGuideQuestion(config: AiConfig, brief: CanvasAgent
         return {
             ...shared,
             title: "想做哪种视频？",
-            hint: "真人带货优先选“达人出镜”；不想出现人物时再选“纯产品展示”。",
+            hint: "真人带货优先选“达人出镜（选参考模特）”；不想出现人物时再选“纯产品展示”。",
             options: AGENT_VIDEO_TYPE_OPTIONS.map((item) => ({ label: item.label, description: item.description, patch: { videoType: item.value } })),
         };
     }
-    if (key === "creatorNodeId") return { ...shared, title: "选择出镜人物", hint: "人物图与产品图会分别锁定，避免模型把两者混在一起。", options: [] };
+    if (key === "creatorNodeId") return { ...shared, title: "选择参考模特", hint: "产品图已锁定。请从画布选一张模特图，最终会按模特→产品作为两张参考图。", options: [] };
     if (key === "market") return { ...shared, title: "投放哪个市场？", hint: "市场会决定语言、平台习惯和表达方式。", options: MARKET_OPTIONS.map((value) => ({ label: value, patch: { market: value } })) };
     if (key === "platform") {
         const values = PLATFORM_OPTIONS[brief.market || ""] || PLATFORM_OPTIONS.default;
@@ -275,6 +280,12 @@ export function missingAgentVideoBriefFields(brief: CanvasAgentVideoBrief) {
     if (brief.withSubtitle === undefined) missing.push("字幕开关");
     if (!brief.sellingPoint) missing.push("核心卖点");
     return missing;
+}
+
+function isAgentVideoCreationRequest(text: string) {
+    const value = text.trim();
+    if (!value || /提示词|脚本|分镜|怎么|为什么|分析/.test(value)) return false;
+    return /(?:生成|制作|创建|做|拍|来(?:个|一条)?|帮我).{0,32}(?:带货|商品|营销)?视频|(?:带货|商品|营销).{0,12}视频/.test(value);
 }
 
 export function validateAgentVideoReferences(snapshot: CanvasAgentSnapshot, brief: CanvasAgentVideoBrief) {

@@ -35,6 +35,7 @@ import {
     agentVideoGuideIntro,
     mergeCanvasAgentVideoBrief,
     missingAgentVideoBriefFields,
+    shouldRestartAgentVideoGuide,
     validateAgentVideoReferences,
     type PrepareCanvasAgentVideoInput,
     type PrepareCanvasAgentVideoResult,
@@ -83,7 +84,7 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 输出规则：
 - 面向用户的解释和规划说明默认用中文；图片提示词默认中文；视频提示词使用英文单段，当地语言只放在引号内的口播台词中。
 - 视频引导的类型、人物、市场、平台、语言、比例、模型、时长、声音、字幕和卖点由界面的逐题选择框收集。收到“快捷选项已全部完成”时，禁止重复提问或更改已选参数，直接生成中文摘要和完整英文提示词；只有客户主动补充特殊要求时才继续文字沟通。
-- 引导顺序：先确认视频类型；明确带货默认推荐“达人出镜”，并要求独立人物参考图；“纯产品展示”必须明确说明不会出现人物。再确认目标市场、平台和语言；达人出镜或买家证言必须确认独立的人物参考图；再确认横竖屏；然后调用 canvas_get_video_capabilities，并只向用户提供当前能力表中的模型和时长。固定时长直接说明“模型固定”，不要制造无效选择；最后确认声音、字幕和一个核心卖点。
+- 引导顺序：先确认视频类型；明确带货默认推荐“达人出镜（选参考模特）”，并要求独立人物参考图；“纯产品展示”必须明确说明不会出现人物。再确认目标市场、平台和语言；达人出镜或买家证言必须确认独立的人物参考图；再确认横竖屏；然后调用 canvas_get_video_capabilities，并只向用户提供当前能力表中的模型和时长。固定时长直接说明“模型固定”，不要制造无效选择；最后确认声音、字幕和一个核心卖点。
 - 视频类型只能从以下八类选择：${AGENT_VIDEO_TYPE_OPTIONS.map((item) => `${item.label}(${item.value})`).join("、")}。
 - 提示词正文写成 45–85 个英文词的一条连续创作指令，由系统补齐模型、参考图角色和身份约束后，最终发给视频模型的完整提示词必须保持 90–170 个英文词：一个清晰主体、一处主要场景、连续动作、镜头与光线、真实产品交互。10 秒内不超过 3 个可见节拍，不塞入多地点长剧情；不得包含标题、Markdown、时间表、data URL 或 base64。
 - 创意按类型适配：产品展示/品牌广告强调产品立即可见、身份细节和 hero shot；手部/教程/开箱强调一次真实操作及物理接触；达人/证言强调同一成年人物、服装、声音和自然体验；痛点解决只使用客户明确提供的问题，不编造功效、评价或夸张前后对比。商业短片优先“钩子→一次演示→产品特写/柔和 CTA”。
@@ -828,9 +829,22 @@ export function CanvasAssistantPanel({
         if (session) upsertMessage(session.id, { id: messageId, role: "tool", title: "已拒绝执行", text: "工具调用已取消", detail: { ...detail, status: "rejected" } });
     };
 
+    const restartVideoGuideForNewRequest = (text: string) => {
+        if (!activeSession || isRunning || !shouldRestartAgentVideoGuide(activeSession.videoBrief, activeSession.videoGuidePhase, text)) return false;
+        const productNodeId = activeSession.videoBrief?.productNodeId;
+        if (!productNodeId) return false;
+        updateSession(activeSession.id, (session) => ({ ...session, videoBrief: { productNodeId }, videoGuidePhase: "collecting" }));
+        appendMessage(activeSession.id, { id: nanoid(), role: "user", text });
+        appendMessage(activeSession.id, { id: nanoid(), role: "assistant", text: "已为这次新视频重新开始选择。先选视频类型；选择“达人出镜（选参考模特）”后，会立即出现画布中的模特图供你点选。", detail: { kind: "video-guide-restart", productCandidateNodeId: productNodeId } });
+        addOnlineLog("重新开始视频引导", { productNodeId, text });
+        setPrompt("");
+        return true;
+    };
+
     const submit = async () => {
         const text = prompt.trim();
         if (!text || isRunning) return;
+        if (restartVideoGuideForNewRequest(text)) return;
         await sendMessage(text, messages);
     };
 

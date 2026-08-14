@@ -13,7 +13,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useCanvasAgentStore, type AgentAttachment, type AgentChatItem, type AgentEventLog, type AgentPanelTab, type AgentPendingToolCall, type AgentThreadSummary } from "../stores/use-canvas-agent-store";
 import { summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
-import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, agentVideoGuideIntro, mergeCanvasAgentVideoBrief, missingAgentVideoBriefFields, validateAgentVideoReferences, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
+import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, agentVideoGuideIntro, mergeCanvasAgentVideoBrief, missingAgentVideoBriefFields, shouldRestartAgentVideoGuide, validateAgentVideoReferences, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
 import { CanvasNodeType, type CanvasAgentVideoBrief, type CanvasAgentVideoGuidePhase } from "../types";
 import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
 import { CanvasAgentVideoGuideCard } from "./canvas-agent-video-guide-card";
@@ -234,6 +234,21 @@ export function CanvasLocalAgentPanel({
         const files = fileOverride || (textOverride === undefined ? attachments : []);
         const requestPrompt = promptWithAttachments(text, files);
         if (!connected || !requestPrompt || sending || waiting) return;
+        if (textOverride === undefined && shouldRestartAgentVideoGuide(videoBriefRef.current, videoGuidePhaseRef.current, text)) {
+            const productNodeId = videoBriefRef.current.productNodeId;
+            if (!productNodeId) return;
+            updateVideoBrief({ productNodeId });
+            updateVideoGuidePhase("collecting");
+            addMessage({ role: "user", text });
+            addMessage({ role: "assistant", text: "已为这次新视频重新开始选择。先选视频类型；选择“达人出镜（选参考模特）”后，会立即出现画布中的模特图供你点选。", detail: { kind: "video-guide-restart", productCandidateNodeId: productNodeId } });
+            addEventLog("重新开始视频引导", { productNodeId, text });
+            files.forEach((item) => {
+                URL.revokeObjectURL(item.url);
+                attachmentUrlsRef.current.delete(item.url);
+            });
+            setAgentState({ prompt: "", attachments: [] });
+            return;
+        }
         if (attachmentPayloadBytes(files) > MAX_ATTACHMENT_PAYLOAD_BYTES) {
             addMessage({ role: "error", title: "图片过大", text: "图片附件超过 30MB，请删减后再发送。" });
             return;

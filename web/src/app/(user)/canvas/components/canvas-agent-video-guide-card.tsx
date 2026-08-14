@@ -97,19 +97,25 @@ export function CanvasAgentVideoGuideCard({ brief, config, nodes, phase, busy, t
             <GuideHeader theme={theme} eyebrow={`${question.step} / ${question.total}`} title={question.title} hint={question.hint} />
             {question.key === "creatorNodeId" ? (
                 creatorCandidates.length ? (
-                    <div className="thin-scrollbar mt-3 grid max-h-64 grid-cols-2 gap-2 overflow-y-auto pr-1">
-                        {creatorCandidates.map((node) => (
-                            <button key={node.id} type="button" className="group overflow-hidden rounded-xl border text-left transition hover:-translate-y-0.5" style={{ borderColor: theme.node.stroke, background: theme.node.panel }} onClick={() => onChoose({ creatorNodeId: node.id }, node.title || "人物参考图")}>
-                                <div className="aspect-[4/3] overflow-hidden" style={{ background: theme.node.fill }}>
-                                    <img src={node.metadata?.content || ""} alt={node.title || "人物参考图"} className="size-full object-cover transition duration-200 group-hover:scale-[1.03]" />
-                                </div>
-                                <div className="flex items-center gap-2 px-2.5 py-2 text-xs font-medium">
-                                    <UserRound className="size-3.5 shrink-0" />
-                                    <span className="truncate">{node.title || "人物参考图"}</span>
-                                </div>
-                            </button>
-                        ))}
-                    </div>
+                    <>
+                        <div className="mt-3 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: theme.node.stroke, background: theme.node.fill, color: theme.node.muted }}>
+                            <UserRound className="size-3.5 shrink-0" />
+                            <span>点一张画布中的模特图；它会与下方锁定的产品图分别作为参考。</span>
+                        </div>
+                        <div className="thin-scrollbar mt-2 grid max-h-64 grid-cols-2 gap-2 overflow-y-auto pr-1">
+                            {creatorCandidates.map((node) => (
+                                <button key={node.id} type="button" className="group overflow-hidden rounded-xl border text-left transition hover:-translate-y-0.5" style={{ borderColor: theme.node.stroke, background: theme.node.panel }} onClick={() => onChoose({ creatorNodeId: node.id }, node.title || "人物参考图")}>
+                                    <div className="aspect-[4/3] overflow-hidden" style={{ background: theme.node.fill }}>
+                                        <img src={node.metadata?.content || ""} alt={node.title || "人物参考图"} className="size-full object-cover transition duration-200 group-hover:scale-[1.03]" />
+                                    </div>
+                                    <div className="px-2.5 py-2">
+                                        <div className="flex items-center gap-2 text-xs font-medium"><UserRound className="size-3.5 shrink-0" /><span>用作参考模特</span></div>
+                                        <div className="mt-0.5 truncate text-[10px]" style={{ color: theme.node.muted }}>{node.title || "人物图片"}</div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </>
                 ) : (
                     <div className="mt-3 rounded-xl border border-dashed px-4 py-5 text-center" style={{ borderColor: theme.node.stroke }}>
                         <UserRound className="mx-auto size-5" style={{ color: theme.node.muted }} />

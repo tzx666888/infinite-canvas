@@ -3,7 +3,7 @@ import fs from "node:fs";
 
 import { CanvasNodeType, type CanvasNodeData } from "../src/app/(user)/canvas/types.ts";
 import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/app/(user)/canvas/utils/canvas-agent-ops.ts";
-import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, agentVideoPromptProfileSupportsType, lockPreparedAgentVideoConfig, nextAgentVideoGuideQuestion, prepareCanvasAgentVideo } from "../src/app/(user)/canvas/utils/canvas-agent-video-guide.ts";
+import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, agentVideoPromptProfileSupportsType, lockPreparedAgentVideoConfig, nextAgentVideoGuideQuestion, prepareCanvasAgentVideo, shouldRestartAgentVideoGuide } from "../src/app/(user)/canvas/utils/canvas-agent-video-guide.ts";
 import { inferDirectVideoReferencePair } from "../src/app/(user)/canvas/utils/video-reference-model.ts";
 import { defaultConfig, modelOptionName } from "../src/stores/use-config-store.ts";
 
@@ -42,9 +42,10 @@ const guidedBrief = {
     size: "720x1280" as const,
 };
 assert.equal(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id })?.key, "videoType", "guide must ask exactly one next question");
-assert.deepEqual(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id })?.options.slice(0, 3).map((item) => item.label), ["达人出镜", "手部演示", "纯产品展示"]);
-assert.match(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id })?.options[0]?.description || "", /带货推荐/);
+assert.deepEqual(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id })?.options.slice(0, 3).map((item) => item.label), ["达人出镜（选参考模特）", "手部演示", "纯产品展示"]);
+assert.match(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id })?.options[0]?.description || "", /选择模特图/);
 assert.equal(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id, videoType: "creator" })?.key, "creatorNodeId");
+assert.equal(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id, videoType: "creator" })?.title, "选择参考模特");
 assert.deepEqual(nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market: undefined })?.options.map((item) => item.label), ["菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国"]);
 assert.deepEqual(nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market: "中国", platform: undefined })?.options.map((item) => item.label), ["抖音", "快手"]);
 const modelQuestion = nextAgentVideoGuideQuestion(defaultConfig, guidedBrief);
@@ -138,6 +139,9 @@ assert.doesNotMatch(creatorPrepared.prompt, /no captions/i);
 assert.match(agentVideoDraftRequest(creatorPrepared.brief), /Spoken script/);
 assert.equal(countLatinWords(creatorPrepared.prompt) <= 170, true);
 assert.equal(countLatinWords(creatorPrepared.prompt) >= 90, true);
+assert.equal(shouldRestartAgentVideoGuide({ productNodeId: product.id }, "collecting", "生成一个印尼带货视频"), false, "incomplete guide must keep its current question");
+assert.equal(shouldRestartAgentVideoGuide(creatorPrepared.brief, "prepared", "生成一个印尼带货视频"), true, "a new video request must restart a completed guide instead of reusing stale selections");
+assert.equal(shouldRestartAgentVideoGuide(creatorPrepared.brief, "prepared", "把视频提示词改短"), false, "editing a prompt must not restart the video guide");
 
 const preparedSnapshot = applyCanvasAgentOps(snapshot, creatorPrepared.ops);
 const preparedNode = preparedSnapshot.nodes.find((node) => node.id === creatorPrepared.videoNodeId);
@@ -178,13 +182,18 @@ assert.throws(
 );
 
 const assistantSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-assistant-panel.tsx", import.meta.url), "utf8");
+const localAssistantSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-local-agent-panel.tsx", import.meta.url), "utf8");
 const chatSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-agent-chat-ui.tsx", import.meta.url), "utf8");
+const guideCardSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-agent-video-guide-card.tsx", import.meta.url), "utf8");
 assert.doesNotMatch(assistantSource, /canvas_request_video_options/);
 assert.doesNotMatch(chatSource, /CanvasVideoOptionsCard|video-options/);
 assert.match(assistantSource, /toolChoice: "auto"/);
 assert.match(assistantSource, /canvas_prepare_video/);
 assert.match(assistantSource, /45–85 个英文词/);
 assert.match(assistantSource, /Spoken script/);
+assert.match(assistantSource, /shouldRestartAgentVideoGuide/);
+assert.match(localAssistantSource, /shouldRestartAgentVideoGuide/);
+assert.match(guideCardSource, /用作参考模特/);
 
 console.log(
     JSON.stringify(
@@ -208,6 +217,8 @@ console.log(
                 dynamicModelAndDurationChoices: "PASS",
                 firstLastFrameRoleGuard: "PASS",
                 noTypingRequired: "PASS",
+                newVideoRequestRestartsGuide: "PASS",
+                presenterReferencePicker: "PASS",
             },
             guards: {
                 explicitConfirmation: "PASS",
