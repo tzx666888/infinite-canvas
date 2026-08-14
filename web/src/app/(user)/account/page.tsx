@@ -126,33 +126,24 @@ export default function AccountPage() {
         }
     };
 
-    const submitPaymentForm = (form: { action: string; fields: Record<string, string> }) => {
-        const element = document.createElement("form");
-        element.method = "POST";
-        element.action = form.action;
-        element.target = "canvas-payment";
-        for (const [name, value] of Object.entries(form.fields)) {
-            const input = document.createElement("input");
-            input.type = "hidden";
-            input.name = name;
-            input.value = value;
-            element.appendChild(input);
-        }
-        document.body.appendChild(element);
-        element.submit();
-        element.remove();
-    };
-
     const beginPayment = async () => {
         if (!selectedPackage || !selectedPaymentMethod) return message.warning("请选择充值金额和支付方式");
-        const paymentWindow = window.open("about:blank", "canvas-payment", "noopener,noreferrer");
+        const paymentWindow = window.open("", "canvas-payment");
+        if (paymentWindow) {
+            paymentWindow.opener = null;
+            paymentWindow.document.title = "正在前往支付";
+            paymentWindow.document.body.textContent = "正在创建充值订单，请稍候...";
+            paymentWindow.document.body.style.cssText = "margin:0;display:grid;place-items:center;min-height:100vh;font:14px system-ui;color:#555;background:#fff";
+        }
         setCreatingPayment(true);
         try {
             const result = await createPaymentOrder({ amountYuan: selectedPackage, paymentMethod: selectedPaymentMethod });
-            submitPaymentForm(result.form);
+            const checkoutUrl = new URL(result.checkoutUrl, window.location.origin).toString();
+            if (paymentWindow && !paymentWindow.closed) paymentWindow.location.replace(checkoutUrl);
+            else window.location.assign(checkoutUrl);
             setPendingPayment(result.order);
             setTopUpOpen(false);
-            if (!paymentWindow) message.info("支付页面已在当前窗口打开，完成付款后会自动返回账户页。");
+            if (!paymentWindow) message.info("浏览器拦截了新窗口，已在当前页面打开支付。完成付款后会自动返回账户页。");
         } catch (error) {
             paymentWindow?.close();
             message.error(error instanceof Error ? error.message : "支付订单创建失败");

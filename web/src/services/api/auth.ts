@@ -82,7 +82,7 @@ export async function fetchPaymentConfig() {
 }
 
 export async function createPaymentOrder(input: { amountYuan: number; paymentMethod: string }) {
-    return requestAuth<{ order: PaymentOrderSummary; form: { action: string; fields: Record<string, string> } }>("/api/account/payments/orders", { method: "POST", body: JSON.stringify(input) });
+    return requestAuth<{ order: PaymentOrderSummary; form: { action: string; fields: Record<string, string> }; checkoutUrl: string }>("/api/account/payments/orders", { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function fetchPaymentOrder(orderId: string) {

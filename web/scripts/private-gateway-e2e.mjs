@@ -45,6 +45,10 @@ const upstream = createServer(async (request, response) => {
         response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "站内 Agent 已连通" } }] }));
         return;
     }
+    if (request.method === "POST" && request.url === "/v1/responses") {
+        response.end(JSON.stringify({ id: `response-${requests.length}`, status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Agent 回合已完成" }] }] }));
+        return;
+    }
     if (request.method === "POST" && request.url === "/v1/images/generations") {
         response.end(JSON.stringify({ data: [{ b64_json: ONE_PIXEL_PNG.toString("base64") }] }));
         return;
@@ -228,6 +232,19 @@ try {
     assert.equal(agent.response.status, 200, JSON.stringify(agent.body));
     assert.equal(agent.body.choices[0].message.content, "站内 Agent 已连通");
 
+    const beforeAgentSession = await wallet(origin, cookie);
+    for (let round = 0; round < 6; round += 1) {
+        const responseRound = await requestJson(`${origin}/api/gateway/v1/responses`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${activeCanvasKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "gpt-5.6-sol", input: `Agent 内部回合 ${round + 1}` }),
+        });
+        assert.equal(responseRound.response.status, 200, JSON.stringify(responseRound.body));
+    }
+    const afterAgentSession = await wallet(origin, cookie);
+    assert.equal(afterAgentSession.credits, beforeAgentSession.credits - 1, "multiple model calls in one Agent billing window must charge only one credit");
+    assert.equal(afterAgentSession.ledger.filter((entry) => entry.remark.includes("Agent 对话计费")).length, 1, "the Agent billing window must create one visible ledger entry");
+
     const jobId = "private-image-job-1234567890";
     const imageSubmit = await requestJson(`${origin}/api/image-jobs/${jobId}?operation=generations`, {
         method: "POST",
@@ -305,7 +322,7 @@ try {
 
     const finalWallet = await wallet(origin, cookie);
     assert.equal(finalWallet.creditsPerYuan, 10);
-    assert.equal(finalWallet.credits, 91, "1 Agent + 1 image + 10-second video + 1 idempotent Agent must cost exactly 9 credits");
+    assert.equal(finalWallet.credits, 90, "1 chat + 1 Agent session + 1 image + 10-second video + 1 idempotent chat must cost exactly 10 credits");
     assert.ok(
         finalWallet.ledger.some((entry) => entry.type === "refund"),
         "failed generation must leave a refund ledger entry",

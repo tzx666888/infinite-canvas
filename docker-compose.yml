@@ -1,6 +1,6 @@
 services:
   app:
-    image: infinite-canvas:v3.0.90
+    image: infinite-canvas:v3.0.91
     container_name: infinite-canvas
     network_mode: host
     env_file:
@@ -15,6 +15,7 @@ services:
       IMAGE_JOB_DIR: "/app/data/image-jobs"
       VIDEO_REFERENCE_DIR: "/app/data/video-references"
       AUTH_DATA_DIR: "/app/data/auth"
+      CANVAS_AGENT_BILLING_WINDOW_SECONDS: "600"
       CANVAS_PUBLIC_ORIGIN: "https://gptimg.tokaxis.com"
     volumes:
       - /opt/infinite-canvas-data/prompt-cache:/app/data/prompt-cache

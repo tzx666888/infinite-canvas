@@ -37,7 +37,7 @@ export async function POST(request: Request) {
             },
             config,
         );
-        return NextResponse.json({ order: created.order, form }, { status: 201, headers: { "Cache-Control": "no-store" } });
+        return NextResponse.json({ order: created.order, form, checkoutUrl: `/api/account/payments/orders/${encodeURIComponent(created.order.id)}/checkout` }, { status: 201, headers: { "Cache-Control": "no-store" } });
     } catch (error) {
         if (error instanceof Error && (error.message === "invalid package" || error.message === "invalid payment method")) {
             return NextResponse.json({ message: "支付参数不正确", code: "invalid_payment_request" }, { status: 400 });

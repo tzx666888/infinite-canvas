@@ -376,6 +376,20 @@ export function getPaymentOrderForUser(userId: string, orderId: string) {
     });
 }
 
+export function getPaymentCheckoutForUser(userId: string, orderId: string) {
+    return withImmediateTransaction((database) => {
+        expirePendingPaymentOrders(database);
+        const order = database.prepare("SELECT * FROM payment_orders WHERE id = ? AND user_id = ?").get(orderId, userId);
+        if (!order) throw new AuthError("充值订单不存在", 404);
+        if (order.status !== "pending") throw new AuthError(order.status === "paid" ? "充值订单已经支付" : "充值订单已失效", 409, "payment_order_unavailable");
+        return {
+            orderNo: String(order.order_no),
+            amountCents: Number(order.amount_cents),
+            paymentMethod: String(order.payment_method),
+        };
+    });
+}
+
 export function completePaymentOrder(input: { orderNo: string; amountCents: number; providerTradeNo?: string }) {
     return withImmediateTransaction((database) => {
         const order = database.prepare("SELECT * FROM payment_orders WHERE order_no = ?").get(input.orderNo);
@@ -421,8 +435,8 @@ export async function adjustUserCredits(input: { rootUserId: string; username: s
     });
 }
 
-export function reserveCredits(input: { userId: string; apiKeyId: string; requestId: string; model: string; amount: number; units: number; unit: string }): CreditReservation {
-    const amount = Math.max(0, Math.ceil(input.amount));
+export function reserveCredits(input: { userId: string; apiKeyId: string; requestId: string; model: string; amount: number; units: number; unit: string; upstreamPath?: string; reuseWindowMs?: number; remark?: string }): CreditReservation {
+    const requestedAmount = Math.max(0, Math.ceil(input.amount));
     return withImmediateTransaction((database) => {
         const existing = database.prepare("SELECT * FROM billing_transactions WHERE request_id = ?").get(input.requestId);
         if (existing) {
@@ -430,13 +444,27 @@ export function reserveCredits(input: { userId: string; apiKeyId: string; reques
                 String(existing.user_id) === input.userId &&
                 String(existing.api_key_id) === input.apiKeyId &&
                 String(existing.model) === input.model &&
-                Number(existing.amount) === amount &&
                 Number(existing.units) === input.units &&
-                String(existing.unit) === input.unit;
+                String(existing.unit) === input.unit &&
+                String(existing.upstream_path || "") === (input.upstreamPath || "");
             if (!sameReservation) throw new AuthError("请求编号已被其他任务使用", 409, "request_id_conflict");
             if (existing.status === "refunded") throw new AuthError("该请求已经结束，请重新发起生成", 409, "request_already_refunded");
             if (existing.status === "submitted" || existing.status === "settled") throw new AuthError("该请求已经提交完成，请勿重复生成", 409, "request_already_completed");
             return { requestId: String(existing.request_id), amount: Number(existing.amount), status: existing.status as CreditReservation["status"] };
+        }
+        let amount = requestedAmount;
+        const reuseWindowMs = Math.max(0, Math.floor(input.reuseWindowMs || 0));
+        if (amount && reuseWindowMs && input.upstreamPath) {
+            const since = new Date(Date.now() - reuseWindowMs).toISOString();
+            const recentCharge = database
+                .prepare(
+                    `SELECT request_id FROM billing_transactions
+                     WHERE user_id = ? AND api_key_id = ? AND model = ? AND upstream_path = ?
+                       AND amount > 0 AND status IN ('reserved', 'submitted', 'settled') AND created_at >= ?
+                     ORDER BY created_at DESC LIMIT 1`,
+                )
+                .get(input.userId, input.apiKeyId, input.model, input.upstreamPath, since);
+            if (recentCharge) amount = 0;
         }
         if (amount) {
             const result = database.prepare("UPDATE accounts SET credits = credits - ?, updated_at = ? WHERE id = ? AND status = 'active' AND credits >= ?").run(amount, now(), input.userId, amount);
@@ -445,9 +473,9 @@ export function reserveCredits(input: { userId: string; apiKeyId: string; reques
         const balance = Number(database.prepare("SELECT credits FROM accounts WHERE id = ?").get(input.userId)?.credits || 0);
         const timestamp = now();
         database
-            .prepare(`INSERT INTO billing_transactions (request_id, user_id, api_key_id, model, amount, units, unit, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)`)
-            .run(input.requestId, input.userId, input.apiKeyId, input.model, amount, input.units, input.unit, timestamp, timestamp);
-        if (amount) insertLedger(database, { userId: input.userId, type: "consume", amount: -amount, balanceAfter: balance, requestId: input.requestId, model: input.model, units: input.units, remark: `${input.model} 生成预扣` });
+            .prepare(`INSERT INTO billing_transactions (request_id, user_id, api_key_id, model, amount, units, unit, status, upstream_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?)`)
+            .run(input.requestId, input.userId, input.apiKeyId, input.model, amount, input.units, input.unit, input.upstreamPath || null, timestamp, timestamp);
+        if (amount) insertLedger(database, { userId: input.userId, type: "consume", amount: -amount, balanceAfter: balance, requestId: input.requestId, model: input.model, units: input.units, remark: input.remark?.trim() || `${input.model} 生成预扣` });
         return { requestId: input.requestId, amount, status: "reserved" };
     });
 }

@@ -65,6 +65,16 @@ try {
     assert.equal(created.response.status, 201, JSON.stringify(created.body));
     assert.equal(created.body.form.action, "https://payment.example.test/gateway/submit.php");
     assert.equal(created.body.form.fields.money, "1.00");
+    assert.equal(created.body.checkoutUrl, `/api/account/payments/orders/${created.body.order.id}/checkout`);
+
+    const checkout = await fetch(`${origin}${created.body.checkoutUrl}`, { headers: { Cookie: cookie }, redirect: "manual" });
+    const checkoutHtml = await checkout.text();
+    assert.equal(checkout.status, 200);
+    assert.match(checkout.headers.get("content-type") || "", /^text\/html/);
+    assert.match(checkoutHtml, /action="https:\/\/payment\.example\.test\/gateway\/submit\.php"/);
+    assert.match(checkoutHtml, /id="payment-form"/);
+    assert.match(checkoutHtml, /\.submit\(\)/);
+    assert.match(checkout.headers.get("content-security-policy") || "", /form-action https:\/\/payment\.example\.test/);
 
     const { signEpayParams } = await import("../src/lib/auth/epay.ts");
     const callback = {

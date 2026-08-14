@@ -8,6 +8,8 @@ type PriceUnit = "request" | "image" | "second";
 type PriceRule = { credits: number; unit: PriceUnit };
 type GatewayIdentity = { keyId: string; userId: string };
 
+const DEFAULT_AGENT_BILLING_WINDOW_SECONDS = 600;
+
 export type GatewayReservation = {
     requestId: string;
     path: string;
@@ -26,8 +28,21 @@ export async function reserveGatewayRequest(request: NextRequest, path: string, 
     const units = rule.unit === "second" ? usage.seconds : rule.unit === "image" ? usage.images : 1;
     const amount = Math.max(1, Math.ceil(rule.credits * Math.max(1, units)));
     const requestId = requestIdOverride?.trim().slice(0, 100) || request.headers.get("x-canvas-request-id")?.trim().slice(0, 100) || randomUUID();
-    reserveCredits({ userId: identity.userId, apiKeyId: identity.keyId, requestId, model: usage.model, amount, units, unit: rule.unit });
-    return { requestId, path, model: usage.model, amount };
+    const agentWindowMs = path === "v1/responses" && rule.unit === "request" ? agentBillingWindowMs() : 0;
+    const agentWindowMinutes = Math.max(1, Math.round(agentWindowMs / 60_000));
+    const reservation = reserveCredits({
+        userId: identity.userId,
+        apiKeyId: identity.keyId,
+        requestId,
+        model: usage.model,
+        amount,
+        units,
+        unit: rule.unit,
+        upstreamPath: path,
+        reuseWindowMs: agentWindowMs,
+        remark: agentWindowMs ? `${usage.model} Agent 对话计费（${agentWindowMinutes} 分钟内仅计一次）` : undefined,
+    });
+    return { requestId, path, model: usage.model, amount: reservation.amount };
 }
 
 export async function finalizeGatewayResponse(response: Response, reservation: GatewayReservation | null) {
@@ -152,6 +167,11 @@ function modelPrices() {
     } catch {
         throw new AuthError("积分价格配置无效，请联系管理员", 503, "invalid_price_config");
     }
+}
+
+function agentBillingWindowMs() {
+    const seconds = Number(process.env.CANVAS_AGENT_BILLING_WINDOW_SECONDS || DEFAULT_AGENT_BILLING_WINDOW_SECONDS);
+    return (Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds, 3600) : DEFAULT_AGENT_BILLING_WINDOW_SECONDS) * 1000;
 }
 
 async function requestUsage(request: NextRequest, path: string) {
