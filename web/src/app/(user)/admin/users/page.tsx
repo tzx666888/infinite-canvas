@@ -178,7 +178,7 @@ export default function UserManagementPage() {
                     loading={loading}
                     dataSource={users}
                     pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (total) => `共 ${total} 个用户` }}
-                    scroll={{ x: 1120 }}
+                    scroll={{ x: 1500 }}
                     columns={[
                         {
                             title: "用户",
@@ -208,11 +208,11 @@ export default function UserManagementPage() {
                             title: "操作",
                             key: "actions",
                             fixed: "right",
-                            width: 300,
+                            width: 360,
                             render: (_, target) => {
                                 const primaryRoot = isPrimaryRoot(target);
                                 return (
-                                    <div className="flex items-center gap-1 whitespace-nowrap">
+                                    <div className="flex min-w-[340px] items-center gap-1 whitespace-nowrap">
                                         <Button type="text" size="small" icon={<Pencil className="size-3.5" />} onClick={() => setEditForm({ user: target, displayName: target.displayName, role: target.role, status: target.status })}>
                                             编辑
                                         </Button>
