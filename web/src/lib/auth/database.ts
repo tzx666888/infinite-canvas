@@ -39,6 +39,7 @@ export function canvasDatabase() {
             provider TEXT NOT NULL CHECK (provider IN ('local', 'migrated', 'tokaxis')),
             external_id TEXT UNIQUE,
             password_hash TEXT NOT NULL DEFAULT '',
+            upstream_api_key_ciphertext TEXT,
             credits INTEGER NOT NULL DEFAULT 0 CHECK (credits >= 0),
             status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
             created_at TEXT NOT NULL,
@@ -116,6 +117,11 @@ export function canvasDatabase() {
     `);
     try {
         database.exec("ALTER TABLE billing_transactions ADD COLUMN upstream_path TEXT");
+    } catch {
+        // Existing databases already have the column.
+    }
+    try {
+        database.exec("ALTER TABLE accounts ADD COLUMN upstream_api_key_ciphertext TEXT");
     } catch {
         // Existing databases already have the column.
     }

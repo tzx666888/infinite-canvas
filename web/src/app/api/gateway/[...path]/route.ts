@@ -8,6 +8,7 @@ import { authenticateCanvasApiKey } from "../../../../lib/auth/store.ts";
 import { ensureGatewayTaskReconciler, finalizeGatewayResponse, publicModelPrices, reconcileGatewayTaskResponse, refundGatewayReservation, reserveGatewayRequest, settleGatewayReservation, type GatewayReservation } from "../../../../lib/gateway/billing.ts";
 import { buildCanvasAttributionHeaders } from "../../../../lib/gateway/attribution.ts";
 import { sanitizeGatewayErrorResponse } from "../../../../lib/gateway/errors.ts";
+import { resolveCanvasUpstreamAuthorization } from "../../../../lib/gateway/upstream-auth.ts";
 import { storeTemporaryMediaDataUrl } from "../../../../lib/temporary-media.ts";
 
 export const runtime = "nodejs";
@@ -79,7 +80,7 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         const identity = await authenticateCanvasApiKey(request.headers.get("authorization") || "");
         if (!identity) return Response.json({ error: { code: "invalid_canvas_key", message: "画布 Key 无效或已撤销" } }, { status: 401 });
         if (!UPSTREAM_ORIGIN) throw new AuthError("模型服务尚未配置", 503, "gateway_not_configured");
-        const authorization = normalizeAuthorization(process.env.CANVAS_UPSTREAM_API_KEY || "");
+        const authorization = await resolveCanvasUpstreamAuthorization({ userId: identity.user.id, username: identity.user.username, displayName: identity.user.displayName });
         if (!authorization) throw new AuthError("模型服务授权尚未配置", 503, "gateway_not_configured");
         ensureGatewayTaskReconciler();
         reservation = await reserveGatewayRequest(request, path, { keyId: identity.keyId, userId: identity.user.id });

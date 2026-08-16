@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { AuthError } from "./auth-error.ts";
 import { canvasDatabase, withImmediateTransaction, type CanvasDatabase } from "./database.ts";
@@ -14,6 +14,9 @@ export type CreditReservation = { requestId: string; amount: number; status: "re
 
 export type SubmittedBillingTask = {
     requestId: string;
+    userId: string;
+    username: string;
+    displayName: string;
     upstreamTaskId: string;
     upstreamPath: string;
     model: string;
@@ -239,6 +242,51 @@ export async function getAuthUser(userId: string) {
     await ensureBootstrapRoot();
     const account = canvasDatabase().prepare("SELECT * FROM accounts WHERE id = ? AND status = 'active'").get(userId);
     return account ? toAuthUser(account) : null;
+}
+
+export function getCanvasUpstreamApiKey(userId: string) {
+    const row = canvasDatabase().prepare("SELECT upstream_api_key_ciphertext FROM accounts WHERE id = ? AND status = 'active'").get(userId);
+    const ciphertext = row?.upstream_api_key_ciphertext;
+    if (typeof ciphertext !== "string" || !ciphertext) return null;
+    return decryptCanvasUpstreamApiKey(ciphertext);
+}
+
+export function saveCanvasUpstreamApiKey(userId: string, apiKey: string) {
+    const ciphertext = encryptCanvasUpstreamApiKey(apiKey);
+    if (!ciphertext) return false;
+    canvasDatabase().prepare("UPDATE accounts SET upstream_api_key_ciphertext = ?, updated_at = ? WHERE id = ?").run(ciphertext, now(), userId);
+    return true;
+}
+
+function canvasUpstreamEncryptionKey() {
+    const secret = process.env.CANVAS_AUTH_SHARED_SECRET?.trim() || process.env.CANVAS_SESSION_SECRET?.trim();
+    if (!secret || secret.length < 32) return null;
+    return createHash("sha256").update(`infinite-canvas-upstream:${secret}`).digest();
+}
+
+function encryptCanvasUpstreamApiKey(apiKey: string) {
+    const key = canvasUpstreamEncryptionKey();
+    if (!key || !apiKey.trim()) return null;
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const encrypted = Buffer.concat([cipher.update(apiKey.trim(), "utf8"), cipher.final()]);
+    return [iv, cipher.getAuthTag(), encrypted].map((value) => value.toString("base64url")).join(".");
+}
+
+function decryptCanvasUpstreamApiKey(value: string) {
+    const key = canvasUpstreamEncryptionKey();
+    const parts = value.split(".");
+    if (!key || parts.length !== 3) return null;
+    try {
+        const iv = Buffer.from(parts[0], "base64url");
+        const authTag = Buffer.from(parts[1], "base64url");
+        const encrypted = Buffer.from(parts[2], "base64url");
+        const decipher = createDecipheriv("aes-256-gcm", key, iv);
+        decipher.setAuthTag(authTag);
+        return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
+    } catch {
+        return null;
+    }
 }
 
 export async function createInvite(input: { rootUserId: string; label?: string; maxUses?: number; expiresInDays?: number | null }) {
@@ -601,10 +649,18 @@ export function refundCreditsByTask(upstreamTaskId: string, remark?: string) {
 
 export function listSubmittedBillingTasks(limit = 100): SubmittedBillingTask[] {
     return canvasDatabase()
-        .prepare("SELECT request_id, upstream_task_id, upstream_path, model, updated_at FROM billing_transactions WHERE status = 'submitted' AND upstream_task_id IS NOT NULL ORDER BY updated_at ASC LIMIT ?")
+        .prepare(
+            `SELECT b.request_id, b.user_id, a.username, a.display_name, b.upstream_task_id, b.upstream_path, b.model, b.updated_at
+             FROM billing_transactions b JOIN accounts a ON a.id = b.user_id
+             WHERE b.status = 'submitted' AND b.upstream_task_id IS NOT NULL
+             ORDER BY b.updated_at ASC LIMIT ?`,
+        )
         .all(Math.max(1, Math.min(500, Math.floor(limit))))
         .map((row) => ({
             requestId: String(row.request_id),
+            userId: String(row.user_id),
+            username: String(row.username),
+            displayName: String(row.display_name),
             upstreamTaskId: String(row.upstream_task_id),
             upstreamPath: String(row.upstream_path || ""),
             model: String(row.model),

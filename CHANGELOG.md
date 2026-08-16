@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v3.0.98 - 2026-08-16
+
+- [归属] 画布网关为每个客户懒创建并复用独立的 New API Key，上游图片、视频和模型请求不再统一使用 `root` Key。
+- [兼容] 现有客户首次请求时自动补齐专属 Key；专属 Key 桥接暂不可用时保留原上游 Key 回退，避免中断已在使用的客户。
+- [安全] 专属上游 Key 仅服务端加密保存，浏览器仍只接触客户自己的 `vc_live_` 画布 Key；异步视频轮询也按客户 Key 执行。
+
 ## v3.0.97 - 2026-08-15
 
 - [Skill] 增加 `indonesia-tiktok-h3-director`：印尼 TikTok Shop Hook、UGC、MiniMax H3 提示词、Product Truth Sheet 和成片 QC；保留生成前确认门，不自动提交视频。

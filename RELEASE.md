@@ -1,15 +1,14 @@
-# Infinite Canvas v3.0.97
+# Infinite Canvas v3.0.98
 
-This release adds the Indonesia TikTok Shop / MiniMax H3 creative-director skill to both the website Agent and the local canvas Agent.
+This release assigns each canvas customer a dedicated upstream New API Key so task and usage records are attributed to the customer instead of `root`.
 
-- Installs `.agents/skills/indonesia-tiktok-h3-director` with Product Truth Sheet, Hook scoring, Indonesian voiceover, H3 prompt contract, and final audio/video QC.
-- Website Agent exposes the skill as capability 16; local Agent exposes it as skill 7.
-- The workflow keeps the existing generation-confirmation gate: prompt planning is read-only, `canvas_prepare_video` requires explicit confirmation, and video generation is never auto-submitted.
-- Product claims, price/discount/stock/social-proof assertions, and unverified before/after claims remain blocked.
-- Sources were screened for portability and license; official MiniMax H3, MIT Hook/UGC and MIT media-QC principles were used, while paid-runtime and restrictive-license packages were not installed.
+- Existing canvas accounts keep their current `vc_live_` Key and receive a dedicated upstream Key on their first request.
+- Dedicated upstream Keys are encrypted in the canvas auth database and are used for synchronous requests and asynchronous video polling.
+- If the private provisioning bridge is temporarily unavailable, the previous upstream Key remains as a compatibility fallback so existing generation is not interrupted.
+- The previous image `infinite-canvas:v3.0.97` remains the rollback target.
 
-Acceptance target: source diff review, skill validation, production build, container health, website Agent read-only prompt test, local Agent skill discovery, and no video-generation charge during the test.
+Rollback: preserve the pre-release backup under `/opt/infinite-canvas/data/deploy-backups/infinite-canvas-v3.0.97-pre-customer-key-*`, set Compose image back to `infinite-canvas:v3.0.97`, and redeploy with Docker Compose. Do not use `git reset --hard`, `git clean`, or delete data volumes.
 
-Rollback: restore the pre-release backup under `/opt/infinite-canvas/data/deploy-backups/infinite-canvas-v3.0.96-pre-indonesia-tiktok-*`, set Compose image back to `infinite-canvas:v3.0.96`, and redeploy with Docker Compose. Do not use `git reset --hard`, `git clean`, or delete data volumes.
+Production image: `infinite-canvas:v3.0.98`.
 
-Production image: `infinite-canvas:v3.0.97`.
+Previous release details are retained in Git history and the `v3.0.97` tag.

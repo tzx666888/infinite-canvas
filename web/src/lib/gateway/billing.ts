@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 
 import { AuthError } from "../auth/auth-error.ts";
 import { listSubmittedBillingTasks, refundCredits, refundCreditsByTask, reserveCredits, settleCredits, settleCreditsByTask } from "../auth/store.ts";
+import { resolveCanvasUpstreamAuthorization } from "./upstream-auth.ts";
 
 type PriceUnit = "request" | "image" | "second";
 type PriceRule = { credits: number; unit: PriceUnit };
@@ -107,12 +108,13 @@ async function reconcileSubmittedGatewayTasks(state: { started: boolean; running
     state.running = true;
     try {
         const origin = (process.env.CANVAS_UPSTREAM_ORIGIN || process.env.TOKAXIS_INTERNAL_ORIGIN || "").replace(/\/+$/, "");
-        const authorization = normalizeAuthorization(process.env.CANVAS_UPSTREAM_API_KEY || "");
-        if (!origin || !authorization) return;
+        if (!origin) return;
         for (const task of listSubmittedBillingTasks()) {
             const path = task.upstreamPath || fallbackVideoTaskPath(task.model);
             if (!path) continue;
             try {
+                const authorization = await resolveCanvasUpstreamAuthorization({ userId: task.userId, username: task.username, displayName: task.displayName });
+                if (!authorization) continue;
                 const response = await fetch(`${origin}/${path}/${encodeURIComponent(task.upstreamTaskId)}`, { headers: { Authorization: authorization }, cache: "no-store" });
                 if (!response.ok) continue;
                 const payload = await response.json().catch(() => null);
@@ -135,12 +137,6 @@ function fallbackVideoTaskPath(model: string) {
     if (["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimax-h3-c4"].includes(normalized)) return "v1/videos/generations";
     if (normalized.startsWith("grok-imagine-video-")) return "v1/videos";
     return "v1/videos";
-}
-
-function normalizeAuthorization(value: string | null) {
-    const token = (value || "").trim();
-    if (!token) return "";
-    return token.toLowerCase().startsWith("bearer ") ? token : `Bearer ${token}`;
 }
 
 export function billingEnabled() {
