@@ -1,0 +1,4 @@
+interface:
+  display_name: "印尼 TikTok H3 爆款导演"
+  short_description: "为印尼 TikTok Shop 生成高转化 H3 视频方案"
+  default_prompt: "Use $indonesia-tiktok-h3-director to turn the selected product into a truthful 15-second Indonesian TikTok Shop H3 video brief."

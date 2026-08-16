@@ -1,16 +1,15 @@
-# Infinite Canvas v3.0.72
+# Infinite Canvas v3.0.97
 
-This release combines the generation-panel hover fix with the already deployed MiniMax H3 reference-media bridge.
+This release adds the Indonesia TikTok Shop / MiniMax H3 creative-director skill to both the website Agent and the local canvas Agent.
 
-- Hover detection is now limited to the visible node body and its connection handles.
-- Prompt textareas, model controls, settings popovers and generate buttons no longer trigger the floating node toolbar.
-- Moving back to the image, video or text node still restores the toolbar normally.
-- Browser-local H3 image and audio references are exposed through random, 24-hour temporary HTTPS URLs instead of incompatible data URIs.
-- The H3 bridge is isolated from every other video model and preserves established model parameters.
-- Generation prompts, billing, task recovery and stored canvas data are unchanged.
+- Installs `.agents/skills/indonesia-tiktok-h3-director` with Product Truth Sheet, Hook scoring, Indonesian voiceover, H3 prompt contract, and final audio/video QC.
+- Website Agent exposes the skill as capability 16; local Agent exposes it as skill 7.
+- The workflow keeps the existing generation-confirmation gate: prompt planning is read-only, `canvas_prepare_video` requires explicit confirmation, and video generation is never auto-submitted.
+- Product claims, price/discount/stock/social-proof assertions, and unverified before/after claims remain blocked.
+- Sources were screened for portability and license; official MiniMax H3, MIT Hook/UGC and MIT media-QC principles were used, while paid-runtime and restrictive-license packages were not installed.
 
-Acceptance covers image/video hover interaction, temporary-media contract regression, TypeScript and production build.
+Acceptance target: source diff review, skill validation, production build, container health, website Agent read-only prompt test, local Agent skill discovery, and no video-generation charge during the test.
 
-Rollback source is tag `v3.0.70`: check it out, rebuild the v3.0.70 image, then redeploy with Docker Compose. Do not restore `.bak` files.
+Rollback: restore the pre-release backup under `/opt/infinite-canvas/data/deploy-backups/infinite-canvas-v3.0.96-pre-indonesia-tiktok-*`, set Compose image back to `infinite-canvas:v3.0.96`, and redeploy with Docker Compose. Do not use `git reset --hard`, `git clean`, or delete data volumes.
 
-Production image: `infinite-canvas:v3.0.72`.
+Production image: `infinite-canvas:v3.0.97`.
