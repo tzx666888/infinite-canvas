@@ -49,6 +49,18 @@ export const TOKAXIS_PROMPTS: Prompt[] = [
         media: "mixed",
     }),
     tokaxisPrompt({
+        id: "tokaxis_indonesia_tiktok_h3_director_v2",
+        title: "印尼 TikTok H3 爆款导演",
+        summary: "锁定商品事实，分离 Bahasa 口播/字幕，生成三段式 H3 prompt 并质检成片。",
+        prompt: "请启动印尼 TikTok H3 爆款导演技能。先读取画布中的商品参考图与资料，提取品类、完整品名、SKU、卖点、包装外观和逐字包装文字，建立 Product Truth Sheet；不确定时先提问，禁止编造。确认后输出 3 个 Hook 与评分、15 秒结构（0–3 秒 Hook、3–10 秒证据、10–15 秒转化）、Bahasa 口播和 Bahasa 字幕（分开），再给可直接投喂 H3 的英文 prompt；生成后逐项检查产品一致性、文字清晰度、口播自然度、违禁功效词、首帧吸引力和 CTA，并给出定向重跑建议。商品/目标：",
+        tags: ["印尼 TikTok", "H3", "爆款视频", "Bahasa口播", "成片质检"],
+        category: "Tokaxis 创作",
+        intent: "commercial_video",
+        action: "agent_workflow",
+        visual: "video",
+        media: "mixed",
+    }),
+    tokaxisPrompt({
         id: "tokaxis_commercial_portrait_v1",
         title: "真人商业人物写真",
         summary: "保留真人身份特征，生成可用于品牌传播的专业人像。",

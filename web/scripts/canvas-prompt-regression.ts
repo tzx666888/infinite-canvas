@@ -1,15 +1,10 @@
 import assert from "node:assert/strict";
 
-import {
-    buildImageReferencePromptText,
-    buildIdentityPreservingImageEditPrompt,
-    buildIndependentImageStyleVariantPrompt,
-    isVagueStyleChangeRequest,
-    requestsMultiPanelImage,
-} from "../src/lib/image-reference-prompt.ts";
+import { buildImageReferencePromptText, buildIdentityPreservingImageEditPrompt, buildIndependentImageStyleVariantPrompt, isVagueStyleChangeRequest, requestsMultiPanelImage } from "../src/lib/image-reference-prompt.ts";
 import { composePromptWithUpstreamText } from "../src/app/(user)/canvas/utils/prompt-composition.ts";
 import { selectLeafFailureIds } from "../src/app/(user)/canvas/utils/retry-selection.ts";
 import { isContentPolicyErrorMessage } from "../src/lib/content-policy-error.ts";
+import { TOKAXIS_PROMPTS } from "../src/lib/tokaxis-prompts.ts";
 
 const repeated = "一位身穿黑色蕾丝裙子，带着黑色蕾丝兔子眼罩";
 
@@ -52,13 +47,18 @@ const commerceDetailPrompt = "生成一组不同场景电商详情图";
 const configNodeCommercePrompt = buildIdentityPreservingImageEditPrompt(commerceDetailPrompt, false, targetReference);
 assert.equal(configNodeCommercePrompt, commerceDetailPrompt);
 assert.equal(buildIndependentImageStyleVariantPrompt(configNodeCommercePrompt, commerceDetailPrompt, 0, 9), commerceDetailPrompt);
-assert.equal(
-    buildImageReferencePromptText(configNodeCommercePrompt, targetReference),
-    "参考图片按上传顺序固定编号为：图片1。\n必须严格按编号理解图片角色，不得交换、合并或混淆不同图片中的主体。\n\n生成一组不同场景电商详情图",
-);
+assert.equal(buildImageReferencePromptText(configNodeCommercePrompt, targetReference), "参考图片按上传顺序固定编号为：图片1。\n必须严格按编号理解图片角色，不得交换、合并或混淆不同图片中的主体。\n\n生成一组不同场景电商详情图");
 const directImageCommercePrompt = buildIdentityPreservingImageEditPrompt(commerceDetailPrompt, true, targetReference);
 assert.match(directImageCommercePrompt, /preserve its composition/i);
 assert.doesNotMatch(directImageCommercePrompt, /commerce detail set interpretation|reference-derived image generation|independent detail-image/i);
+
+const h3DirectorPrompt = TOKAXIS_PROMPTS.find((item) => item.id === "tokaxis_indonesia_tiktok_h3_director_v2");
+assert.ok(h3DirectorPrompt, "Indonesia TikTok H3 director prompt should be available");
+assert.equal(h3DirectorPrompt.action, "agent_workflow");
+assert.match(h3DirectorPrompt.prompt, /0–3 秒 Hook/);
+assert.match(h3DirectorPrompt.prompt, /Bahasa 口播和 Bahasa 字幕（分开）/);
+assert.match(h3DirectorPrompt.prompt, /可直接投喂 H3/);
+assert.match(h3DirectorPrompt.prompt, /文字清晰度/);
 
 assert.deepEqual(
     selectLeafFailureIds(
