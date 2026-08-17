@@ -161,6 +161,13 @@ try {
         body: JSON.stringify({ name: "Managed Member Key" }),
     });
     assert.equal(memberKeyResult.response.status, 201, JSON.stringify(memberKeyResult.body));
+    assert.match(memberKeyResult.body.key, /^vc_live_/);
+    const registeredDefaultKeyModels = await requestJson(`${origin}/api/gateway/v1/models`, { headers: { Authorization: `Bearer ${memberKeyResult.body.key}` } });
+    assert.equal(registeredDefaultKeyModels.response.status, 200, "a newly registered user's default Canvas key must call the station model gateway");
+    assert.deepEqual(
+        registeredDefaultKeyModels.body.data.map((item) => item.id),
+        ["gpt-5.6-sol", "gpt-image-2", "Seedance 2.0-fast-720p"],
+    );
     const revokeMemberKeys = await requestJson(`${origin}/api/admin/users/${managedMember.id}/keys`, {
         method: "DELETE",
         headers: { Origin: origin, Cookie: cookie },
@@ -350,6 +357,11 @@ try {
     assert.ok(
         finalWallet.ledger.some((entry) => entry.type === "refund"),
         "failed generation must leave a refund ledger entry",
+    );
+    assert.equal(
+        finalWallet.ledger.some((entry) => entry.type === "migration_credit"),
+        false,
+        "station balances must never enter the Canvas ledger",
     );
 
     const ttsHandoff = await requestJson(`${origin}/api/tts/handoff`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
