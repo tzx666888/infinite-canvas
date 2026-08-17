@@ -181,48 +181,6 @@ export async function authenticateLocalUser(input: { username: string; password:
     return toAuthUser({ ...account, last_login_at: timestamp, updated_at: timestamp });
 }
 
-export async function claimExternalAccount(input: { id: number; username: string; displayName: string; role: number; password: string; canvasCredits?: number }) {
-    const username = normalizeUsername(input.username) || `member-${input.id}`;
-    if (!input.password || input.password.length > 128) throw new AuthError("旧账户密码无法迁移", 400, "legacy_password_invalid");
-    const externalId = `tokaxis:${input.id}`;
-    const timestamp = now();
-    const passwordHash = await hashPassword(input.password);
-    const configuredInitialCredits = Number(process.env.CANVAS_LEGACY_INITIAL_CREDITS || 0);
-    const requestedInitialCredits = input.canvasCredits === undefined ? configuredInitialCredits : Number(input.canvasCredits);
-    const initialCredits = Math.max(0, Math.min(1_000_000_000, Math.floor(Number.isFinite(requestedInitialCredits) ? requestedInitialCredits : 0)));
-    return withImmediateTransaction((database) => {
-        const existing = database.prepare("SELECT * FROM accounts WHERE external_id = ? OR username = ?").get(externalId, username);
-        const role = input.role >= 100 ? "root" : "member";
-        if (existing) {
-            const existingCredits = Number(existing.credits || 0);
-            const migrationCredits = existing.provider === "migrated" ? 0 : initialCredits;
-            const nextCredits = existingCredits + migrationCredits;
-            database
-                .prepare(`UPDATE accounts SET username = ?, display_name = ?, role = ?, provider = 'migrated', external_id = ?, password_hash = ?, credits = ?, status = 'active', updated_at = ?, last_login_at = ? WHERE id = ?`)
-                .run(username, input.displayName.trim() || username, role, externalId, passwordHash, nextCredits, timestamp, timestamp, existing.id);
-            if (migrationCredits) insertLedger(database, { userId: String(existing.id), type: "migration_credit", amount: migrationCredits, balanceAfter: nextCredits, remark: "旧账户首次迁移积分" });
-            return toAuthUser({
-                ...existing,
-                username,
-                display_name: input.displayName.trim() || username,
-                role,
-                provider: "migrated",
-                external_id: externalId,
-                password_hash: passwordHash,
-                credits: nextCredits,
-                updated_at: timestamp,
-                last_login_at: timestamp,
-            });
-        }
-        const id = randomUUID();
-        database
-            .prepare(`INSERT INTO accounts (id, username, display_name, role, provider, external_id, password_hash, credits, created_at, updated_at, last_login_at) VALUES (?, ?, ?, ?, 'migrated', ?, ?, ?, ?, ?, ?)`)
-            .run(id, username, input.displayName.trim() || username, role, externalId, passwordHash, initialCredits, timestamp, timestamp, timestamp);
-        if (initialCredits) insertLedger(database, { userId: id, type: "migration_credit", amount: initialCredits, balanceAfter: initialCredits, remark: "旧账户首次迁移积分" });
-        return toAuthUser({ id, username, display_name: input.displayName.trim() || username, avatar_url: "", role, credits: initialCredits, created_at: timestamp });
-    });
-}
-
 export async function registerWithInvite(input: { username: string; password: string; inviteCode: string }) {
     await ensureBootstrapRoot();
     const username = validateUsername(input.username);

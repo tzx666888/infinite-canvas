@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createHmac } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,7 +11,6 @@ const authDirectory = path.join(testDirectory, "auth");
 const requests = [];
 let videoTaskStatus = "pending";
 let compatibilityVideoTaskStatus = "pending";
-let legacyAuthCalls = 0;
 
 const upstream = createServer(async (request, response) => {
     const chunks = [];
@@ -31,21 +29,6 @@ const upstream = createServer(async (request, response) => {
     });
     response.setHeader("Content-Type", "application/json");
 
-    if (request.method === "POST" && request.url === "/api/internal/canvas/auth") {
-        legacyAuthCalls += 1;
-        assert.equal(request.headers["x-canvas-auth-secret"], "legacy-auth-shared-secret-0123456789abcdef");
-        if (body?.username === "legacy-user" && body?.password === "oldpass") {
-            response.end(JSON.stringify({ success: true, data: { id: 88, username: "legacy-user", display_name: "Legacy User", role: 1, canvas_credits: 25 } }));
-            return;
-        }
-        if (body?.username === "刘" && body?.password === "ChineseUserPassword123!") {
-            response.end(JSON.stringify({ success: true, data: { id: 63, username: "刘", display_name: "刘", role: 1, canvas_credits: 20 } }));
-            return;
-        }
-        response.statusCode = 401;
-        response.end(JSON.stringify({ success: false, message: "invalid credentials" }));
-        return;
-    }
     if (request.method === "GET" && request.url === "/v1/models") {
         response.end(JSON.stringify({ data: [{ id: "gpt-5.6-sol" }, { id: "gpt-image-2" }, { id: "Seedance 2.0-fast-720p" }, { id: "unpriced-upstream-model" }] }));
         return;
@@ -94,25 +77,6 @@ const upstream = createServer(async (request, response) => {
 let app;
 try {
     await mkdir(authDirectory, { recursive: true });
-    await writeFile(
-        path.join(authDirectory, "accounts.json"),
-        JSON.stringify({
-            accounts: [
-                {
-                    id: "legacy-json-account",
-                    username: "legacy-user",
-                    displayName: "Legacy User",
-                    role: "member",
-                    provider: "tokaxis",
-                    externalId: "tokaxis:88",
-                    passwordHash: "",
-                    createdAt: "2026-08-01T00:00:00.000Z",
-                    updatedAt: "2026-08-01T00:00:00.000Z",
-                },
-            ],
-            invites: [],
-        }),
-    );
     const upstreamPort = await listen(upstream);
     const appPort = await freePort();
     const origin = `http://127.0.0.1:${appPort}`;
@@ -124,7 +88,6 @@ try {
             AUTH_DATA_DIR: authDirectory,
             IMAGE_JOB_DIR: path.join(testDirectory, "image-jobs"),
             CANVAS_PUBLIC_ORIGIN: origin,
-            CANVAS_LEGACY_AUTH_ENABLED: "true",
             CANVAS_UPSTREAM_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
             CANVAS_UPSTREAM_API_KEY: "upstream-service-secret",
             TOKAXIS_INTERNAL_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
@@ -165,41 +128,7 @@ try {
         headers: { "Content-Type": "application/json", Origin: origin },
         body: JSON.stringify({ username: "legacy-user", password: "oldpass" }),
     });
-    assert.equal(legacyLogin.response.status, 200, JSON.stringify(legacyLogin.body));
-    assert.equal(legacyLogin.body.user.username, "legacy-user");
-    assert.equal(legacyLogin.body.user.credits, 25, "the private bridge may assign the exact station credit balance once during migration");
-    assert.equal(legacyAuthCalls, 1, "an existing account must be verified upstream only on its first station login");
-    const legacySecondLogin = await requestJson(`${origin}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Origin: origin },
-        body: JSON.stringify({ username: "legacy-user", password: "oldpass" }),
-    });
-    assert.equal(legacySecondLogin.response.status, 200);
-    assert.equal(legacySecondLogin.body.user.credits, 25, "subsequent station logins must not apply migration credits twice");
-    assert.equal(legacyAuthCalls, 1, "after migration, the existing account must authenticate entirely inside the Canvas");
-
-    const chineseLogin = await requestJson(`${origin}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Origin: origin },
-        body: JSON.stringify({ username: "刘", password: "ChineseUserPassword123!" }),
-    });
-    assert.equal(chineseLogin.response.status, 200, JSON.stringify(chineseLogin.body));
-    const chineseCookie = chineseLogin.response.headers.get("set-cookie")?.split(";")[0];
-    const chineseKeyResult = await requestJson(`${origin}/api/account/keys`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Origin: origin, Cookie: chineseCookie },
-        body: JSON.stringify({ name: "Chinese Username E2E Key" }),
-    });
-    assert.equal(chineseKeyResult.response.status, 201, JSON.stringify(chineseKeyResult.body));
-    const chineseCanvasKey = chineseKeyResult.body.key;
-    const chineseRequestStart = requests.length;
-    const chineseModels = await requestJson(`${origin}/api/gateway/v1/models`, { headers: { Authorization: `Bearer ${chineseCanvasKey}` } });
-    assert.equal(chineseModels.response.status, 200, JSON.stringify(chineseModels.body));
-    const chineseUpstreamRequest = requests.slice(chineseRequestStart).find((item) => item.url === "/v1/models");
-    assert.ok(chineseUpstreamRequest?.canvasUserId, "the migrated account must keep its signed Canvas identity");
-    assert.equal(chineseUpstreamRequest?.canvasUsername, "utf8-b64:5YiY", "non-ASCII usernames must use a header-safe UTF-8 encoding");
-    const chinesePayload = `${chineseUpstreamRequest.canvasUserId}\n${chineseUpstreamRequest.canvasUsername}\n${chineseUpstreamRequest.canvasRequestId}`;
-    assert.equal(chineseUpstreamRequest.canvasAttribution, createHmac("sha256", "legacy-auth-shared-secret-0123456789abcdef").update(chinesePayload).digest("hex"), "the attribution signature must cover the encoded header value");
+    assert.equal(legacyLogin.response.status, 401, "old station credentials must not enter the Canvas after the migration bridge is removed");
 
     const invite = await requestJson(`${origin}/api/admin/invitations`, {
         method: "POST",
@@ -424,8 +353,9 @@ try {
     );
 
     const ttsHandoff = await requestJson(`${origin}/api/tts/handoff`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-    assert.equal(ttsHandoff.response.status, 404);
-    assert.doesNotMatch(JSON.stringify(ttsHandoff.body), /https?:\/\//i, "the retired handoff must not reveal an external website");
+    assert.equal(ttsHandoff.response.status, 400);
+    assert.equal(ttsHandoff.body.error, "api_key_required", "the standalone TTS handoff must require an explicit station API key");
+    assert.doesNotMatch(JSON.stringify(ttsHandoff.body), /https?:\/\//i, "an incomplete TTS handoff must not reveal an external website");
 
     const modelRequests = requests.filter((item) => item.url?.startsWith("/v1/"));
     assert.ok(modelRequests.length > 0);
@@ -442,9 +372,7 @@ try {
         JSON.stringify(
             {
                 passed: true,
-                login: "station-session",
-                legacyMigration: "local-after-first-login",
-                unicodeUsernameAttribution: "ok",
+                login: "canvas-session",
                 inviteRegistration: "ok",
                 userManagement: "root-only",
                 rootLockoutProtection: "ok",
@@ -458,7 +386,7 @@ try {
                 credits: finalWallet.credits,
                 creditsPerYuan: finalWallet.creditsPerYuan,
                 upstreamCredentialIsolation: "ok",
-                externalWebsiteHidden: "ok",
+                ttsHandoffGuard: "ok",
             },
             null,
             2,

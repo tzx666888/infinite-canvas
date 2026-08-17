@@ -1,27 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
-import { parseTokaxisIdentity } from "../src/lib/auth/tokaxis-identity.ts";
+const loginSource = readFileSync(new URL("../src/app/api/auth/login/route.ts", import.meta.url), "utf8");
+const storeSource = readFileSync(new URL("../src/lib/auth/store.ts", import.meta.url), "utf8");
+const envExample = readFileSync(new URL("../../.env.example", import.meta.url), "utf8");
 
-assert.deepEqual(parseTokaxisIdentity({ id: 1, username: "root", display_name: "Root", role: 100 }), {
-    id: 1,
-    username: "root",
-    displayName: "Root",
-    role: 100,
-});
-assert.deepEqual(parseTokaxisIdentity({ id: 2, username: "member", displayName: "Member", role: 1 }), {
-    id: 2,
-    username: "member",
-    displayName: "Member",
-    role: 1,
-});
-assert.deepEqual(parseTokaxisIdentity({ id: 3, username: "credited", display_name: "Credited", role: 1, canvas_credits: 120 }), {
-    id: 3,
-    username: "credited",
-    displayName: "Credited",
-    role: 1,
-    canvasCredits: 120,
-});
-assert.equal(parseTokaxisIdentity({ id: 4, username: "invalid", display_name: "Invalid", role: 1, canvas_credits: -1 }), null);
-assert.equal(parseTokaxisIdentity({ id: 1, username: "root", role: 100 }), null);
+assert.doesNotMatch(loginSource, /CANVAS_LEGACY_AUTH_ENABLED|verifyTokaxisCredentials|claimExternalAccount|lib\/auth\/tokaxis/);
+assert.doesNotMatch(storeSource, /export async function claimExternalAccount/);
+assert.doesNotMatch(envExample, /CANVAS_LEGACY_AUTH_/);
 
-console.log("TokAxis canvas auth bridge regression checks passed.");
+console.log("Canvas auth boundary regression checks passed.");

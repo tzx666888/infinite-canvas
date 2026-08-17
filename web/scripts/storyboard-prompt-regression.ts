@@ -678,9 +678,17 @@ const googleVideoAdapterSource = readFileSync(new URL("../src/services/api/video
 const videoPromptCompilerSource = readFileSync(new URL("../src/app/(user)/canvas/utils/video-prompt-compiler.ts", import.meta.url), "utf8");
 const promptPolishSource = readFileSync(new URL("../src/services/api/prompt-polish.ts", import.meta.url), "utf8");
 assert.match(promptPanelSource, /mode !== "video" && storyboardPlan\?\.beats\?\.length/, "a completed video node must resubmit its video request instead of regenerating storyboard review sheets");
-assert.match(canvasClientSource, /onGenerateFullVideo=\{\(node\) => void handleGenerateNode\(node\.id, "video", node\.metadata\?\.prompt \|\| "", undefined, node\)\}/, "whole-video generation must pass the exact hovered review-sheet snapshot into the request path");
+assert.match(
+    canvasClientSource,
+    /onGenerateFullVideo=\{\(node\) => requestGenerateNode\(node\.id, "video", node\.metadata\?\.prompt \|\| "", undefined, node\)\}/,
+    "whole-video generation must pass the exact hovered review-sheet snapshot into the request path",
+);
 assert.match(canvasClientSource, /const explicitReviewSnapshot = mode === "video"[\s\S]*isStoryboardReviewSheetNode\(storyboardReviewSnapshot\)/, "the explicit whole-grid action must validate its selected review sheet");
-assert.match(canvasClientSource, /const usesWholeStoryboardSheet = Boolean\(selectedReviewNode\) \|\| storyboardReviewSheetImages\.length > 0 \|\| isStoredWholeStoryboardVideo\(sourceNode\)/, "the selected review-sheet role must force whole-storyboard mode even when graph hydration is stale");
+assert.match(
+    canvasClientSource,
+    /const usesWholeStoryboardSheet = Boolean\(selectedReviewNode\) \|\| storyboardReviewSheetImages\.length > 0 \|\| isStoredWholeStoryboardVideo\(sourceNode\)/,
+    "the selected review-sheet role must force whole-storyboard mode even when graph hydration is stale",
+);
 assert.match(canvasClientSource, /const selectedReviewPlan = selectedReviewNode\?\.metadata\?\.commerceVideoPlan/, "whole-video generation must read the exact selected review sheet's plan before graph fallback");
 assert.match(canvasClientSource, /!videoPrompt\.includes\("STORYBOARD-DIRECTED VIDEO\."\)/, "an explicitly selected review sheet must fail before billing if the compiled storyboard marker is absent");
 assert.match(canvasClientSource, /storyboardReviewSheetKeyframeAnchorReferences\(nodeId, nodesRef\.current, connectionsRef\.current, selectedReviewNode\)/, "whole-video generation must prefer the exact selected review sheet's independent keyframe");
