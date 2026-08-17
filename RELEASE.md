@@ -1,4 +1,26 @@
-# Infinite Canvas v3.0.99
+# Infinite Canvas v3.0.101
+
+## 默认发布流程（长期规则）
+
+本项目所有生产变更默认按以下顺序执行，不跳步、不省略：
+
+1. **备份**：保存当前源码状态、Compose 配置、正在运行的镜像/容器与必要数据路径，生成带时间戳的可恢复备份。
+2. **版本号**：同步 `VERSION`、`web/package.json`、`CHANGELOG.md`，为本次发布确定唯一版本号。
+3. **提交**：提交代码、测试和变更记录，确保提交内容可审计。
+4. **推送**：推送分支、提交和版本标签；生产镜像也使用同一版本号推送。
+5. **构建**：用确定的提交构建带版本标签的生产镜像，不覆盖旧镜像。
+6. **验证**：完成类型检查、回归测试、生产构建，并对线上健康接口和关键业务接口做冒烟验证。
+7. **上线**：只切换本次目标服务；除非明确授权，不修改或重启中转站等无关服务。
+8. **保留回滚**：保留上线前镜像、容器、Compose 配置和备份目录，记录可执行的回滚目标与方式。
+
+这套流程是本项目的默认操作约定；若任一步无法完成，应先停在该步并说明原因，不得把未验证的状态当作已上线。
+
+## v3.0.101 本次发布
+
+- 恢复独立 TTS 配音入口，保持与中转站服务隔离。
+- 为 root 用户管理增加详情面板，展示余额、充值订单、积分流水和消耗统计。
+- 详情接口支持分页，并区分历史带入余额与可追溯流水。
+- 生产镜像：`ghcr.io/tzx666888/infinite-canvas:v3.0.101`。
 
 This release assigns each canvas customer a dedicated upstream New API Key so task and usage records are attributed to the customer instead of `root`.
 
@@ -10,6 +32,6 @@ This release assigns each canvas customer a dedicated upstream New API Key so ta
 
 Rollback: preserve the pre-release backup under `/opt/infinite-canvas/data/deploy-backups/infinite-canvas-v3.0.97-pre-customer-key-*`, set Compose image back to `infinite-canvas:v3.0.97`, and redeploy with Docker Compose. Do not use `git reset --hard`, `git clean`, or delete data volumes.
 
-Production image: `ghcr.io/tzx666888/infinite-canvas:v3.0.99`.
+Production image: `ghcr.io/tzx666888/infinite-canvas:v3.0.101`.
 
 Previous release details are retained in Git history and the `v3.0.98` and `v3.0.97` tags.
