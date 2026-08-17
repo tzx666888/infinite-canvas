@@ -22,6 +22,13 @@
 - 详情接口支持分页，并区分历史带入余额与可追溯流水。
 - 生产镜像：`ghcr.io/tzx666888/infinite-canvas:v3.0.101`。
 
+### v3.0.101 回滚记录（2026-08-17）
+
+- 上线前镜像：`ghcr.io/tzx666888/infinite-canvas:v3.0.101-user-details-tts`。
+- 上线前配置与容器备份：`/opt/infinite-canvas/backups/release-v3.0.101-pre-20260817T050256Z`。
+- 保留的停止回滚容器：`infinite-canvas-rollback-v3.0.101-20260817`。
+- 中转站 `newapi` 未重启，仍使用 `newapi:v3.0.102-customer-key`。
+
 This release assigns each canvas customer a dedicated upstream New API Key so task and usage records are attributed to the customer instead of `root`.
 
 - New canvas accounts receive their dedicated upstream Key immediately after registration.
