@@ -16,11 +16,13 @@ process.env.CANVAS_CREDITS_PER_YUAN = "10";
 
 const { canvasDatabase } = await import("../src/lib/auth/database.ts");
 const { buildEpayPaymentForm, getEpayConfig, signEpayParams, verifyEpayParams } = await import("../src/lib/auth/epay.ts");
-const { completePaymentOrder, createPaymentOrder, getPaymentOrderForUser, walletSummary } = await import("../src/lib/auth/store.ts");
+const { completePaymentOrder, createPaymentOrder, getManagedUserDetails, getPaymentOrderForUser, walletSummary } = await import("../src/lib/auth/store.ts");
 
 const database = canvasDatabase();
+const rootUserId = "payment-regression-root";
 const userId = "payment-regression-user";
 const timestamp = new Date().toISOString();
+database.prepare("INSERT INTO accounts (id, username, display_name, role, provider, password_hash, credits, created_at, updated_at) VALUES (?, 'root', 'Root', 'root', 'local', '', 0, ?, ?)").run(rootUserId, timestamp, timestamp);
 database
     .prepare("INSERT INTO accounts (id, username, display_name, role, provider, password_hash, credits, created_at, updated_at) VALUES (?, ?, ?, 'member', 'local', '', 0, ?, ?)")
     .run(userId, "payment-regression", "Payment Regression", timestamp, timestamp);
@@ -66,5 +68,22 @@ const lateCallback = { ...callback, type: "wxpay", out_trade_no: lateOrder.order
 lateCallback.sign = signEpayParams(lateCallback, config.key);
 assert.equal(completePaymentOrder({ orderNo: lateCallback.out_trade_no, amountCents: 100, providerTradeNo: lateCallback.trade_no }).newlyPaid, true, "a valid late callback must still credit the account");
 assert.equal((await walletSummary(userId)).credits, 20);
+
+database.prepare("UPDATE accounts SET credits = 17, updated_at = ? WHERE id = ?").run(new Date().toISOString(), userId);
+database
+    .prepare("INSERT INTO credit_ledger (id, user_id, type, amount, balance_after, request_id, model, units, remark, created_at) VALUES ('payment-regression-consume', ?, 'consume', -3, 17, 'payment-regression-request', 'gpt-image-2', 1, '测试消耗', ?)")
+    .run(userId, new Date().toISOString());
+const details = await getManagedUserDetails({ rootUserId, userId, pageSize: 20 });
+assert.equal(details.stats.currentCredits, 17);
+assert.equal(details.stats.paidRechargeAmountYuan, 2);
+assert.equal(details.stats.paidRechargeCredits, 20);
+assert.equal(details.stats.paidRechargeCount, 2);
+assert.equal(details.stats.totalAddedCredits, 20);
+assert.equal(details.stats.totalConsumedCredits, 3);
+assert.equal(details.stats.totalDeductedCredits, 3);
+assert.equal(details.stats.ledgerNetCredits, 17);
+assert.equal(details.stats.historicalCarryoverCredits, 0);
+assert.equal(details.ledger.total, 3);
+assert.equal(details.paymentOrders.total, 2);
 
 console.log("Canvas payment gateway regression checks passed.");

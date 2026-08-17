@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { AuthError } from "./auth-error.ts";
 import { canvasDatabase, withImmediateTransaction, type CanvasDatabase } from "./database.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
-import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserSummary, PaymentOrderSummary } from "./types.ts";
+import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserDetails, ManagedUserPaymentOrder, ManagedUserSummary, PaymentOrderSummary } from "./types.ts";
 
 type AccountRow = Record<string, unknown>;
 type ApiKeyIdentity = { keyId: string; user: AuthUser };
@@ -139,6 +139,14 @@ function toPaymentOrderSummary(row: PaymentOrderRow): PaymentOrderSummary {
         createdAt: String(row.created_at),
         paidAt: row.paid_at ? String(row.paid_at) : null,
         expiresAt: String(row.expires_at),
+    };
+}
+
+function toManagedUserPaymentOrder(row: PaymentOrderRow): ManagedUserPaymentOrder {
+    return {
+        ...toPaymentOrderSummary(row),
+        orderNo: String(row.order_no),
+        providerTradeNo: row.provider_trade_no ? String(row.provider_trade_no) : null,
     };
 }
 
@@ -514,6 +522,76 @@ export async function listManagedUsers(input: { rootUserId: string; query?: stri
         )
         .all();
     return rows.map(toManagedUserSummary).filter((user) => !query || user.username.toLocaleLowerCase().includes(query) || user.displayName.toLocaleLowerCase().includes(query));
+}
+
+export async function getManagedUserDetails(input: { rootUserId: string; userId: string; ledgerPage?: number; paymentPage?: number; pageSize?: number }): Promise<ManagedUserDetails> {
+    const database = canvasDatabase();
+    requireRoot(database, input.rootUserId);
+    const account = database
+        .prepare(
+            `SELECT a.*, COUNT(CASE WHEN k.id IS NOT NULL AND k.revoked_at IS NULL THEN 1 END) AS active_key_count
+             FROM accounts a
+             LEFT JOIN api_keys k ON k.user_id = a.id
+             WHERE a.id = ?
+             GROUP BY a.id`,
+        )
+        .get(input.userId);
+    if (!account) throw new AuthError("用户不存在", 404);
+
+    const pageSize = Math.min(100, Math.max(10, Math.trunc(input.pageSize || 20)));
+    const ledgerPage = Math.max(1, Math.trunc(input.ledgerPage || 1));
+    const paymentPage = Math.max(1, Math.trunc(input.paymentPage || 1));
+    const ledgerStats = database
+        .prepare(
+            `SELECT
+                COUNT(*) AS total,
+                COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS total_added_credits,
+                COALESCE(SUM(CASE WHEN type = 'consume' AND amount < 0 THEN -amount ELSE 0 END), 0) AS total_consumed_credits,
+                COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0) AS total_deducted_credits,
+                COALESCE(SUM(amount), 0) AS ledger_net_credits
+             FROM credit_ledger
+             WHERE user_id = ?`,
+        )
+        .get(input.userId)!;
+    const paymentStats = database
+        .prepare(
+            `SELECT
+                COUNT(*) AS total,
+                COALESCE(SUM(amount_cents), 0) AS paid_amount_cents,
+                COALESCE(SUM(credits), 0) AS paid_credits
+             FROM payment_orders
+             WHERE user_id = ? AND status = 'paid'`,
+        )
+        .get(input.userId)!;
+    const paymentTotal = Number(database.prepare("SELECT COUNT(*) AS total FROM payment_orders WHERE user_id = ?").get(input.userId)?.total || 0);
+    const ledgerTotal = Number(ledgerStats.total || 0);
+    const ledger = database
+        .prepare("SELECT * FROM credit_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
+        .all(input.userId, pageSize, (ledgerPage - 1) * pageSize)
+        .map(toLedgerEntry);
+    const paymentOrders = database
+        .prepare("SELECT * FROM payment_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
+        .all(input.userId, pageSize, (paymentPage - 1) * pageSize)
+        .map(toManagedUserPaymentOrder);
+    const currentCredits = Number(account.credits || 0);
+    const ledgerNetCredits = Number(ledgerStats.ledger_net_credits || 0);
+
+    return {
+        user: toManagedUserSummary(account),
+        stats: {
+            currentCredits,
+            paidRechargeAmountYuan: Number(paymentStats.paid_amount_cents || 0) / 100,
+            paidRechargeCredits: Number(paymentStats.paid_credits || 0),
+            paidRechargeCount: Number(paymentStats.total || 0),
+            totalAddedCredits: Number(ledgerStats.total_added_credits || 0),
+            totalConsumedCredits: Number(ledgerStats.total_consumed_credits || 0),
+            totalDeductedCredits: Number(ledgerStats.total_deducted_credits || 0),
+            ledgerNetCredits,
+            historicalCarryoverCredits: currentCredits - ledgerNetCredits,
+        },
+        ledger: { items: ledger, total: ledgerTotal, page: ledgerPage, pageSize },
+        paymentOrders: { items: paymentOrders, total: paymentTotal, page: paymentPage, pageSize },
+    };
 }
 
 export async function updateManagedUser(input: { rootUserId: string; userId: string; displayName?: string; role?: "root" | "member"; status?: "active" | "disabled" }) {

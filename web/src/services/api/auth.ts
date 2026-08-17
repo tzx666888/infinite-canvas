@@ -1,4 +1,4 @@
-import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserSummary, PaymentMethod, PaymentOrderSummary, PaymentPackage } from "@/lib/auth/types";
+import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserDetails, ManagedUserSummary, PaymentMethod, PaymentOrderSummary, PaymentPackage } from "@/lib/auth/types";
 
 type AuthResponse = { user: AuthUser };
 
@@ -80,6 +80,15 @@ export async function adjustAccountCredits(input: { username: string; amount: nu
 export async function fetchManagedUsers(query = "") {
     const search = query.trim() ? `?query=${encodeURIComponent(query.trim())}` : "";
     return requestAuth<{ users: ManagedUserSummary[] }>(`/api/admin/users${search}`);
+}
+
+export async function fetchManagedUserDetails(userId: string, input: { ledgerPage?: number; paymentPage?: number; pageSize?: number } = {}) {
+    const search = new URLSearchParams({
+        ledgerPage: String(input.ledgerPage || 1),
+        paymentPage: String(input.paymentPage || 1),
+        pageSize: String(input.pageSize || 20),
+    });
+    return requestAuth<ManagedUserDetails>(`/api/admin/users/${encodeURIComponent(userId)}/details?${search.toString()}`);
 }
 
 export async function updateManagedUser(userId: string, input: { displayName?: string; role?: "root" | "member"; status?: "active" | "disabled" }) {

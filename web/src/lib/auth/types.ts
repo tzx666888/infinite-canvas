@@ -24,6 +24,40 @@ export type ManagedUserSummary = {
     lastLoginAt: string | null;
 };
 
+export type ManagedUserDetailStats = {
+    currentCredits: number;
+    paidRechargeAmountYuan: number;
+    paidRechargeCredits: number;
+    paidRechargeCount: number;
+    totalAddedCredits: number;
+    totalConsumedCredits: number;
+    totalDeductedCredits: number;
+    ledgerNetCredits: number;
+    historicalCarryoverCredits: number;
+};
+
+export type ManagedUserPaymentOrder = PaymentOrderSummary & {
+    orderNo: string;
+    providerTradeNo: string | null;
+};
+
+export type ManagedUserDetails = {
+    user: ManagedUserSummary;
+    stats: ManagedUserDetailStats;
+    ledger: {
+        items: CreditLedgerEntry[];
+        total: number;
+        page: number;
+        pageSize: number;
+    };
+    paymentOrders: {
+        items: ManagedUserPaymentOrder[];
+        total: number;
+        page: number;
+        pageSize: number;
+    };
+};
+
 export type InviteSummary = {
     id: string;
     label: string;
