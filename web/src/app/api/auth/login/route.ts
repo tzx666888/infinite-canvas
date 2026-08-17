@@ -6,6 +6,7 @@ import { enforceSameOrigin, parseAuthBody, stringInput } from "@/lib/auth/route-
 import { createSessionToken, AUTH_COOKIE_NAME, sessionCookieOptions } from "@/lib/auth/session";
 import { authenticateLocalUser, claimExternalAccount } from "@/lib/auth/store";
 import { tokaxisAuthError, verifyTokaxisCredentials } from "@/lib/auth/tokaxis";
+import { resolveCanvasUpstreamAuthorization } from "@/lib/gateway/upstream-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
             }
         }
         if (!user) throw new AuthError("用户名或密码错误", 401);
+        await resolveCanvasUpstreamAuthorization({ userId: user.id, username: user.username, displayName: user.displayName });
         clearRateLimit(clientKey);
         const response = NextResponse.json({ user });
         response.cookies.set(AUTH_COOKIE_NAME, createSessionToken(user.id), sessionCookieOptions());
