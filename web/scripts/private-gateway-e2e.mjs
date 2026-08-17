@@ -158,7 +158,7 @@ try {
     const memberKeyResult = await requestJson(`${origin}/api/account/keys`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Origin: origin, Cookie: memberCookie },
-        body: JSON.stringify({ name: "Managed Member Key" }),
+        body: JSON.stringify({ name: "平台默认 Key" }),
     });
     assert.equal(memberKeyResult.response.status, 201, JSON.stringify(memberKeyResult.body));
     assert.match(memberKeyResult.body.key, /^vc_live_/);
