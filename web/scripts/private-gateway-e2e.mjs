@@ -52,12 +52,13 @@ const upstream = createServer(async (request, response) => {
     }
     if (request.method === "POST" && request.url === "/v1/videos/generations") {
         videoTaskStatus = "pending";
-        response.end(JSON.stringify({ id: "task_private_gateway_video", status: videoTaskStatus }));
+        const taskId = request.headers["x-canvas-username"] === "distributed-user" ? "task_distributor_video" : "task_private_gateway_video";
+        response.end(JSON.stringify({ id: taskId, status: videoTaskStatus }));
         return;
     }
-    if (request.method === "GET" && request.url === "/v1/videos/generations/task_private_gateway_video") {
+    if (request.method === "GET" && ["/v1/videos/generations/task_private_gateway_video", "/v1/videos/generations/task_distributor_video"].includes(request.url)) {
         videoTaskStatus = "completed";
-        response.end(JSON.stringify({ id: "task_private_gateway_video", status: videoTaskStatus, output: { url: "https://media.invalid/result.mp4" } }));
+        response.end(JSON.stringify({ id: request.url.split("/").at(-1), status: videoTaskStatus, output: { url: "https://media.invalid/result.mp4" } }));
         return;
     }
     if (request.method === "POST" && request.url === "/v1/contents/generations/tasks") {
@@ -182,11 +183,81 @@ try {
     const promoteMember = await requestJson(`${origin}/api/admin/users/${managedMember.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Origin: origin, Cookie: cookie },
-        body: JSON.stringify({ displayName: "Managed Member", role: "root" }),
+        body: JSON.stringify({ displayName: "Managed Distributor", role: "admin" }),
     });
     assert.equal(promoteMember.response.status, 200, JSON.stringify(promoteMember.body));
+    assert.equal(promoteMember.body.user.role, "admin");
     const promotedUserList = await requestJson(`${origin}/api/admin/users`, { headers: { Cookie: memberCookie } });
-    assert.equal(promotedUserList.response.status, 403, "only the canonical root account may modify users, even if another account has a root role");
+    assert.equal(promotedUserList.response.status, 403, "distributor admins must not access root user management");
+    const profile = await requestJson(`${origin}/api/admin/billing-profiles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: origin, Cookie: memberCookie },
+        body: JSON.stringify({
+            name: "E2E retail",
+            rules: [
+                { model: "gpt-5.6-sol", creditsPerUnit: 2 },
+                { model: "seedance 2.0-fast-720p", creditsPerUnit: 0.75 },
+            ],
+        }),
+    });
+    assert.equal(profile.response.status, 201, JSON.stringify(profile.body));
+    const distributorInvite = await requestJson(`${origin}/api/admin/invitations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: origin, Cookie: memberCookie },
+        body: JSON.stringify({ label: "Distributor customer", maxUses: 1, expiresInDays: 7, billingProfileId: profile.body.profile.id }),
+    });
+    assert.equal(distributorInvite.response.status, 200, JSON.stringify(distributorInvite.body));
+    const distributorCustomer = await requestJson(`${origin}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: origin },
+        body: JSON.stringify({ username: "distributed-user", password: "DistributedPassword123!", inviteCode: distributorInvite.body.code }),
+    });
+    assert.equal(distributorCustomer.response.status, 200, JSON.stringify(distributorCustomer.body));
+    const distributorCustomerCookie = distributorCustomer.response.headers.get("set-cookie")?.split(";")[0];
+    const distributorCustomerKey = await requestJson(`${origin}/api/account/keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: origin, Cookie: distributorCustomerCookie },
+        body: JSON.stringify({ name: "Distributor Customer Key" }),
+    });
+    const adminCreditsBeforeSale = (await wallet(origin, memberCookie)).credits;
+    const customerCreditsBeforeSale = (await wallet(origin, distributorCustomerCookie)).credits;
+    const distributedCall = await requestJson(`${origin}/api/gateway/v1/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${distributorCustomerKey.body.key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "gpt-5.6-sol", messages: [{ role: "user", content: "retail billing" }] }),
+    });
+    assert.equal(distributedCall.response.status, 200, JSON.stringify(distributedCall.body));
+    assert.equal((await wallet(origin, distributorCustomerCookie)).credits, customerCreditsBeforeSale - 2, "customer must pay the distributor retail price");
+    const adminWalletAfterSale = await wallet(origin, memberCookie);
+    assert.equal(adminWalletAfterSale.credits, adminCreditsBeforeSale + 1, "only the markup must be credited to the distributor admin");
+    assert.equal(adminWalletAfterSale.ledger.filter((entry) => entry.type === "commission").length, 1, "a successful request must create exactly one commission entry");
+    const duplicateDistributedCall = await requestJson(`${origin}/api/gateway/v1/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${distributorCustomerKey.body.key}`, "Content-Type": "application/json", "X-Canvas-Request-Id": "distributed-once" },
+        body: JSON.stringify({ model: "gpt-5.6-sol", messages: [{ role: "user", content: "once" }] }),
+    });
+    assert.equal(duplicateDistributedCall.response.status, 200);
+    const duplicateDistributedRetry = await requestJson(`${origin}/api/gateway/v1/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${distributorCustomerKey.body.key}`, "Content-Type": "application/json", "X-Canvas-Request-Id": "distributed-once" },
+        body: JSON.stringify({ model: "gpt-5.6-sol", messages: [{ role: "user", content: "once" }] }),
+    });
+    assert.equal(duplicateDistributedRetry.response.status, 409);
+    assert.equal((await wallet(origin, memberCookie)).ledger.filter((entry) => entry.type === "commission").length, 2, "an idempotent retry must not duplicate commission");
+    const adminBeforeVideoSettlement = (await wallet(origin, memberCookie)).credits;
+    const customerBeforeVideo = (await wallet(origin, distributorCustomerCookie)).credits;
+    const distributedVideo = await requestJson(`${origin}/api/gateway/v1/videos/generations`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${distributorCustomerKey.body.key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "Seedance 2.0-fast-720p", prompt: "distributed video", duration: 10 }),
+    });
+    assert.equal(distributedVideo.body.id, "task_distributor_video");
+    assert.equal((await wallet(origin, distributorCustomerCookie)).credits, customerBeforeVideo - 8, "video retail billing must round the complete order up to whole credits");
+    assert.equal((await wallet(origin, memberCookie)).credits, adminBeforeVideoSettlement, "async video markup must wait for final success");
+    const distributedVideoPoll = await requestJson(`${origin}/api/gateway/v1/videos/generations/task_distributor_video`, { headers: { Authorization: `Bearer ${distributorCustomerKey.body.key}` } });
+    assert.equal(distributedVideoPoll.body.status, "completed");
+    assert.equal((await wallet(origin, memberCookie)).credits, adminBeforeVideoSettlement + 3, "final video success must credit retail total minus platform base total");
+    assert.equal((await wallet(origin, memberCookie)).ledger.filter((entry) => entry.type === "commission").length, 3, "video polling must settle commission exactly once");
     const restoreMemberRole = await requestJson(`${origin}/api/admin/users/${managedMember.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Origin: origin, Cookie: cookie },

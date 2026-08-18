@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { AuthError } from "./auth-error.ts";
 import { canvasDatabase, withImmediateTransaction, type CanvasDatabase } from "./database.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
-import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserDetails, ManagedUserPaymentOrder, ManagedUserSummary, PaymentOrderSummary } from "./types.ts";
+import type { AuthUser, BillingPriceRule, BillingProfile, BillingUnit, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserDetails, ManagedUserPaymentOrder, ManagedUserSummary, PaymentOrderSummary } from "./types.ts";
 
 type AccountRow = Record<string, unknown>;
 type ApiKeyIdentity = { keyId: string; user: AuthUser };
@@ -75,10 +75,15 @@ function toAuthUser(row: AccountRow): AuthUser {
         username: String(row.username),
         displayName: String(row.display_name),
         avatarUrl: String(row.avatar_url || ""),
-        role: row.role === "root" ? "root" : "member",
+        role: effectiveRole(row),
         credits: Number(row.credits || 0),
         createdAt: String(row.created_at),
     };
+}
+
+function effectiveRole(row: AccountRow): AuthUser["role"] {
+    if (String(row.role) === "root" && String(row.username).trim().toLowerCase() === "root") return "root";
+    return Number(row.is_distributor || 0) ? "admin" : "member";
 }
 
 function toManagedUserSummary(row: AccountRow): ManagedUserSummary {
@@ -86,7 +91,7 @@ function toManagedUserSummary(row: AccountRow): ManagedUserSummary {
         id: String(row.id),
         username: String(row.username),
         displayName: String(row.display_name),
-        role: row.role === "root" ? "root" : "member",
+        role: effectiveRole(row),
         provider: row.provider === "local" || row.provider === "tokaxis" ? row.provider : "migrated",
         status: row.status === "disabled" ? "disabled" : "active",
         credits: Number(row.credits || 0),
@@ -94,6 +99,10 @@ function toManagedUserSummary(row: AccountRow): ManagedUserSummary {
         createdAt: String(row.created_at),
         updatedAt: String(row.updated_at),
         lastLoginAt: row.last_login_at ? String(row.last_login_at) : null,
+        ownerAdminId: row.owner_admin_id ? String(row.owner_admin_id) : null,
+        ownerAdminName: row.owner_admin_name ? String(row.owner_admin_name) : null,
+        billingProfileId: row.billing_profile_id ? String(row.billing_profile_id) : null,
+        billingProfileName: row.billing_profile_name ? String(row.billing_profile_name) : null,
     };
 }
 
@@ -114,6 +123,10 @@ function toInviteSummary(row: AccountRow): InviteSummary {
         usedCount: Number(row.used_count),
         revokedAt: row.revoked_at ? String(row.revoked_at) : null,
         status: inviteStatus(row),
+        createdBy: String(row.created_by),
+        createdByUsername: String(row.created_by_username || "root"),
+        billingProfileId: row.billing_profile_id ? String(row.billing_profile_id) : null,
+        billingProfileName: row.billing_profile_name ? String(row.billing_profile_name) : null,
     };
 }
 
@@ -191,13 +204,26 @@ export async function registerWithInvite(input: { username: string; password: st
     const initialCredits = Math.max(0, Math.floor(Number(process.env.CANVAS_INVITE_INITIAL_CREDITS || 0)));
     return withImmediateTransaction((database) => {
         if (database.prepare("SELECT id FROM accounts WHERE username = ?").get(username)) throw new AuthError("该用户名已被使用", 409);
-        const invite = database.prepare("SELECT * FROM invites WHERE code_hash = ?").get(codeHash);
+        const invite = database
+            .prepare(
+                `SELECT i.*, a.is_distributor AS creator_is_distributor, a.status AS creator_status
+                      FROM invites i JOIN accounts a ON a.id = i.created_by WHERE i.code_hash = ?`,
+            )
+            .get(codeHash);
         if (!invite || inviteStatus(invite) !== "active") throw new AuthError("邀请码无效、已过期或已使用", 403);
+        const createdByAdmin = Number(invite.creator_is_distributor || 0) === 1;
+        if (createdByAdmin && invite.creator_status !== "active") throw new AuthError("该邀请链接已停用", 403);
+        const ownedByAdmin = createdByAdmin;
+        if (ownedByAdmin && !invite.billing_profile_id) throw new AuthError("该邀请链接未绑定计费方案", 409);
+        if (ownedByAdmin) {
+            const profile = database.prepare("SELECT id FROM billing_profiles WHERE id = ? AND admin_user_id = ? AND active = 1").get(invite.billing_profile_id, invite.created_by);
+            if (!profile) throw new AuthError("该邀请链接的计费方案已停用", 409);
+        }
         const createdAt = now();
         const id = randomUUID();
         database
-            .prepare(`INSERT INTO accounts (id, username, display_name, role, provider, password_hash, credits, created_at, updated_at, last_login_at) VALUES (?, ?, ?, 'member', 'local', ?, ?, ?, ?, ?)`)
-            .run(id, username, username, passwordHash, initialCredits, createdAt, createdAt, createdAt);
+            .prepare(`INSERT INTO accounts (id, username, display_name, role, provider, password_hash, credits, owner_admin_id, billing_profile_id, created_at, updated_at, last_login_at) VALUES (?, ?, ?, 'member', 'local', ?, ?, ?, ?, ?, ?, ?)`)
+            .run(id, username, username, passwordHash, initialCredits, ownedByAdmin ? invite.created_by : null, ownedByAdmin ? invite.billing_profile_id : null, createdAt, createdAt, createdAt);
         database.prepare("UPDATE invites SET used_count = used_count + 1 WHERE id = ?").run(invite.id);
         if (initialCredits) insertLedger(database, { userId: id, type: "registration_bonus", amount: initialCredits, balanceAfter: initialCredits, remark: "注册赠送积分" });
         return toAuthUser({ id, username, display_name: username, avatar_url: "", role: "member", credits: initialCredits, created_at: createdAt });
@@ -255,21 +281,31 @@ function decryptCanvasUpstreamApiKey(value: string) {
     }
 }
 
-export async function createInvite(input: { rootUserId: string; label?: string; maxUses?: number; expiresInDays?: number | null }) {
+export async function createInvite(input: { actorUserId: string; label?: string; maxUses?: number; expiresInDays?: number | null; billingProfileId?: string | null }) {
     await ensureBootstrapRoot();
     const label = input.label?.trim().slice(0, 80) || "未命名邀请码";
     const maxUses = Math.max(1, Math.min(100, Math.floor(Number(input.maxUses) || 1)));
     const requestedDays = input.expiresInDays === null ? null : Number(input.expiresInDays ?? 7);
     const expiresInDays = requestedDays === null ? null : Math.max(1, Math.min(90, Math.floor(Number.isFinite(requestedDays) ? requestedDays : 7)));
     return withImmediateTransaction((database) => {
-        requireRoot(database, input.rootUserId);
+        const actor = requireAdmin(database, input.actorUserId);
+        let profileId = input.billingProfileId?.trim() || null;
+        if (effectiveRole(actor) === "admin") {
+            if (!profileId) throw new AuthError("分销邀请必须选择计费方案");
+            if (!database.prepare("SELECT id FROM billing_profiles WHERE id = ? AND admin_user_id = ? AND active = 1").get(profileId, input.actorUserId)) throw new AuthError("计费方案不存在或已停用", 404);
+        } else {
+            profileId = null;
+        }
         const createdAt = now();
         const code = createInviteCode();
         const row = {
             id: randomUUID(),
             code_hash: inviteCodeHash(code),
             label,
-            created_by: input.rootUserId,
+            created_by: input.actorUserId,
+            created_by_username: actor.username,
+            billing_profile_id: profileId,
+            billing_profile_name: profileId ? database.prepare("SELECT name FROM billing_profiles WHERE id = ?").get(profileId)?.name : null,
             created_at: createdAt,
             expires_at: expiresInDays === null ? null : new Date(Date.now() + expiresInDays * 86_400_000).toISOString(),
             max_uses: maxUses,
@@ -277,24 +313,32 @@ export async function createInvite(input: { rootUserId: string; label?: string; 
             revoked_at: null,
         };
         database
-            .prepare(`INSERT INTO invites (id, code_hash, label, created_by, created_at, expires_at, max_uses, used_count) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`)
-            .run(row.id, row.code_hash, row.label, row.created_by, row.created_at, row.expires_at, row.max_uses);
+            .prepare(`INSERT INTO invites (id, code_hash, label, created_by, billing_profile_id, created_at, expires_at, max_uses, used_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`)
+            .run(row.id, row.code_hash, row.label, row.created_by, row.billing_profile_id, row.created_at, row.expires_at, row.max_uses);
         return { code, invite: toInviteSummary(row) };
     });
 }
 
-export async function listInvites(rootUserId: string) {
+export async function listInvites(actorUserId: string) {
     await ensureBootstrapRoot();
     const database = canvasDatabase();
-    requireRoot(database, rootUserId);
-    return database.prepare("SELECT * FROM invites ORDER BY created_at DESC").all().map(toInviteSummary);
+    const actor = requireAdmin(database, actorUserId);
+    const where = effectiveRole(actor) === "root" ? "" : "WHERE i.created_by = ?";
+    const values = effectiveRole(actor) === "root" ? [] : [actorUserId];
+    return database
+        .prepare(`SELECT i.*, a.username AS created_by_username, p.name AS billing_profile_name FROM invites i JOIN accounts a ON a.id = i.created_by LEFT JOIN billing_profiles p ON p.id = i.billing_profile_id ${where} ORDER BY i.created_at DESC`)
+        .all(...values)
+        .map(toInviteSummary);
 }
 
-export async function revokeInvite(input: { rootUserId: string; inviteId: string }) {
+export async function revokeInvite(input: { actorUserId: string; inviteId: string }) {
     return withImmediateTransaction((database) => {
-        requireRoot(database, input.rootUserId);
-        const invite = database.prepare("SELECT * FROM invites WHERE id = ?").get(input.inviteId);
+        const actor = requireAdmin(database, input.actorUserId);
+        const invite = database
+            .prepare("SELECT i.*, a.username AS created_by_username, p.name AS billing_profile_name FROM invites i JOIN accounts a ON a.id = i.created_by LEFT JOIN billing_profiles p ON p.id = i.billing_profile_id WHERE i.id = ?")
+            .get(input.inviteId);
         if (!invite) throw new AuthError("邀请码不存在", 404);
+        if (effectiveRole(actor) !== "root" && String(invite.created_by) !== input.actorUserId) throw new AuthError("没有此操作权限", 403);
         const revokedAt = String(invite.revoked_at || now());
         database.prepare("UPDATE invites SET revoked_at = ? WHERE id = ?").run(revokedAt, input.inviteId);
         return toInviteSummary({ ...invite, revoked_at: revokedAt });
@@ -471,9 +515,12 @@ export async function listManagedUsers(input: { rootUserId: string; query?: stri
     const query = input.query?.trim().toLocaleLowerCase() || "";
     const rows = database
         .prepare(
-            `SELECT a.*, COUNT(CASE WHEN k.id IS NOT NULL AND k.revoked_at IS NULL THEN 1 END) AS active_key_count
+            `SELECT a.*, owner.username AS owner_admin_name, p.name AS billing_profile_name,
+                    COUNT(CASE WHEN k.id IS NOT NULL AND k.revoked_at IS NULL THEN 1 END) AS active_key_count
              FROM accounts a
              LEFT JOIN api_keys k ON k.user_id = a.id
+             LEFT JOIN accounts owner ON owner.id = a.owner_admin_id
+             LEFT JOIN billing_profiles p ON p.id = a.billing_profile_id
              GROUP BY a.id
              ORDER BY CASE WHEN lower(a.username) = 'root' THEN 0 ELSE 1 END, a.created_at DESC
              LIMIT 1000`,
@@ -487,9 +534,12 @@ export async function getManagedUserDetails(input: { rootUserId: string; userId:
     requireRoot(database, input.rootUserId);
     const account = database
         .prepare(
-            `SELECT a.*, COUNT(CASE WHEN k.id IS NOT NULL AND k.revoked_at IS NULL THEN 1 END) AS active_key_count
+            `SELECT a.*, owner.username AS owner_admin_name, p.name AS billing_profile_name,
+                    COUNT(CASE WHEN k.id IS NOT NULL AND k.revoked_at IS NULL THEN 1 END) AS active_key_count
              FROM accounts a
              LEFT JOIN api_keys k ON k.user_id = a.id
+             LEFT JOIN accounts owner ON owner.id = a.owner_admin_id
+             LEFT JOIN billing_profiles p ON p.id = a.billing_profile_id
              WHERE a.id = ?
              GROUP BY a.id`,
         )
@@ -552,14 +602,14 @@ export async function getManagedUserDetails(input: { rootUserId: string; userId:
     };
 }
 
-export async function updateManagedUser(input: { rootUserId: string; userId: string; displayName?: string; role?: "root" | "member"; status?: "active" | "disabled" }) {
+export async function updateManagedUser(input: { rootUserId: string; userId: string; displayName?: string; role?: "admin" | "member"; status?: "active" | "disabled" }) {
     return withImmediateTransaction((database) => {
         requireRoot(database, input.rootUserId);
         const account = database.prepare("SELECT * FROM accounts WHERE id = ?").get(input.userId);
         if (!account) throw new AuthError("用户不存在", 404);
 
         const isPrimaryRoot = String(account.username).trim().toLowerCase() === "root";
-        if (isPrimaryRoot && input.role === "member") throw new AuthError("不能降低主 root 账号权限", 409);
+        if (isPrimaryRoot && input.role) throw new AuthError("不能修改主 root 账号角色", 409);
         if (isPrimaryRoot && input.status === "disabled") throw new AuthError("不能禁用主 root 账号", 409);
 
         const updates: string[] = [];
@@ -572,9 +622,10 @@ export async function updateManagedUser(input: { rootUserId: string; userId: str
             values.push(displayName);
         }
         if (input.role !== undefined) {
-            if (input.role !== "root" && input.role !== "member") throw new AuthError("用户角色不正确");
-            updates.push("role = ?");
-            values.push(input.role);
+            if (input.role !== "admin" && input.role !== "member") throw new AuthError("用户角色不正确");
+            updates.push("role = 'member'", "is_distributor = ?");
+            values.push(input.role === "admin" ? 1 : 0);
+            if (input.role === "admin") updates.push("owner_admin_id = NULL", "billing_profile_id = NULL");
         }
         if (input.status !== undefined) {
             if (input.status !== "active" && input.status !== "disabled") throw new AuthError("用户状态不正确");
@@ -586,10 +637,16 @@ export async function updateManagedUser(input: { rootUserId: string; userId: str
         updates.push("updated_at = ?");
         values.push(now(), input.userId);
         database.prepare(`UPDATE accounts SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+        if (input.role === "member" && Number(account.is_distributor || 0)) {
+            database.prepare("UPDATE billing_profiles SET active = 0, updated_at = ? WHERE admin_user_id = ?").run(now(), input.userId);
+            database.prepare("UPDATE accounts SET owner_admin_id = NULL, billing_profile_id = NULL, updated_at = ? WHERE owner_admin_id = ?").run(now(), input.userId);
+        }
         const updated = database
             .prepare(
-                `SELECT a.*, COUNT(CASE WHEN k.id IS NOT NULL AND k.revoked_at IS NULL THEN 1 END) AS active_key_count
+                `SELECT a.*, owner.username AS owner_admin_name, p.name AS billing_profile_name,
+                        COUNT(CASE WHEN k.id IS NOT NULL AND k.revoked_at IS NULL THEN 1 END) AS active_key_count
                  FROM accounts a LEFT JOIN api_keys k ON k.user_id = a.id
+                 LEFT JOIN accounts owner ON owner.id = a.owner_admin_id LEFT JOIN billing_profiles p ON p.id = a.billing_profile_id
                  WHERE a.id = ? GROUP BY a.id`,
             )
             .get(input.userId);
@@ -609,7 +666,145 @@ export async function revokeManagedUserKeys(input: { rootUserId: string; userId:
     });
 }
 
-export function reserveCredits(input: { userId: string; apiKeyId: string; requestId: string; model: string; amount: number; units: number; unit: string; upstreamPath?: string; reuseWindowMs?: number; remark?: string }): CreditReservation {
+type BasePriceMap = Record<string, { credits: number; unit: BillingUnit }>;
+
+function normalizeProfileRules(rules: Array<{ model: string; creditsPerUnit: number }>, basePrices: BasePriceMap): BillingPriceRule[] {
+    const seen = new Set<string>();
+    return rules.map((rule) => {
+        const model = rule.model.trim().toLowerCase();
+        const base = basePrices[model];
+        const creditsPerUnit = Number(rule.creditsPerUnit);
+        if (!model || seen.has(model) || !base) throw new AuthError("计费模型不正确");
+        if (!Number.isFinite(creditsPerUnit) || creditsPerUnit < base.credits) throw new AuthError(`${model} 的分销价不能低于平台成本 ${base.credits}`);
+        if (creditsPerUnit > 1_000_000) throw new AuthError("分销价超出允许范围");
+        seen.add(model);
+        return { model, baseCredits: base.credits, creditsPerUnit, unit: base.unit };
+    });
+}
+
+function toBillingProfile(database: CanvasDatabase, row: AccountRow, basePrices: BasePriceMap): BillingProfile {
+    const configured = new Map(
+        database
+            .prepare("SELECT model, credits_per_unit, unit FROM billing_price_rules WHERE profile_id = ? ORDER BY model")
+            .all(row.id)
+            .map((rule) => [String(rule.model), rule]),
+    );
+    const rules = Object.entries(basePrices).map(([model, base]) => {
+        const configuredRule = configured.get(model);
+        return { model, baseCredits: base.credits, creditsPerUnit: configuredRule ? Number(configuredRule.credits_per_unit) : base.credits, unit: base.unit } satisfies BillingPriceRule;
+    });
+    return {
+        id: String(row.id),
+        adminUserId: String(row.admin_user_id),
+        adminUsername: String(row.admin_username),
+        name: String(row.name),
+        active: Number(row.active) === 1,
+        invitedUsers: Number(row.invited_users || 0),
+        earnedCredits: Number(row.earned_credits || 0),
+        createdAt: String(row.created_at),
+        updatedAt: String(row.updated_at),
+        rules,
+    };
+}
+
+export function listBillingProfiles(input: { actorUserId: string; basePrices: BasePriceMap }) {
+    const database = canvasDatabase();
+    const actor = requireAdmin(database, input.actorUserId);
+    const scoped = effectiveRole(actor) === "admin";
+    const rows = database
+        .prepare(
+            `SELECT p.*, a.username AS admin_username,
+                    (SELECT COUNT(*) FROM accounts child WHERE child.billing_profile_id = p.id) AS invited_users,
+                    COALESCE((SELECT SUM(l.amount) FROM credit_ledger l WHERE l.user_id = p.admin_user_id AND l.type = 'commission' AND l.remark LIKE '%' || p.id || '%'), 0) AS earned_credits
+                  FROM billing_profiles p JOIN accounts a ON a.id = p.admin_user_id
+                  ${scoped ? "WHERE p.admin_user_id = ?" : ""}
+                  ORDER BY p.created_at DESC`,
+        )
+        .all(...(scoped ? [input.actorUserId] : []));
+    return rows.map((row) => toBillingProfile(database, row, input.basePrices));
+}
+
+export function createBillingProfile(input: { actorUserId: string; name: string; rules: Array<{ model: string; creditsPerUnit: number }>; basePrices: BasePriceMap }) {
+    const name = input.name.trim().slice(0, 80);
+    if (!name) throw new AuthError("请输入计费方案名称");
+    const rules = normalizeProfileRules(input.rules, input.basePrices);
+    return withImmediateTransaction((database) => {
+        const actor = requireAdmin(database, input.actorUserId);
+        if (effectiveRole(actor) !== "admin") throw new AuthError("Root 负责平台成本，请使用分销管理员账号创建售价方案", 403);
+        const timestamp = now();
+        const id = randomUUID();
+        database.prepare("INSERT INTO billing_profiles (id, admin_user_id, name, active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)").run(id, input.actorUserId, name, timestamp, timestamp);
+        const insert = database.prepare("INSERT INTO billing_price_rules (profile_id, model, credits_per_unit, unit) VALUES (?, ?, ?, ?)");
+        for (const rule of rules) insert.run(id, rule.model, rule.creditsPerUnit, rule.unit);
+        return toBillingProfile(database, { id, admin_user_id: input.actorUserId, admin_username: actor.username, name, active: 1, invited_users: 0, earned_credits: 0, created_at: timestamp, updated_at: timestamp }, input.basePrices);
+    });
+}
+
+export function updateBillingProfile(input: { actorUserId: string; profileId: string; name?: string; active?: boolean; rules?: Array<{ model: string; creditsPerUnit: number }>; basePrices: BasePriceMap }) {
+    const rules = input.rules ? normalizeProfileRules(input.rules, input.basePrices) : null;
+    return withImmediateTransaction((database) => {
+        const actor = requireAdmin(database, input.actorUserId);
+        const profile = database.prepare("SELECT * FROM billing_profiles WHERE id = ?").get(input.profileId);
+        if (!profile) throw new AuthError("计费方案不存在", 404);
+        if (effectiveRole(actor) !== "admin" || String(profile.admin_user_id) !== input.actorUserId) throw new AuthError("只能修改自己的计费方案", 403);
+        const name = input.name === undefined ? String(profile.name) : input.name.trim().slice(0, 80);
+        if (!name) throw new AuthError("请输入计费方案名称");
+        const timestamp = now();
+        database.prepare("UPDATE billing_profiles SET name = ?, active = ?, updated_at = ? WHERE id = ?").run(name, input.active === undefined ? Number(profile.active) : input.active ? 1 : 0, timestamp, input.profileId);
+        if (rules) {
+            database.prepare("DELETE FROM billing_price_rules WHERE profile_id = ?").run(input.profileId);
+            const insert = database.prepare("INSERT INTO billing_price_rules (profile_id, model, credits_per_unit, unit) VALUES (?, ?, ?, ?)");
+            for (const rule of rules) insert.run(input.profileId, rule.model, rule.creditsPerUnit, rule.unit);
+        }
+        const updated = database
+            .prepare(
+                "SELECT p.*, a.username AS admin_username, (SELECT COUNT(*) FROM accounts child WHERE child.billing_profile_id = p.id) AS invited_users, 0 AS earned_credits FROM billing_profiles p JOIN accounts a ON a.id = p.admin_user_id WHERE p.id = ?",
+            )
+            .get(input.profileId)!;
+        return toBillingProfile(database, updated, input.basePrices);
+    });
+}
+
+export function resolveCustomerPrice(input: { userId: string; model: string; baseCredits: number; unit: BillingUnit }) {
+    const row = canvasDatabase()
+        .prepare(
+            `SELECT child.billing_profile_id, child.owner_admin_id, p.active, owner.is_distributor, owner.status,
+                         r.credits_per_unit, r.unit
+                  FROM accounts child
+                  LEFT JOIN billing_profiles p ON p.id = child.billing_profile_id AND p.admin_user_id = child.owner_admin_id
+                  LEFT JOIN accounts owner ON owner.id = child.owner_admin_id
+                  LEFT JOIN billing_price_rules r ON r.profile_id = p.id AND r.model = ?
+                  WHERE child.id = ?`,
+        )
+        .get(input.model.toLowerCase(), input.userId);
+    const valid = row && Number(row.active) === 1 && Number(row.is_distributor) === 1 && row.status === "active" && row.billing_profile_id && row.owner_admin_id;
+    const configured = valid && row.unit === input.unit ? Number(row.credits_per_unit) : input.baseCredits;
+    const retailCredits = Number.isFinite(configured) && configured >= input.baseCredits ? configured : input.baseCredits;
+    return {
+        retailCredits,
+        billingProfileId: valid && retailCredits > input.baseCredits ? String(row!.billing_profile_id) : null,
+        beneficiaryAdminId: valid && retailCredits > input.baseCredits ? String(row!.owner_admin_id) : null,
+    };
+}
+
+export function reserveCredits(input: {
+    userId: string;
+    apiKeyId: string;
+    requestId: string;
+    model: string;
+    amount: number;
+    baseAmount?: number;
+    commissionAmount?: number;
+    beneficiaryAdminId?: string | null;
+    billingProfileId?: string | null;
+    baseRate?: number;
+    retailRate?: number;
+    units: number;
+    unit: string;
+    upstreamPath?: string;
+    reuseWindowMs?: number;
+    remark?: string;
+}): CreditReservation {
     const requestedAmount = Math.max(0, Math.ceil(input.amount));
     return withImmediateTransaction((database) => {
         const existing = database.prepare("SELECT * FROM billing_transactions WHERE request_id = ?").get(input.requestId);
@@ -627,6 +822,8 @@ export function reserveCredits(input: { userId: string; apiKeyId: string; reques
             return { requestId: String(existing.request_id), amount: Number(existing.amount), status: existing.status as CreditReservation["status"] };
         }
         let amount = requestedAmount;
+        let baseAmount = Math.max(0, Math.ceil(input.baseAmount ?? amount));
+        let commissionAmount = Math.max(0, Math.floor(input.commissionAmount ?? amount - baseAmount));
         const reuseWindowMs = Math.max(0, Math.floor(input.reuseWindowMs || 0));
         if (amount && reuseWindowMs && input.upstreamPath) {
             const since = new Date(Date.now() - reuseWindowMs).toISOString();
@@ -638,7 +835,11 @@ export function reserveCredits(input: { userId: string; apiKeyId: string; reques
                      ORDER BY created_at DESC LIMIT 1`,
                 )
                 .get(input.userId, input.apiKeyId, input.model, input.upstreamPath, since);
-            if (recentCharge) amount = 0;
+            if (recentCharge) {
+                amount = 0;
+                baseAmount = 0;
+                commissionAmount = 0;
+            }
         }
         if (amount) {
             const result = database.prepare("UPDATE accounts SET credits = credits - ?, updated_at = ? WHERE id = ? AND status = 'active' AND credits >= ?").run(amount, now(), input.userId, amount);
@@ -647,21 +848,69 @@ export function reserveCredits(input: { userId: string; apiKeyId: string; reques
         const balance = Number(database.prepare("SELECT credits FROM accounts WHERE id = ?").get(input.userId)?.credits || 0);
         const timestamp = now();
         database
-            .prepare(`INSERT INTO billing_transactions (request_id, user_id, api_key_id, model, amount, units, unit, status, upstream_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?)`)
-            .run(input.requestId, input.userId, input.apiKeyId, input.model, amount, input.units, input.unit, input.upstreamPath || null, timestamp, timestamp);
+            .prepare(
+                `INSERT INTO billing_transactions (request_id, user_id, api_key_id, model, amount, base_amount, commission_amount, beneficiary_admin_id, billing_profile_id, base_rate, retail_rate, units, unit, status, upstream_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?)`,
+            )
+            .run(
+                input.requestId,
+                input.userId,
+                input.apiKeyId,
+                input.model,
+                amount,
+                baseAmount,
+                commissionAmount,
+                amount ? input.beneficiaryAdminId || null : null,
+                amount ? input.billingProfileId || null : null,
+                input.baseRate ?? null,
+                input.retailRate ?? null,
+                input.units,
+                input.unit,
+                input.upstreamPath || null,
+                timestamp,
+                timestamp,
+            );
         if (amount) insertLedger(database, { userId: input.userId, type: "consume", amount: -amount, balanceAfter: balance, requestId: input.requestId, model: input.model, units: input.units, remark: input.remark?.trim() || `${input.model} 生成预扣` });
         return { requestId: input.requestId, amount, status: "reserved" };
     });
 }
 
 export function settleCredits(requestId: string, upstreamTaskId?: string, upstreamPath?: string) {
-    canvasDatabase()
-        .prepare("UPDATE billing_transactions SET status = ?, upstream_task_id = COALESCE(?, upstream_task_id), upstream_path = COALESCE(?, upstream_path), updated_at = ? WHERE request_id = ? AND status IN ('reserved', 'submitted')")
-        .run(upstreamTaskId ? "submitted" : "settled", upstreamTaskId || null, upstreamPath || null, now(), requestId);
+    if (upstreamTaskId) {
+        canvasDatabase()
+            .prepare("UPDATE billing_transactions SET status = 'submitted', upstream_task_id = COALESCE(?, upstream_task_id), upstream_path = COALESCE(?, upstream_path), updated_at = ? WHERE request_id = ? AND status = 'reserved'")
+            .run(upstreamTaskId, upstreamPath || null, now(), requestId);
+        return;
+    }
+    settleTransaction("request_id", requestId, "reserved");
 }
 
 export function settleCreditsByTask(upstreamTaskId: string) {
-    canvasDatabase().prepare("UPDATE billing_transactions SET status = 'settled', updated_at = ? WHERE upstream_task_id = ? AND status = 'submitted'").run(now(), upstreamTaskId);
+    settleTransaction("upstream_task_id", upstreamTaskId, "submitted");
+}
+
+function settleTransaction(column: "request_id" | "upstream_task_id", value: string, expectedStatus: "reserved" | "submitted") {
+    return withImmediateTransaction((database) => {
+        const transaction = database.prepare(`SELECT * FROM billing_transactions WHERE ${column} = ?`).get(value);
+        if (!transaction || transaction.status !== expectedStatus) return false;
+        const update = database.prepare("UPDATE billing_transactions SET status = 'settled', updated_at = ? WHERE request_id = ? AND status = ?").run(now(), transaction.request_id, expectedStatus);
+        if (!Number(update.changes)) return false;
+        const commission = Math.max(0, Number(transaction.commission_amount || 0));
+        if (commission && transaction.beneficiary_admin_id) {
+            database.prepare("UPDATE accounts SET credits = credits + ?, updated_at = ? WHERE id = ?").run(commission, now(), transaction.beneficiary_admin_id);
+            const balance = Number(database.prepare("SELECT credits FROM accounts WHERE id = ?").get(transaction.beneficiary_admin_id)?.credits || 0);
+            insertLedger(database, {
+                userId: String(transaction.beneficiary_admin_id),
+                type: "commission",
+                amount: commission,
+                balanceAfter: balance,
+                requestId: String(transaction.request_id),
+                model: String(transaction.model),
+                units: Number(transaction.units),
+                remark: `${String(transaction.model)} 分销溢价·${String(transaction.billing_profile_id || "")}`,
+            });
+        }
+        return true;
+    });
 }
 
 export function refundCredits(requestId: string, remark = "生成失败，积分退回") {
@@ -706,6 +955,12 @@ export function listSubmittedBillingTasks(limit = 100): SubmittedBillingTask[] {
 
 function requireRoot(database: CanvasDatabase, userId: string) {
     if (!database.prepare("SELECT id FROM accounts WHERE id = ? AND role = 'root' AND status = 'active' AND username = 'root' COLLATE NOCASE").get(userId)) throw new AuthError("没有此操作权限", 403);
+}
+
+function requireAdmin(database: CanvasDatabase, userId: string) {
+    const account = database.prepare("SELECT * FROM accounts WHERE id = ? AND status = 'active'").get(userId);
+    if (!account || (effectiveRole(account) !== "root" && effectiveRole(account) !== "admin")) throw new AuthError("没有此操作权限", 403);
+    return account;
 }
 
 function insertLedger(database: CanvasDatabase, input: { userId: string; type: CreditLedgerEntry["type"]; amount: number; balanceAfter: number; requestId?: string; model?: string; units?: number; remark: string }) {

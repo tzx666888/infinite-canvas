@@ -2,7 +2,7 @@
 
 import { useEffect, type CSSProperties } from "react";
 import { Avatar, Dropdown } from "antd";
-import { Keyboard, KeyRound, LogIn, LogOut, Settings2, Users } from "lucide-react";
+import { BadgeDollarSign, Keyboard, KeyRound, LogIn, LogOut, Settings2, Users } from "lucide-react";
 import type { ItemType } from "antd/es/menu/interface";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -36,6 +36,7 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
     const userId = user?.id;
     const avatarText = (userName.trim()[0] || "U").toUpperCase();
     const isPrimaryRoot = user?.role === "root" && user.username.trim().toLowerCase() === "root";
+    const isDistributorAdmin = user?.role === "admin";
 
     useEffect(() => {
         if (!isReady || !userId) return;
@@ -62,7 +63,8 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
                   ),
               },
               { key: "account", icon: <KeyRound className="size-4" />, label: <Link href="/account">账户与画布 Key</Link> },
-              ...(isPrimaryRoot ? [{ key: "invitations", icon: <KeyRound className="size-4" />, label: <Link href="/admin/invitations">邀请码管理</Link> }] : []),
+              ...(isPrimaryRoot || isDistributorAdmin ? [{ key: "invitations", icon: <KeyRound className="size-4" />, label: <Link href="/admin/invitations">邀请码管理</Link> }] : []),
+              ...(isPrimaryRoot || isDistributorAdmin ? [{ key: "billing", icon: <BadgeDollarSign className="size-4" />, label: <Link href="/admin/billing">分销中心</Link> }] : []),
               ...(isPrimaryRoot ? [{ key: "users", icon: <Users className="size-4" />, label: <Link href="/admin/users">用户管理</Link> }] : []),
               ...(onOpenShortcuts ? [{ key: "shortcuts", icon: <Keyboard className="size-4" />, label: "快捷键", onClick: onOpenShortcuts }] : []),
               { type: "divider" },

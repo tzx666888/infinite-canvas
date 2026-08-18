@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { AuthError } from "../auth/auth-error.ts";
-import { listSubmittedBillingTasks, refundCredits, refundCreditsByTask, reserveCredits, settleCredits, settleCreditsByTask } from "../auth/store.ts";
+import { listSubmittedBillingTasks, refundCredits, refundCreditsByTask, reserveCredits, resolveCustomerPrice, settleCredits, settleCreditsByTask } from "../auth/store.ts";
 import { resolveCanvasUpstreamAuthorization } from "./upstream-auth.ts";
 
 type PriceUnit = "request" | "image" | "second";
@@ -27,7 +27,10 @@ export async function reserveGatewayRequest(request: NextRequest, path: string, 
     const rule = prices[usage.model.toLowerCase()];
     if (!rule) throw new AuthError(`模型 ${usage.model} 暂未配置积分价格`, 409, "model_price_missing");
     const units = rule.unit === "second" ? usage.seconds : rule.unit === "image" ? usage.images : 1;
-    const amount = Math.max(1, Math.ceil(rule.credits * Math.max(1, units)));
+    const priced = resolveCustomerPrice({ userId: identity.userId, model: usage.model, baseCredits: rule.credits, unit: rule.unit });
+    const billableUnits = Math.max(1, units);
+    const baseAmount = Math.max(1, Math.ceil(rule.credits * billableUnits));
+    const amount = Math.max(baseAmount, Math.ceil(priced.retailCredits * billableUnits));
     const requestId = requestIdOverride?.trim().slice(0, 100) || request.headers.get("x-canvas-request-id")?.trim().slice(0, 100) || randomUUID();
     const agentWindowMs = path === "v1/responses" && rule.unit === "request" ? agentBillingWindowMs() : 0;
     const agentWindowMinutes = Math.max(1, Math.round(agentWindowMs / 60_000));
@@ -37,6 +40,12 @@ export async function reserveGatewayRequest(request: NextRequest, path: string, 
         requestId,
         model: usage.model,
         amount,
+        baseAmount,
+        commissionAmount: amount - baseAmount,
+        beneficiaryAdminId: priced.beneficiaryAdminId,
+        billingProfileId: priced.billingProfileId,
+        baseRate: rule.credits,
+        retailRate: priced.retailCredits,
         units,
         unit: rule.unit,
         upstreamPath: path,

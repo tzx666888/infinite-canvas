@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { App, Button, Input, InputNumber, Modal, Table, Tag } from "antd";
+import { App, Button, Input, InputNumber, Modal, Select, Table, Tag } from "antd";
 import { Copy, KeyRound, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-import { createInvitation, fetchInvites, revokeInvitation } from "@/services/api/auth";
+import { createInvitation, fetchBillingProfiles, fetchInvites, revokeInvitation } from "@/services/api/auth";
 import { useUserStore } from "@/stores/use-user-store";
-import type { InviteSummary } from "@/lib/auth/types";
+import type { BillingProfile, InviteSummary } from "@/lib/auth/types";
 
 const statusLabels: Record<InviteSummary["status"], string> = {
     active: "可使用",
@@ -34,22 +34,29 @@ export default function InvitationManagementPage() {
     const [maxUses, setMaxUses] = useState(1);
     const [expiresInDays, setExpiresInDays] = useState(7);
     const [createdCode, setCreatedCode] = useState("");
+    const [profiles, setProfiles] = useState<BillingProfile[]>([]);
+    const [billingProfileId, setBillingProfileId] = useState<string>();
 
     const loadInvites = useCallback(async () => {
         setLoading(true);
         try {
             const result = await fetchInvites();
             setInvites(result.invites);
+            if (user?.role === "admin") {
+                const billing = await fetchBillingProfiles();
+                setProfiles(billing.profiles.filter((profile) => profile.active));
+                setBillingProfileId((current) => current || billing.profiles.find((profile) => profile.active)?.id);
+            }
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取邀请码失败");
         } finally {
             setLoading(false);
         }
-    }, [message]);
+    }, [message, user?.role]);
 
     useEffect(() => {
         if (!user) return;
-        if (user.role !== "root" || user.username.trim().toLowerCase() !== "root") {
+        if (user.role !== "root" && user.role !== "admin") {
             router.replace("/");
             return;
         }
@@ -59,7 +66,7 @@ export default function InvitationManagementPage() {
     const create = async () => {
         setCreating(true);
         try {
-            const result = await createInvitation({ label, maxUses, expiresInDays });
+            const result = await createInvitation({ label, maxUses, expiresInDays, billingProfileId: user?.role === "admin" ? billingProfileId : null });
             setCreatedCode(result.code);
             setLabel("");
             setMaxUses(1);
@@ -87,7 +94,7 @@ export default function InvitationManagementPage() {
         });
     };
 
-    if (!user || user.role !== "root" || user.username.trim().toLowerCase() !== "root") return null;
+    if (!user || (user.role !== "root" && user.role !== "admin")) return null;
 
     return (
         <main className="h-full overflow-y-auto bg-background px-5 py-8 sm:px-8">
@@ -96,20 +103,28 @@ export default function InvitationManagementPage() {
                     <div>
                         <div className="flex items-center gap-2 text-stone-500 dark:text-stone-400">
                             <ShieldCheck className="size-4" />
-                            <span className="text-sm">Root 管理</span>
+                            <span className="text-sm">{user.role === "root" ? "Root 管理" : "分销管理"}</span>
                         </div>
                         <h1 className="mt-2 text-2xl font-semibold text-stone-950 dark:text-stone-100">邀请码管理</h1>
-                        <p className="mt-2 text-sm leading-6 text-stone-500 dark:text-stone-400">所有新账号必须使用 root 创建的邀请码开通。邀请码原文只在创建后显示一次。</p>
+                        <p className="mt-2 text-sm leading-6 text-stone-500 dark:text-stone-400">{user.role === "admin" ? "通过你的邀请注册的客户，会自动归属你并使用所选计费方案。" : "可创建平台直属邀请，并查看全部分销邀请。"}邀请码原文只显示一次。</p>
                     </div>
                     <Button icon={<RefreshCw className="size-4" />} onClick={() => void loadInvites()} loading={loading}>
                         刷新
                     </Button>
                 </div>
 
-                <section className="grid gap-4 border-y border-stone-200 py-6 dark:border-stone-800 md:grid-cols-[1fr_120px_140px_auto] md:items-end">
+                <section className="grid gap-4 border-y border-stone-200 py-6 dark:border-stone-800 md:grid-cols-[1fr_180px_110px_120px_auto] md:items-end">
                     <label className="block text-sm font-medium text-stone-700 dark:text-stone-300">
                         备注
                         <Input className="mt-2" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：张三 / 测试团队" maxLength={80} />
+                    </label>
+                    <label className="block text-sm font-medium text-stone-700 dark:text-stone-300">
+                        计费方案
+                        {user.role === "admin" ? (
+                            <Select className="mt-2 w-full" value={billingProfileId} placeholder="请选择" options={profiles.map((profile) => ({ value: profile.id, label: profile.name }))} onChange={setBillingProfileId} />
+                        ) : (
+                            <Input className="mt-2" disabled value="平台原价" />
+                        )}
                     </label>
                     <label className="block text-sm font-medium text-stone-700 dark:text-stone-300">
                         可使用次数
@@ -119,7 +134,7 @@ export default function InvitationManagementPage() {
                         有效天数
                         <InputNumber className="mt-2 !w-full" min={1} max={90} value={expiresInDays} onChange={(value) => setExpiresInDays(Number(value || 7))} />
                     </label>
-                    <Button type="primary" icon={<KeyRound className="size-4" />} onClick={() => void create()} loading={creating}>
+                    <Button type="primary" icon={<KeyRound className="size-4" />} onClick={() => void create()} loading={creating} disabled={user.role === "admin" && !billingProfileId}>
                         生成邀请码
                     </Button>
                 </section>
@@ -133,6 +148,8 @@ export default function InvitationManagementPage() {
                         dataSource={invites}
                         columns={[
                             { title: "备注", dataIndex: "label", key: "label", render: (value: string) => value || "未命名邀请码" },
+                            { title: "创建人", dataIndex: "createdByUsername", key: "createdByUsername" },
+                            { title: "计费方案", dataIndex: "billingProfileName", key: "billingProfileName", render: (value: string | null) => value || "平台原价" },
                             { title: "状态", dataIndex: "status", key: "status", render: (status: InviteSummary["status"]) => <Tag color={statusColors[status]}>{statusLabels[status]}</Tag> },
                             { title: "使用情况", key: "uses", render: (_, invite) => `${invite.usedCount} / ${invite.maxUses}` },
                             { title: "过期时间", dataIndex: "expiresAt", key: "expiresAt", render: (value: string | null) => (value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "长期有效") },

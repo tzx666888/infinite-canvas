@@ -1,4 +1,4 @@
-import type { AuthUser, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserDetails, ManagedUserSummary, PaymentMethod, PaymentOrderSummary, PaymentPackage } from "@/lib/auth/types";
+import type { AuthUser, BillingProfile, BillingUnit, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserDetails, ManagedUserSummary, PaymentMethod, PaymentOrderSummary, PaymentPackage } from "@/lib/auth/types";
 
 type AuthResponse = { user: AuthUser };
 
@@ -49,7 +49,7 @@ export async function fetchInvites() {
     return requestAuth<{ invites: InviteSummary[] }>("/api/admin/invitations");
 }
 
-export async function createInvitation(input: { label?: string; maxUses?: number; expiresInDays?: number | null }) {
+export async function createInvitation(input: { label?: string; maxUses?: number; expiresInDays?: number | null; billingProfileId?: string | null }) {
     return requestAuth<{ code: string; invite: InviteSummary }>("/api/admin/invitations", { method: "POST", body: JSON.stringify(input) });
 }
 
@@ -91,8 +91,22 @@ export async function fetchManagedUserDetails(userId: string, input: { ledgerPag
     return requestAuth<ManagedUserDetails>(`/api/admin/users/${encodeURIComponent(userId)}/details?${search.toString()}`);
 }
 
-export async function updateManagedUser(userId: string, input: { displayName?: string; role?: "root" | "member"; status?: "active" | "disabled" }) {
+export async function updateManagedUser(userId: string, input: { displayName?: string; role?: "admin" | "member"; status?: "active" | "disabled" }) {
     return requestAuth<{ user: ManagedUserSummary }>(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export type BasePriceMap = Record<string, { credits: number; unit: BillingUnit }>;
+
+export async function fetchBillingProfiles() {
+    return requestAuth<{ profiles: BillingProfile[]; basePrices: BasePriceMap }>("/api/admin/billing-profiles");
+}
+
+export async function createBillingProfile(input: { name: string; rules: Array<{ model: string; creditsPerUnit: number }> }) {
+    return requestAuth<{ profile: BillingProfile }>("/api/admin/billing-profiles", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function updateBillingProfile(profileId: string, input: { name?: string; active?: boolean; rules?: Array<{ model: string; creditsPerUnit: number }> }) {
+    return requestAuth<{ profile: BillingProfile }>(`/api/admin/billing-profiles/${encodeURIComponent(profileId)}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
 export async function revokeManagedUserKeys(userId: string) {

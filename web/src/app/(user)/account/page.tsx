@@ -13,6 +13,7 @@ const ledgerLabels: Record<CreditLedgerEntry["type"], string> = {
     recharge: "充值",
     consume: "消费",
     refund: "退款",
+    commission: "分销溢价",
     admin_adjust: "人工调整",
     registration_bonus: "注册赠送",
     migration_credit: "旧账户迁入",

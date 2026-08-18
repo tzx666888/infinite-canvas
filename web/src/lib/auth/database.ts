@@ -114,6 +114,22 @@ export function canvasDatabase() {
         );
         CREATE INDEX IF NOT EXISTS payment_orders_user_idx ON payment_orders(user_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS payment_orders_status_idx ON payment_orders(status, expires_at);
+        CREATE TABLE IF NOT EXISTS billing_profiles (
+            id TEXT PRIMARY KEY,
+            admin_user_id TEXT NOT NULL REFERENCES accounts(id),
+            name TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS billing_profiles_admin_idx ON billing_profiles(admin_user_id, created_at DESC);
+        CREATE TABLE IF NOT EXISTS billing_price_rules (
+            profile_id TEXT NOT NULL REFERENCES billing_profiles(id) ON DELETE CASCADE,
+            model TEXT NOT NULL,
+            credits_per_unit REAL NOT NULL,
+            unit TEXT NOT NULL CHECK (unit IN ('request', 'image', 'second')),
+            PRIMARY KEY (profile_id, model)
+        );
     `);
     try {
         database.exec("ALTER TABLE billing_transactions ADD COLUMN upstream_path TEXT");
@@ -125,6 +141,29 @@ export function canvasDatabase() {
     } catch {
         // Existing databases already have the column.
     }
+    for (const statement of [
+        "ALTER TABLE accounts ADD COLUMN is_distributor INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE accounts ADD COLUMN owner_admin_id TEXT",
+        "ALTER TABLE accounts ADD COLUMN billing_profile_id TEXT",
+        "ALTER TABLE invites ADD COLUMN billing_profile_id TEXT",
+        "ALTER TABLE billing_transactions ADD COLUMN base_amount INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE billing_transactions ADD COLUMN commission_amount INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE billing_transactions ADD COLUMN beneficiary_admin_id TEXT",
+        "ALTER TABLE billing_transactions ADD COLUMN billing_profile_id TEXT",
+        "ALTER TABLE billing_transactions ADD COLUMN base_rate REAL",
+        "ALTER TABLE billing_transactions ADD COLUMN retail_rate REAL",
+    ]) {
+        try {
+            database.exec(statement);
+        } catch {
+            // Existing databases already contain the additive migration column.
+        }
+    }
+    database.exec(`
+        UPDATE accounts
+        SET role = 'member', is_distributor = 1
+        WHERE role = 'root' AND lower(username) <> 'root';
+    `);
     migrateLegacyJson(database, directory);
     chmodSync(target, 0o600);
     globalThis.__infiniteCanvasDatabase = database;

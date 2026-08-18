@@ -1,4 +1,5 @@
-export type AccountRole = "root" | "member";
+export type AccountRole = "root" | "admin" | "member";
+export type BillingUnit = "request" | "image" | "second";
 
 export type AuthUser = {
     id: string;
@@ -22,6 +23,10 @@ export type ManagedUserSummary = {
     createdAt: string;
     updatedAt: string;
     lastLoginAt: string | null;
+    ownerAdminId: string | null;
+    ownerAdminName: string | null;
+    billingProfileId: string | null;
+    billingProfileName: string | null;
 };
 
 export type ManagedUserDetailStats = {
@@ -67,6 +72,30 @@ export type InviteSummary = {
     usedCount: number;
     revokedAt: string | null;
     status: "active" | "used" | "expired" | "revoked";
+    createdBy: string;
+    createdByUsername: string;
+    billingProfileId: string | null;
+    billingProfileName: string | null;
+};
+
+export type BillingPriceRule = {
+    model: string;
+    baseCredits: number;
+    creditsPerUnit: number;
+    unit: BillingUnit;
+};
+
+export type BillingProfile = {
+    id: string;
+    adminUserId: string;
+    adminUsername: string;
+    name: string;
+    active: boolean;
+    invitedUsers: number;
+    earnedCredits: number;
+    createdAt: string;
+    updatedAt: string;
+    rules: BillingPriceRule[];
 };
 
 export type CanvasApiKeySummary = {
@@ -81,7 +110,7 @@ export type CanvasApiKeySummary = {
 
 export type CreditLedgerEntry = {
     id: string;
-    type: "recharge" | "consume" | "refund" | "admin_adjust" | "registration_bonus" | "migration_credit";
+    type: "recharge" | "consume" | "refund" | "commission" | "admin_adjust" | "registration_bonus" | "migration_credit";
     amount: number;
     balanceAfter: number;
     model: string | null;

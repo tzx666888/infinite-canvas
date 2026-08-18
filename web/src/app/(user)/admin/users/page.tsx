@@ -12,7 +12,7 @@ import { useUserStore } from "@/stores/use-user-store";
 type EditForm = {
     user: ManagedUserSummary;
     displayName: string;
-    role: "root" | "member";
+    role: ManagedUserSummary["role"];
     status: "active" | "disabled";
 };
 
@@ -32,6 +32,7 @@ const ledgerTypeLabels: Record<CreditLedgerEntry["type"], string> = {
     recharge: "充值/加分",
     consume: "模型消耗",
     refund: "失败退款",
+    commission: "分销溢价",
     admin_adjust: "管理员调整",
     registration_bonus: "注册赠送",
     migration_credit: "迁移积分",
@@ -120,7 +121,7 @@ export default function UserManagementPage() {
         try {
             await updateManagedUser(editForm.user.id, {
                 displayName: editForm.displayName,
-                role: editForm.role,
+                role: editForm.role === "root" ? undefined : editForm.role,
                 status: editForm.status,
             });
             message.success("用户资料已更新");
@@ -238,7 +239,8 @@ export default function UserManagementPage() {
                             render: (status: ManagedUserSummary["status"]) => <Tag color={status === "active" ? "green" : "red"}>{status === "active" ? "已启用" : "已禁用"}</Tag>,
                         },
                         { title: "积分", dataIndex: "credits", width: 120, render: (credits: number) => <span className="tabular-nums">✨ {credits.toLocaleString("zh-CN")}</span> },
-                        { title: "角色", dataIndex: "role", width: 100, render: (role: ManagedUserSummary["role"]) => (role === "root" ? <Tag color="gold">Root</Tag> : <Tag>普通用户</Tag>) },
+                        { title: "角色", dataIndex: "role", width: 100, render: (role: ManagedUserSummary["role"]) => (role === "root" ? <Tag color="gold">Root</Tag> : role === "admin" ? <Tag color="purple">分销管理员</Tag> : <Tag>普通用户</Tag>) },
+                        { title: "归属/方案", key: "owner", width: 150, render: (_, target) => (target.ownerAdminName ? `${target.ownerAdminName} / ${target.billingProfileName || "平台原价"}` : "平台直属") },
                         { title: "来源", dataIndex: "provider", width: 110, render: (provider: ManagedUserSummary["provider"]) => providerLabels[provider] },
                         { title: "有效 Key", dataIndex: "activeKeyCount", width: 90, align: "center" },
                         { title: "最近登录", dataIndex: "lastLoginAt", width: 175, render: (value: string | null) => formatDate(value) },
@@ -434,7 +436,7 @@ export default function UserManagementPage() {
                                 disabled={isPrimaryRoot(editForm.user)}
                                 options={[
                                     { value: "member", label: "普通用户" },
-                                    { value: "root", label: "Root 角色" },
+                                    { value: "admin", label: "分销管理员" },
                                 ]}
                                 onChange={(role) => setEditForm({ ...editForm, role })}
                             />
