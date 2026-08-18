@@ -58,6 +58,7 @@ function bindScrollableWheel(element: HTMLElement) {
 type CanvasNodeProps = {
     data: CanvasNodeData;
     scale: number;
+    loadMedia?: boolean;
     isSelected: boolean;
     isRelated: boolean;
     isFocusRelated: boolean;
@@ -93,6 +94,7 @@ type CanvasNodeProps = {
 type NodeContentRendererProps = {
     node: CanvasNodeData;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    loadMedia: boolean;
     isEditingContent: boolean;
     textareaRef: React.RefObject<HTMLTextAreaElement | null>;
     isBatchRoot: boolean;
@@ -113,6 +115,7 @@ type NodeContentRendererProps = {
 export const CanvasNode = React.memo(function CanvasNode({
     data,
     scale,
+    loadMedia = true,
     isSelected,
     isRelated,
     isFocusRelated,
@@ -147,9 +150,9 @@ export const CanvasNode = React.memo(function CanvasNode({
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [hovered, setHovered] = useState(false);
     const [isEditingContent, setIsEditingContent] = useState(false);
-    const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
-    const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
-    const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
+    const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content || data.metadata?.storageKey);
+    const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content || data.metadata?.storageKey);
+    const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content || data.metadata?.storageKey);
     const isBatchRoot = data.type === CanvasNodeType.Image && Boolean(data.metadata?.isBatchRoot) && batchCount > 1;
     const isBatchChild = data.type === CanvasNodeType.Image && Boolean(data.metadata?.batchRootId);
     const isActive = isConnectionTarget || isSelected || isFocusRelated;
@@ -411,6 +414,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         <NodeContent
                             node={data}
                             theme={theme}
+                            loadMedia={loadMedia}
                             isEditingContent={isEditingContent}
                             textareaRef={textareaRef}
                             isBatchRoot={isBatchRoot}
@@ -496,9 +500,24 @@ function NodeContent(props: NodeContentRendererProps): React.ReactElement | null
     const hasVisibleImageResult = props.node.type === CanvasNodeType.Image && Boolean(props.node.metadata?.content);
     if (props.node.metadata?.status === "loading" && !hasVisibleImageResult) return <LoadingContent theme={props.theme} label={props.node.metadata?.statusMessage} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
+    if (!props.loadMedia && isMediaNode(props.node) && (props.node.metadata?.content || props.node.metadata?.storageKey)) return <MediaPreviewPlaceholder node={props.node} theme={props.theme} />;
 
     const Renderer = nodeContentRenderers[props.node.type];
     return Renderer ? <Renderer {...props} /> : <UnknownNodeContent theme={props.theme} />;
+}
+
+function MediaPreviewPlaceholder({ node, theme }: Pick<NodeContentRendererProps, "node" | "theme">) {
+    const Icon = node.type === CanvasNodeType.Video ? Video : node.type === CanvasNodeType.Audio ? Music2 : ImageIcon;
+    return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2" style={{ background: theme.node.fill, color: theme.node.placeholder }}>
+            <Icon className="size-6 opacity-35" />
+            <span className="text-[10px] opacity-55">放大后加载预览</span>
+        </div>
+    );
+}
+
+function isMediaNode(node: CanvasNodeData) {
+    return node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio;
 }
 
 const nodeContentRenderers = {
@@ -661,6 +680,7 @@ function ResourceLabelBadge({ reference }: { reference: CanvasResourceReference 
 }
 
 function ImageNodeContent(props: NodeContentRendererProps) {
+    if (!props.node.metadata?.content && props.node.metadata?.storageKey && props.loadMedia) return <LoadingContent theme={props.theme} label="加载预览" />;
     if (!props.node.metadata?.content && props.isBatchRoot) {
         const content =
             props.node.metadata?.status === "loading" ? (
@@ -744,6 +764,7 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
         return () => video.removeEventListener("loadedmetadata", handleMetadata);
     }, [node.metadata?.content, node.metadata?.durationMs]);
 
+    if (!node.metadata?.content && node.metadata?.storageKey) return <LoadingContent theme={theme} label="加载预览" />;
     if (!node.metadata?.content)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
@@ -760,6 +781,8 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
                 ref={videoRef}
                 src={node.metadata.content}
                 controls
+                preload="metadata"
+                playsInline
                 draggable={false}
                 onPointerDownCapture={(event) => {
                     event.currentTarget.draggable = false;
@@ -775,6 +798,7 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
 }
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
+    if (!node.metadata?.content && node.metadata?.storageKey) return <LoadingContent theme={theme} label="加载预览" />;
     if (!node.metadata?.content)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2" style={{ color: theme.node.placeholder }}>
@@ -826,6 +850,8 @@ function ImageContent({
                 <img
                     src={node.metadata!.content!}
                     alt={node.title}
+                    loading="lazy"
+                    decoding="async"
                     draggable={false}
                     onLoad={(event) => {
                         const image = event.currentTarget;

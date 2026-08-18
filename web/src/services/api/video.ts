@@ -57,6 +57,11 @@ export async function requestVideoGeneration(
     options?: VideoRequestOptions,
 ): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
+    options?.onTaskCreated?.(task);
+    return resumeVideoGenerationTask(config, task, options);
+}
+
+export async function resumeVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: VideoRequestOptions): Promise<VideoGenerationResult> {
     const delayMs = task.provider === "seedance" ? 5000 : 2500;
     const maxAttempts = task.provider === "seedance" ? SEEDANCE_VIDEO_POLL_MAX_ATTEMPTS : OPENAI_VIDEO_POLL_MAX_ATTEMPTS;
     let transientFailures = 0;
