@@ -20,7 +20,7 @@ import {
     seedanceVideoReferenceError,
     SEEDANCE_REFERENCE_LIMITS,
 } from "@/lib/seedance-video";
-import { buildTokaxisMiniMaxH3Payload, isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
+import { buildTokaxisMiniMaxH3Payload, isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeTokaxisMiniMaxH3Model, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
 import { buildCompactVideoProductScalePrompt, buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
 import { buildApiUrl, isTokaxisProxyBaseUrl, modelOptionName, requiresClientApiKey, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
@@ -413,6 +413,7 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
     if (audioReferences.length && !references.length) throw new Error("MiniMax-H3-c4 参考音频需要同时提供参考图");
     const [images, audios] = await Promise.all([Promise.all(references.map((image) => resolveSeedanceImageUrl(config, image))), Promise.all(audioReferences.map(resolveSeedanceAudioUrl))]);
     const payload = buildTokaxisMiniMaxH3Payload({
+        model: normalizeTokaxisMiniMaxH3Model(model),
         prompt,
         images,
         audios,

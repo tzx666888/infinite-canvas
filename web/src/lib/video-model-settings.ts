@@ -22,7 +22,7 @@ import {
     supportsGrokVideoReferenceCount,
 } from "@/lib/video-providers/grok-video";
 import { fixedSeedanceVideoResolution, isSeedanceVideoModel, normalizeSeedanceDuration, seedanceDurationOptionsForModel, seedanceSupportsGeneratedAudio, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { isTokaxisMiniMaxH3VideoModel, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration } from "@/lib/minimax-h3-video";
+import { isTokaxisMiniMaxH3VideoModel, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, tokaxisMiniMaxH3Resolution } from "@/lib/minimax-h3-video";
 
 export type { VideoAspectRatio, VideoReferenceMode } from "@/lib/video-providers/shared";
 export { normalizeVideoModelId, videoAspectRatioForSize } from "@/lib/video-providers/shared";
@@ -65,7 +65,7 @@ export type VideoModelCapabilityContract = {
     durations: readonly number[];
     durationRange?: readonly [number, number];
     sizes: readonly ("720x1280" | "1280x720")[];
-    resolution: "480" | "720" | "1080" | "1440";
+    resolution: "480" | "720" | "1080" | "1440" | "2K";
     referenceImageLimit: number;
     supportsGeneratedAudio: boolean;
     promptProfile: VideoModelPromptProfile;
@@ -111,8 +111,11 @@ export function isCanvasVideoModel(model: string) {
     return isGoogleVideoModel(model) || isGrokVideoModel(model) || isSeedanceVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model);
 }
 
-export function fixedVideoResolution(model: string, duration?: string | number): "720" | "1080" | "1440" | null {
-    if (isTokaxisMiniMaxH3VideoModel(model)) return "1440";
+export function fixedVideoResolution(model: string, duration?: string | number): "720" | "1080" | "1440" | "2K" | null {
+    if (isTokaxisMiniMaxH3VideoModel(model)) {
+        const resolution = tokaxisMiniMaxH3Resolution(model);
+        return resolution === "768P" ? "720" : resolution === "2K" ? "2K" : "1440";
+    }
     return fixedGoogleVideoResolution(model, duration) || fixedGrokVideoResolution(model) || fixedSeedanceVideoResolution(model);
 }
 

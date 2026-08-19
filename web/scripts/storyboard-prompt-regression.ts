@@ -781,7 +781,7 @@ assert.match(configStoreSource, /textModel: "tokaxis::gpt-5\.6-sol"/, "built-in 
 assert.match(configStoreSource, /shouldMigrateTokaxisDefaults \? defaultConfig\.textModel/, "existing persisted defaults must migrate to GPT-5.6 Sol");
 assert.match(
     configStoreSource,
-    /shouldMigrateModels \? \["gpt-5\.6-sol", \.\.\.Object\.values\(TOKAXIS_GOOGLE_IMAGE_MODELS\), \.\.\.ACTIVE_GOOGLE_VIDEO_MODEL_IDS, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID\]/,
+    /shouldMigrateModels \? \["gpt-5\.6-sol", \.\.\.Object\.values\(TOKAXIS_GOOGLE_IMAGE_MODELS\), \.\.\.ACTIVE_GOOGLE_VIDEO_MODEL_IDS, \.\.\.TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS\]/,
     "legacy channel model lists must receive GPT-5.6 Sol, Google image sizes, active Omni models, and MiniMax H3 during migration",
 );
 assert.doesNotMatch(promptPanelSource, /tokaxis::gpt-5\.5/, "prompt polish UI must not retain a GPT-5.5 fallback");

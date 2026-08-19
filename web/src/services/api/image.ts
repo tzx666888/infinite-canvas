@@ -655,6 +655,7 @@ function imageErrorMessage(data: unknown): string | null {
     if (typeof data === "string") {
         const text = data.trim();
         if (!text) return null;
+        if (/^<!doctype\s+html\b|^<html\b|<body\b/i.test(text)) return "模型服务暂时繁忙，请稍后重试";
         if ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"))) {
             try {
                 return imageErrorMessage(JSON.parse(text));
@@ -697,7 +698,7 @@ function imageErrorMessage(data: unknown): string | null {
 function readStatusError(status: number | undefined, fallback: string) {
     if (status === 401 || status === 403) return "鉴权失败，请检查 API Key、套餐权限或模型权限";
     if (status === 429) return "请求被限流或额度不足，请稍后重试";
-    if (status && status >= 500) return `${fallback}，图片服务暂时繁忙，请稍后重试`;
+    if (status && status >= 500) return `${fallback}，模型服务暂时繁忙，请稍后重试`;
     return status ? `${fallback}：${status}` : fallback;
 }
 
@@ -817,6 +818,8 @@ function validateGeminiPayload(payload: GeminiPayload) {
 async function readFetchError(response: Response, fallback: string) {
     const text = await response.text();
     if (!text) return readStatusError(response.status, fallback);
+    const trimmed = text.trim();
+    if (/^<!doctype\s+html\b|^<html\b|<body\b/i.test(trimmed)) return readStatusError(response.status, fallback);
     try {
         return responseErrorMessage(JSON.parse(text)) || readStatusError(response.status, fallback);
     } catch {
