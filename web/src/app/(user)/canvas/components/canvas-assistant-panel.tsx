@@ -622,10 +622,10 @@ export function CanvasAssistantPanel({
             runningAssistantIdRef.current = assistantId;
             setIsRunning(true);
             const currentBrief = localSessionsRef.current.find((session) => session.id === sessionId)?.videoBrief;
-            const messages = await buildToolAgentMessages(snapshotRef.current, history, userMessage, requestConfig, currentBrief);
-            addOnlineLog(`Agent Tool Loop ${loop.step} 开始`, { toolChoice: "auto" });
-            let streamed = "";
             const draftOnly = objectDetail(userMessage.detail).kind === "video-guide-draft-request";
+            const messages = draftOnly ? buildVideoGuideDraftMessages(currentBrief) : await buildToolAgentMessages(snapshotRef.current, history, userMessage, requestConfig, currentBrief);
+            addOnlineLog(`Agent Tool Loop ${loop.step} 开始`, { toolChoice: draftOnly ? "none" : "auto" });
+            let streamed = "";
             const result = await requestToolResponse({ ...requestConfig, systemPrompt: "" }, messages, draftOnly ? [] : ONLINE_AGENT_TOOLS, "auto", (text) => {
                 streamed = text;
                 rememberAssistantText(assistantId, text);
@@ -1901,6 +1901,16 @@ function buildAssistantReferences(nodes: CanvasNodeData[], selectedNodeIds: Set<
         .filter((node): node is CanvasNodeData => Boolean(node))
         .map(nodeToReference)
         .filter((item): item is CanvasAssistantReference => Boolean(item));
+}
+
+function buildVideoGuideDraftMessages(brief?: CanvasAgentVideoBrief): ResponseInputMessage[] {
+    return [
+        {
+            role: "system",
+            content: `你是电商视频提示词专家。客户已经在界面确认了视频需求，必须直接生成结果，不得提问、不得调用工具、不得改动模型、时长、比例、声音或字幕设置。先用中文写一行需求摘要，再写一段唯一的英文视频提示词（45–85 个英文词）。提示词必须使用已确认的市场、平台、语言、模型与时长；仅描述可观察的产品外观，不得虚构材质、功能、成分、价格、折扣、销量、评价、认证或品牌信息；保持产品身份、颜色、标签、比例和参考图职责一致。开启声音时只保留一条合规且简短的 Spoken script；开启字幕时只提供与口播一致的字幕说明。已确认需求：${JSON.stringify(brief || {})}`,
+        },
+        { role: "user", content: "请按以上已确认需求生成模型适配提示词。" },
+    ];
 }
 
 async function buildToolAgentMessages(snapshot: CanvasAgentSnapshot, history: CanvasAssistantMessage[], userMessage: CanvasAssistantMessage, config: AiConfig, brief?: CanvasAgentVideoBrief): Promise<ResponseInputMessage[]> {
