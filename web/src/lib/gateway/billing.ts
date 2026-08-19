@@ -143,7 +143,7 @@ async function reconcileSubmittedGatewayTasks(state: { started: boolean; running
 
 function fallbackVideoTaskPath(model: string) {
     const normalized = model.trim().toLowerCase();
-    if (["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimax-h3-c4"].includes(normalized)) return "v1/videos/generations";
+    if (["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimaxh3-720p", "minimaxh3-2k"].includes(normalized)) return "v1/videos/generations";
     if (normalized.startsWith("grok-imagine-video-")) return "v1/videos";
     return "v1/videos";
 }

@@ -75,6 +75,7 @@ const TOKAXIS_DEFAULTS_VERSION = 23;
 const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 20;
 const TOKAXIS_FALLBACK_MODELS = ["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["4K"], ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS, "gpt-5.6-sol", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-4o-mini-tts", "tts-1"];
 const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
+const TOKAXIS_REMOVED_MODEL_IDS = new Set(["minimax-h3-c4"]);
 const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["4K"]]);
 const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set<string>([...GROK_DISABLED_VIDEO_MODEL_IDS, ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()), ...GOOGLE_VEO_MODEL_IDS.map((model) => model.toLowerCase())]);
 const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>([...GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS.map((model) => model.toLowerCase())]);
@@ -541,7 +542,7 @@ function modelListsFromModels(models: string[]) {
 }
 
 function sanitizeTokaxisModels(models: string[]) {
-    const visibleModels = uniqueRawModels(models).filter((model) => !isDisabledModelName(model) && !TOKAXIS_DISABLED_IMAGE_MODEL_RE.test(model) && (!isImageModelName(model) || TOKAXIS_PUBLIC_IMAGE_MODEL_IDS.has(model)));
+    const visibleModels = uniqueRawModels(models).filter((model) => !TOKAXIS_REMOVED_MODEL_IDS.has(modelOptionName(model).trim().toLowerCase()) && !isDisabledModelName(model) && !TOKAXIS_DISABLED_IMAGE_MODEL_RE.test(model) && (!isImageModelName(model) || TOKAXIS_PUBLIC_IMAGE_MODEL_IDS.has(model)));
     return visibleModels.length ? visibleModels : TOKAXIS_FALLBACK_MODELS;
 }
 
@@ -565,7 +566,7 @@ function uniqueRawModels(models: string[]) {
 
 function isDisabledModelName(model: string) {
     const value = modelOptionName(model).trim().toLowerCase();
-    return TOKAXIS_DISABLED_VIDEO_MODEL_IDS.has(value);
+    return TOKAXIS_DISABLED_VIDEO_MODEL_IDS.has(value) || TOKAXIS_REMOVED_MODEL_IDS.has(value);
 }
 
 function uniqueModelOptions(models: string[]) {

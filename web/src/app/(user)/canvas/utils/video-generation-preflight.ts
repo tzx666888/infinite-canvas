@@ -11,6 +11,7 @@ import {
     SEEDANCE_REFERENCE_LIMITS,
 } from "@/lib/seedance-video";
 import { fixedVideoResolution, googleVideoRouteAspectRatio, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
+import { isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, normalizeMiniMaxH3AspectRatio, tokaxisMiniMaxH3Resolution } from "@/lib/minimax-h3-video";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -71,6 +72,19 @@ export function normalizeVideoGenerationPreflightConfig(config: AiConfig, refere
         };
     }
 
+    if (isMiniMaxH3VideoConfig(selectedConfig)) {
+        const modelName = modelOptionName(selectedModel);
+        const ratio = normalizeMiniMaxH3AspectRatio(config.size);
+        return {
+            ...selectedConfig,
+            videoSeconds: String(normalizeMiniMaxH3Duration(config.videoSeconds)),
+            size: ratio === "9:16" ? "720x1280" : "1280x720",
+            vquality: tokaxisMiniMaxH3Resolution(modelName) === "2K" ? "2K" : "720",
+            videoGenerateAudio: String(boolConfig(config.videoGenerateAudio, true)),
+            videoWatermark: String(boolConfig(config.videoWatermark, false)),
+        };
+    }
+
     if (isSeedanceVideoConfig(selectedConfig)) {
         const modelName = modelOptionName(selectedModel);
         return {
@@ -114,6 +128,15 @@ function validateNormalizedVideoGenerationPreflight(input: VideoGenerationPrefli
         return errors;
     }
 
+    if (isMiniMaxH3VideoConfig(input.config)) {
+        if (videos.length) errors.push("MiniMax H3 不支持参考视频，请移除参考视频后重试");
+        if (images.length > MINIMAX_H3_REFERENCE_LIMITS.images) errors.push(`MiniMax H3 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.images} 张参考图`);
+        if (audios.length > MINIMAX_H3_REFERENCE_LIMITS.audios) errors.push(`MiniMax H3 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.audios} 个参考音频`);
+        if (audios.length && !images.length) errors.push("MiniMax H3 参考音频需要同时提供参考图");
+        if (!input.prompt && !images.length) errors.push("请输入视频提示词，或至少连接 1 张参考图");
+        return errors;
+    }
+
     if (isSeedanceVideoConfig(input.config)) {
         if (images.length > SEEDANCE_REFERENCE_LIMITS.images) errors.push(`Seedance 最多支持 ${SEEDANCE_REFERENCE_LIMITS.images} 张参考图`);
         if (videos.length > SEEDANCE_REFERENCE_LIMITS.videos) errors.push(`Seedance 最多支持 ${SEEDANCE_REFERENCE_LIMITS.videos} 个参考视频`);
@@ -129,7 +152,7 @@ function validateNormalizedVideoGenerationPreflight(input: VideoGenerationPrefli
         return errors;
     }
 
-    return ["当前模型暂不支持画布视频生成，请选择 Veo、Omni 或 Seedance"];
+    return ["当前模型暂不支持画布视频生成，请选择当前能力表中的视频模型"];
 }
 
 function validateReferenceInputs(references: VideoGenerationPreflightReferences) {

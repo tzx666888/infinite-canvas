@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 
 import { buildTokaxisMiniMaxH3Payload, isTokaxisMiniMaxH3VideoModel, normalizeMiniMaxH3AspectRatio, normalizeMiniMaxH3Duration, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS } from "../src/lib/minimax-h3-video.ts";
 
-assert.equal(isTokaxisMiniMaxH3VideoModel("tokaxis::MiniMax-H3-c4"), true);
-assert.deepEqual(TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS, ["MiniMax-H3-c4", "MiniMaxH3-720p", "MiniMaxH3-2k"]);
+assert.equal(isTokaxisMiniMaxH3VideoModel("tokaxis::MiniMax-H3-c4"), false);
+assert.deepEqual(TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS, ["MiniMaxH3-720p", "MiniMaxH3-2k"]);
 assert.equal(isTokaxisMiniMaxH3VideoModel("tokaxis::MiniMaxH3-720p"), true);
 assert.equal(isTokaxisMiniMaxH3VideoModel("tokaxis::MiniMaxH3-2k"), true);
 assert.equal(normalizeMiniMaxH3Duration(4), 5);
@@ -28,7 +28,7 @@ assert.deepEqual(
         images: ["image"],
         audios: ["audio"],
         duration: 7,
-        resolution: "1440P",
+        resolution: "768P",
         aspect_ratio: "9:16",
         generate_audio: true,
     },
@@ -43,7 +43,7 @@ const proxySource = readFileSync(new URL("../src/app/api/gateway/[...path]/route
 const serviceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
 const settingsSource = readFileSync(new URL("../src/lib/video-model-settings.ts", import.meta.url), "utf8");
 const configStoreSource = readFileSync(new URL("../src/stores/use-config-store.ts", import.meta.url), "utf8");
-assert.match(proxySource, /minimax-h3-c4/);
+assert.doesNotMatch(proxySource, /minimax-h3-c4/);
 assert.match(proxySource, /minimaxh3-720p/);
 assert.match(proxySource, /minimaxh3-2k/);
 assert.match(serviceSource, /createMiniMaxH3Task/);

@@ -406,11 +406,11 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
 }
 
 async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: VideoRequestOptions): Promise<VideoGenerationTask> {
-    if (!isTokaxisProxyBaseUrl(config.baseUrl)) throw new Error("MiniMax-H3-c4 仅支持通过平台模型调用");
-    if (videoReferences.length) throw new Error("MiniMax-H3-c4 不支持参考视频，请移除参考视频后重试");
-    if (references.length > MINIMAX_H3_REFERENCE_LIMITS.images) throw new Error(`MiniMax-H3-c4 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.images} 张参考图`);
-    if (audioReferences.length > MINIMAX_H3_REFERENCE_LIMITS.audios) throw new Error(`MiniMax-H3-c4 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.audios} 个参考音频`);
-    if (audioReferences.length && !references.length) throw new Error("MiniMax-H3-c4 参考音频需要同时提供参考图");
+    if (!isTokaxisProxyBaseUrl(config.baseUrl)) throw new Error("MiniMax H3 仅支持通过平台模型调用");
+    if (videoReferences.length) throw new Error("MiniMax H3 不支持参考视频，请移除参考视频后重试");
+    if (references.length > MINIMAX_H3_REFERENCE_LIMITS.images) throw new Error(`MiniMax H3 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.images} 张参考图`);
+    if (audioReferences.length > MINIMAX_H3_REFERENCE_LIMITS.audios) throw new Error(`MiniMax H3 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.audios} 个参考音频`);
+    if (audioReferences.length && !references.length) throw new Error("MiniMax H3 参考音频需要同时提供参考图");
     const [images, audios] = await Promise.all([Promise.all(references.map((image) => resolveSeedanceImageUrl(config, image))), Promise.all(audioReferences.map(resolveSeedanceAudioUrl))]);
     const payload = buildTokaxisMiniMaxH3Payload({
         model: normalizeTokaxisMiniMaxH3Model(model),
@@ -430,7 +430,7 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
             options,
         });
     } catch (error) {
-        throw new Error(readAxiosError(error, "MiniMax-H3-c4 任务创建失败"));
+        throw new Error(readAxiosError(error, "MiniMax H3 任务创建失败"));
     }
 }
 

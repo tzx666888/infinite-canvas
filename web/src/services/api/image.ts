@@ -644,6 +644,12 @@ function readAxiosError(error: unknown, fallback: string) {
 function normalizeImageGenerationFailure(message: string) {
     const text = message.trim();
     const lower = text.toLowerCase();
+    if (/^<!doctype\s+html\b|^<html\b|^<head\b|^<body\b|<!--[\s\S]*?if\s+(?:IE|gt\s+IE)/i.test(text)) {
+        return "模型服务暂时不可用，请稍后重试";
+    }
+    if (/server(?:s)?\s+are\s+currently\s+overloaded|service\s+is\s+currently\s+unable\s+to\s+handle\s+additional\s+requests|temporarily\s+overloaded|请求被限流|上游过载/i.test(text)) {
+        return "当前模型服务繁忙，请稍后重试或切换模型";
+    }
     if (/timeout|timed out|524|gateway timeout|proxy read timeout|upstream_task_timeout|图片服务连接中断|图片处理时间较长|连接已中断/.test(lower) || /超时|连接中断|处理时间较长/.test(text)) {
         return "上游超时";
     }
@@ -786,7 +792,19 @@ function parseToolResponse(payload: ResponseApiPayload): ToolResponseResult {
             function: { name: item.name || "", arguments: item.arguments || "{}" },
         }))
         .filter((item) => item.id && item.function.name);
-    return { content, toolCalls };
+    return { content: sanitizeModelResponseText(content), toolCalls };
+}
+
+function sanitizeModelResponseText(value: string) {
+    const text = value.trim();
+    if (!text) return "";
+    if (/^<!doctype\s+html\b|^<html\b|^<head\b|^<body\b|<!--[\s\S]*?if\s+(?:IE|gt\s+IE)/i.test(text)) {
+        throw new Error("模型服务暂时不可用，请稍后重试");
+    }
+    if (/server(?:s)?\s+are\s+currently\s+overloaded|service\s+is\s+currently\s+unable\s+to\s+handle\s+additional\s+requests|temporarily\s+overloaded|请求被限流|上游过载/i.test(text)) {
+        throw new Error("当前模型服务繁忙，请稍后重试或切换模型");
+    }
+    return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -840,11 +858,13 @@ function consumeResponseStreamBlock(block: string, state: ResponseStreamState, o
     const errorMessage = responseErrorMessage(event);
     if (errorMessage) state.error = errorMessage;
     if (type === "response.output_text.delta" && typeof event.delta === "string") {
-        state.text += event.delta;
+        const nextText = state.text + event.delta;
+        sanitizeModelResponseText(nextText);
+        state.text = nextText;
         onDelta?.(state.text);
     }
     if (type === "response.output_text.done" && !state.text && typeof event.text === "string") {
-        state.text = event.text;
+        state.text = sanitizeModelResponseText(event.text);
         onDelta?.(state.text);
     }
     if (type === "response.completed" && isRecord(event.response)) {
@@ -877,6 +897,20 @@ async function requestStreamingResponse(config: AiConfig, body: Record<string, u
         signal: options?.signal,
     });
     if (!response.ok) throw new Error(await readFetchError(response, "请求失败"));
+    const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+    if (!contentType.includes("text/event-stream")) {
+        const text = await response.text();
+        if (!text.trim()) throw new Error("模型服务没有返回内容");
+        if (/^<!doctype\s+html\b|^<html\b|^<head\b|^<body\b/i.test(text.trim())) throw new Error("模型服务暂时不可用，请稍后重试");
+        try {
+            const payload = JSON.parse(text) as ResponseApiPayload;
+            validateResponsePayload(payload);
+            return parseToolResponse(payload);
+        } catch (error) {
+            if (error instanceof Error && error.message !== "Unexpected end of JSON input") throw error;
+            throw new Error("模型服务返回格式异常，请稍后重试");
+        }
+    }
     if (!response.body) {
         const payload = (await response.json()) as ResponseApiPayload;
         validateResponsePayload(payload);
@@ -1235,25 +1269,36 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
 
 export async function requestToolResponse(config: AiConfig, messages: ResponseInputMessage[], tools: ResponseFunctionTool[], toolChoice: ToolChoice = "auto", onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
-    try {
-        if (requestConfig.apiFormat === "gemini") {
-            return await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, toGeminiToolOptions(tools, toolChoice)), onDelta, options);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+            if (requestConfig.apiFormat === "gemini") {
+                return await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, toGeminiToolOptions(tools, toolChoice)), onDelta, options);
+            }
+            return await requestStreamingResponse(
+                requestConfig,
+                {
+                    model: requestConfig.model,
+                    input: toResponseInput(withSystemMessage(requestConfig, messages)),
+                    tools: tools.map(toResponseTool),
+                    tool_choice: toolChoice,
+                    parallel_tool_calls: false,
+                },
+                onDelta,
+                options,
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "";
+            if (attempt >= 2 || !/繁忙|限流|暂时不可用|429|502|503|504|overloaded/i.test(message)) throw new Error(readAxiosError(error, "请求失败"));
+            await new Promise<void>((resolve, reject) => {
+                const timer = globalThis.setTimeout(resolve, 1500 * (attempt + 1));
+                options?.signal?.addEventListener("abort", () => {
+                    globalThis.clearTimeout(timer);
+                    reject(new DOMException("Aborted", "AbortError"));
+                }, { once: true });
+            });
         }
-        return await requestStreamingResponse(
-            requestConfig,
-            {
-                model: requestConfig.model,
-                input: toResponseInput(withSystemMessage(requestConfig, messages)),
-                tools: tools.map(toResponseTool),
-                tool_choice: toolChoice,
-                parallel_tool_calls: false,
-            },
-            onDelta,
-            options,
-        );
-    } catch (error) {
-        throw new Error(readAxiosError(error, "请求失败"));
     }
+    throw new Error("模型服务请求失败，请稍后重试");
 }
 
 export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat">) {

@@ -137,10 +137,10 @@ try {
     assert.match(capturedUrls.at(-1) || "", /\/v1\/videos\/generations$/, "Seedance creation must use the plural async route");
 
     const h3Payload = {
-        model: "MiniMax-H3-c4",
+        model: "MiniMaxH3-720p",
         prompt: "A calm sunrise over a still lake.",
         duration: 5,
-        resolution: "1440P",
+        resolution: "768P",
         aspect_ratio: "16:9",
         generate_audio: false,
     };
@@ -148,6 +148,14 @@ try {
     assert.equal(h3Response.status, 200);
     assert.deepEqual(capturedBodies.at(-1), h3Payload, "MiniMax H3 JSON must pass through without cross-vendor rewriting");
     assert.match(capturedUrls.at(-1) || "", /\/v1\/videos\/generations$/, "MiniMax H3 creation must use the plural async route");
+
+    const h3TwoKResponse = await create({ ...h3Payload, model: "MiniMaxH3-2k", resolution: "2K" });
+    assert.equal(h3TwoKResponse.status, 200);
+    assert.equal((capturedBodies.at(-1) as Record<string, unknown>).model, "MiniMaxH3-2k");
+    assert.equal((capturedBodies.at(-1) as Record<string, unknown>).resolution, "2K");
+
+    const removedH3Response = await create({ ...h3Payload, model: "MiniMax-H3-c4" });
+    assert.equal(removedH3Response.status, 400, "removed MiniMax H3 C4 must be rejected");
 
     const h3LocalImageResponse = await create({
         ...h3Payload,

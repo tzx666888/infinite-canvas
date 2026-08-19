@@ -50,7 +50,7 @@ const STRIPPED_REQUEST_HEADERS = [
 ];
 const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "content-length", "transfer-encoding", "x-oneapi-request-id", "x-oneapi-node", "x-oneapi-version"];
 const GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE = "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
-const TOKAXIS_ASYNC_VIDEO_MODELS = new Set(["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimax-h3-c4", "minimaxh3-720p", "minimaxh3-2k"]);
+const TOKAXIS_ASYNC_VIDEO_MODELS = new Set(["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimaxh3-720p", "minimaxh3-2k"]);
 const TOKAXIS_LEGACY_GROK_VIDEO_MODELS = new Set(["grok-imagine-video-1.5-fast", "grok-imagine-video-1.5-preview", "grok-imagine-video-1.5-1080p"]);
 const legacyGrokVideoTaskIds = new Set<string>();
 
@@ -169,7 +169,7 @@ async function finishGatewayResponse(response: Response, reservation: GatewayRes
 
 async function prepareMiniMaxH3RequestBody(request: NextRequest) {
     const payload = (await request.json()) as Record<string, unknown>;
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("MiniMax-H3-c4 视频请求必须是 JSON 对象");
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("MiniMax H3 视频请求必须是 JSON 对象");
     const publicOrigin = process.env.CANVAS_PUBLIC_ORIGIN || request.nextUrl.origin;
     for (const field of ["images", "reference_images", "reference_image_urls", "audios", "reference_audios"] as const) {
         const value = payload[field];
@@ -206,7 +206,7 @@ function isTokaxisAsyncVideoModel(model: string) {
 }
 
 function isMiniMaxH3Model(model: string) {
-    return new Set(["minimax-h3-c4", "minimaxh3-720p", "minimaxh3-2k"]).has(model.trim().toLowerCase().split("::").at(-1) || "");
+    return new Set(["minimaxh3-720p", "minimaxh3-2k"]).has(model.trim().toLowerCase().split("::").at(-1) || "");
 }
 
 function isTokaxisLegacyGrokVideoModel(model: string) {

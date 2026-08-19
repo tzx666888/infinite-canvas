@@ -1,21 +1,21 @@
 import type { AiConfig } from "@/stores/use-config-store";
 
-export const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID = "MiniMax-H3-c4";
-export const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS = [TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID, "MiniMaxH3-720p", "MiniMaxH3-2k"] as const;
+export const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID = "MiniMaxH3-720p";
+export const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS = [TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID, "MiniMaxH3-2k"] as const;
 const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID_SET = new Set(TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()));
 
 export function normalizeTokaxisMiniMaxH3Model(value: string) {
     const normalized = (value.trim().split("::").at(-1) || "").toLowerCase();
     if (normalized === "minimaxh3-2k") return "MiniMaxH3-2k";
     if (normalized === "minimaxh3-720p") return "MiniMaxH3-720p";
-    return TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID;
+    throw new Error(`不支持的 MiniMax H3 视频模型：${value || "(空)"}`);
 }
 
 export function tokaxisMiniMaxH3Resolution(value: string) {
     const normalized = (value.trim().split("::").at(-1) || "").toLowerCase();
     if (normalized === "minimaxh3-2k") return "2K";
     if (normalized === "minimaxh3-720p") return "768P";
-    return "1440P";
+    throw new Error(`不支持的 MiniMax H3 视频模型：${value || "(空)"}`);
 }
 
 export const MINIMAX_H3_REFERENCE_LIMITS = {
@@ -52,10 +52,10 @@ export type TokaxisMiniMaxH3PayloadInput = {
 };
 
 export function buildTokaxisMiniMaxH3Payload(input: TokaxisMiniMaxH3PayloadInput): Record<string, unknown> {
-    if (!input.prompt.trim()) throw new Error("MiniMax-H3-c4 需要视频提示词");
-    if ((input.images?.length || 0) > MINIMAX_H3_REFERENCE_LIMITS.images) throw new Error(`MiniMax-H3-c4 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.images} 张参考图`);
-    if ((input.audios?.length || 0) > MINIMAX_H3_REFERENCE_LIMITS.audios) throw new Error(`MiniMax-H3-c4 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.audios} 个参考音频`);
-    if (input.audios?.length && !input.images?.length) throw new Error("MiniMax-H3-c4 参考音频需要同时提供参考图");
+    if (!input.prompt.trim()) throw new Error("MiniMax H3 需要视频提示词");
+    if ((input.images?.length || 0) > MINIMAX_H3_REFERENCE_LIMITS.images) throw new Error(`MiniMax H3 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.images} 张参考图`);
+    if ((input.audios?.length || 0) > MINIMAX_H3_REFERENCE_LIMITS.audios) throw new Error(`MiniMax H3 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.audios} 个参考音频`);
+    if (input.audios?.length && !input.images?.length) throw new Error("MiniMax H3 参考音频需要同时提供参考图");
     const model = normalizeTokaxisMiniMaxH3Model(input.model || TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID);
     return {
         model,

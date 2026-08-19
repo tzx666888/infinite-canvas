@@ -5,6 +5,7 @@ import { CanvasNodeType, type CanvasNodeData } from "../src/app/(user)/canvas/ty
 import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/app/(user)/canvas/utils/canvas-agent-ops.ts";
 import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, agentVideoPromptProfileSupportsType, lockPreparedAgentVideoConfig, nextAgentVideoGuideQuestion, prepareCanvasAgentVideo, shouldRestartAgentVideoGuide } from "../src/app/(user)/canvas/utils/canvas-agent-video-guide.ts";
 import { inferDirectVideoReferencePair } from "../src/app/(user)/canvas/utils/video-reference-model.ts";
+import { prepareVideoGenerationPreflight } from "../src/app/(user)/canvas/utils/video-generation-preflight.ts";
 import { defaultConfig, modelOptionName } from "../src/stores/use-config-store.ts";
 
 const product = imageNode("product", 100, 120);
@@ -20,14 +21,14 @@ const snapshot: CanvasAgentSnapshot = {
 
 const portraitCatalog = agentVideoCapabilityCatalog(defaultConfig, "720x1280", 2);
 const omni = portraitCatalog.find((item) => modelOptionName(item.model).toLowerCase() === "omni_portrait");
-const minimax = portraitCatalog.find((item) => modelOptionName(item.model).toLowerCase() === "minimax-h3-c4");
+const minimax = portraitCatalog.find((item) => modelOptionName(item.model).toLowerCase() === "minimaxh3-720p");
 assert.ok(omni, "configured Omni portrait route must be discovered from the central capability contract");
 assert.deepEqual(omni.durationOptions, [10]);
 assert.equal(omni.referenceImageLimit >= 2, true);
 assert.equal(omni.generatedAudio, true);
 assert.ok(minimax, "configured MiniMax H3 route must be discovered from the central capability contract");
 assert.deepEqual(minimax.durationRange, [5, 15]);
-assert.equal(minimax.resolution, "1440p");
+assert.equal(minimax.resolution, "720p");
 assert.equal(agentVideoPromptProfileSupportsType("first-last-frame", "creator"), false, "presenter plus product must not be routed to a first/last-frame model");
 assert.equal(agentVideoPromptProfileSupportsType("first-last-frame", "testimonial"), false);
 assert.equal(agentVideoPromptProfileSupportsType("first-last-frame", "product-showcase"), true, "future models should remain automatically available for compatible product-only work");
@@ -55,6 +56,20 @@ const omniDurationQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...gui
 assert.deepEqual(omniDurationQuestion?.options.map((item) => item.label), ["10 秒（模型固定）"]);
 const h3DurationQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, model: minimax.model });
 assert.deepEqual(h3DurationQuestion?.options.map((item) => item.label), ["5 秒", "10 秒", "15 秒"]);
+const h3Preflight = prepareVideoGenerationPreflight({
+    prompt: "A clean product demonstration with natural camera motion.",
+    config: { ...defaultConfig, model: minimax.model, videoModel: minimax.model, baseUrl: "/api/tokaxis", videoSeconds: "15", size: "720x1280", vquality: "720" },
+    references: { images: [{ id: "product", name: "product.png", type: "image/png", dataUrl: "data:image/png;base64,AA==" }], videos: [], audios: [] },
+});
+assert.deepEqual(h3Preflight.errors, [], "MiniMax H3 720p must pass connected image-to-video preflight");
+assert.equal(h3Preflight.config.videoModel, minimax.model);
+assert.equal(h3Preflight.config.vquality, "720");
+const removedH3Preflight = prepareVideoGenerationPreflight({
+    prompt: "A clean product demonstration.",
+    config: { ...defaultConfig, model: "tokaxis::MiniMax-H3-c4", videoModel: "tokaxis::MiniMax-H3-c4", baseUrl: "/api/tokaxis" },
+    references: { images: [], videos: [], audios: [] },
+});
+assert.equal(removedH3Preflight.errors.length > 0, true, "removed MiniMax H3 C4 must fail closed");
 const noAudioQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, model: omni.model, seconds: 10, generateAudio: false });
 assert.deepEqual(noAudioQuestion?.options.map((item) => item.patch.withSubtitle), [false], "silent video must not offer an invalid subtitle choice");
 const readyBrief = { ...guidedBrief, model: omni.model, seconds: 10, generateAudio: false, withSubtitle: false, sellingPoint: "突出产品外观与质感" };
