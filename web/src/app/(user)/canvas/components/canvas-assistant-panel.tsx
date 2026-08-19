@@ -625,7 +625,8 @@ export function CanvasAssistantPanel({
             const messages = await buildToolAgentMessages(snapshotRef.current, history, userMessage, requestConfig, currentBrief);
             addOnlineLog(`Agent Tool Loop ${loop.step} 开始`, { toolChoice: "auto" });
             let streamed = "";
-            const result = await requestToolResponse({ ...requestConfig, systemPrompt: "" }, messages, ONLINE_AGENT_TOOLS, "auto", (text) => {
+            const draftOnly = objectDetail(userMessage.detail).kind === "video-guide-draft-request";
+            const result = await requestToolResponse({ ...requestConfig, systemPrompt: "" }, messages, draftOnly ? [] : ONLINE_AGENT_TOOLS, "auto", (text) => {
                 streamed = text;
                 rememberAssistantText(assistantId, text);
                 if (text.trim()) upsertMessage(sessionId, { id: assistantId, role: "assistant", text });
