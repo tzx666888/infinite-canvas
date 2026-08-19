@@ -1288,7 +1288,7 @@ export async function requestToolResponse(config: AiConfig, messages: ResponseIn
             );
         } catch (error) {
             const message = error instanceof Error ? error.message : "";
-            if (attempt >= 2 || !/繁忙|限流|暂时不可用|429|502|503|504|overloaded/i.test(message)) throw new Error(readAxiosError(error, "请求失败"));
+            if (attempt >= 2 || !/繁忙|限流|暂时不可用|额度不足|服务额度|capacity|429|502|503|504|overloaded/i.test(message)) throw new Error(readAxiosError(error, "请求失败"));
             await new Promise<void>((resolve, reject) => {
                 const timer = globalThis.setTimeout(resolve, 1500 * (attempt + 1));
                 options?.signal?.addEventListener("abort", () => {

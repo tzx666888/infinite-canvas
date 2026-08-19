@@ -44,6 +44,7 @@ import {
 export const CANVAS_AGENT_PANEL_MOTION_MS = 500;
 const PANEL_MOTION_SECONDS = CANVAS_AGENT_PANEL_MOTION_MS / 1000;
 const ONLINE_AGENT_MAX_STEPS = 12;
+const VIDEO_GUIDE_DRAFT_TIMEOUT_MS = 90_000;
 const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用户在画布上创建电商产品素材。
 
 你可以执行以下画布操作：
@@ -366,6 +367,9 @@ export function CanvasAssistantPanel({
     const snapshotRef = useRef(snapshot);
     const pendingToolContextRef = useRef(new Map<string, PendingOnlineToolContext>());
     const turnTelemetryRef = useRef(new Map<string, AgentTurnTelemetryContext>());
+    const requestAbortControllersRef = useRef(new Map<string, AbortController>());
+    const videoGuideDraftTimeoutsRef = useRef(new Map<string, ReturnType<typeof globalThis.setTimeout>>());
+    const runningAssistantIdRef = useRef("");
     const guidedSelectionRef = useRef("");
 
     useEffect(() => {
@@ -454,12 +458,23 @@ export function CanvasAssistantPanel({
         toolCalls.forEach((toolCall) => context.toolCalls.push({ name: toolCall.function.name, ok: false, errorKind }));
     };
 
+    const clearRunningTurn = (assistantId: string) => {
+        if (runningAssistantIdRef.current !== assistantId) return;
+        runningAssistantIdRef.current = "";
+        setIsRunning(false);
+    };
+
     const finishAgentTurn = (assistantId: string, assistantText?: string) => {
         const context = turnTelemetryRef.current.get(assistantId);
         if (!context) return;
+        const timeout = videoGuideDraftTimeoutsRef.current.get(assistantId);
+        if (timeout) globalThis.clearTimeout(timeout);
+        videoGuideDraftTimeoutsRef.current.delete(assistantId);
+        requestAbortControllersRef.current.delete(assistantId);
         if (assistantText) context.assistantText = assistantText;
         turnTelemetryRef.current.delete(assistantId);
         updateSession(context.sessionId, (session) => (session.videoGuidePhase === "drafting" ? { ...session, videoGuidePhase: assistantText ? "review" : "collecting" } : session));
+        clearRunningTurn(assistantId);
         track("agent_turn", {
             canvasId: context.canvasId,
             userMessageLength: context.userMessageText.length,
@@ -473,9 +488,20 @@ export function CanvasAssistantPanel({
         });
     };
 
+    const cancelAgentTurn = (assistantId: string, message: string) => {
+        const context = turnTelemetryRef.current.get(assistantId);
+        if (!context) return;
+        requestAbortControllersRef.current.get(assistantId)?.abort();
+        appendMessage(context.sessionId, { id: nanoid(), role: "error", title: "提示词生成未完成", text: message, detail: { kind: "video-guide-draft-timeout", retryable: true } });
+        finishAgentTurn(assistantId);
+    };
+
     const finishSessionTurns = (sessionIds: string[]) => {
         const ids = new Set(sessionIds);
         if (!ids.size) return;
+        Array.from(turnTelemetryRef.current.entries()).forEach(([assistantId, context]) => {
+            if (ids.has(context.sessionId)) requestAbortControllersRef.current.get(assistantId)?.abort();
+        });
         pendingToolContextRef.current.forEach((pending, messageId) => {
             if (!ids.has(pending.sessionId)) return;
             const context = turnTelemetryRef.current.get(pending.assistantId);
@@ -580,13 +606,20 @@ export function CanvasAssistantPanel({
         addOnlineLog("发送请求", { text, selectedNodeIds: snapshotRef.current.selectedNodeIds, nodeCount: snapshotRef.current.nodes.length, connectionCount: snapshotRef.current.connections.length });
         setPrompt("");
         setIsRunning(true);
-        void runOnlineAgentStep(session.id, assistantId, history, requestMessage, { step: 1 });
+        const controller = new AbortController();
+        requestAbortControllersRef.current.set(assistantId, controller);
+        if (objectDetail(detail).kind === "video-guide-draft-request") {
+            const timeout = globalThis.setTimeout(() => cancelAgentTurn(assistantId, "生成模型适配提示词超时。已恢复为可重试状态，请点击“让 Agent 生成提示词”再试一次。"), VIDEO_GUIDE_DRAFT_TIMEOUT_MS);
+            videoGuideDraftTimeoutsRef.current.set(assistantId, timeout);
+        }
+        void runOnlineAgentStep(session.id, assistantId, history, requestMessage, { step: 1 }, controller.signal);
         return true;
     };
 
-    const runOnlineAgentStep = async (sessionId: string, assistantId: string, history: CanvasAssistantMessage[], userMessage: CanvasAssistantMessage, loop: OnlineLoopContext) => {
+    const runOnlineAgentStep = async (sessionId: string, assistantId: string, history: CanvasAssistantMessage[], userMessage: CanvasAssistantMessage, loop: OnlineLoopContext, signal?: AbortSignal) => {
         const requestConfig = { ...effectiveConfig, model: effectiveConfig.textModel || effectiveConfig.model };
         try {
+            runningAssistantIdRef.current = assistantId;
             setIsRunning(true);
             const currentBrief = localSessionsRef.current.find((session) => session.id === sessionId)?.videoBrief;
             const messages = await buildToolAgentMessages(snapshotRef.current, history, userMessage, requestConfig, currentBrief);
@@ -596,7 +629,7 @@ export function CanvasAssistantPanel({
                 streamed = text;
                 rememberAssistantText(assistantId, text);
                 if (text.trim()) upsertMessage(sessionId, { id: assistantId, role: "assistant", text });
-            });
+            }, { signal });
             if (!turnTelemetryRef.current.has(assistantId)) return;
             rememberAssistantText(assistantId, result.content || streamed);
             addOnlineLog("模型工具回复", result);
@@ -611,7 +644,7 @@ export function CanvasAssistantPanel({
                     addOnlineLog("等待用户确认", result.toolCalls);
                     return;
                 }
-                await continueOnlineToolLoop(sessionId, assistantId, messages, result, loop.step);
+                await continueOnlineToolLoop(sessionId, assistantId, messages, result, loop.step, signal);
             } else {
                 if (!result.content.trim()) throw new Error("模型没有返回工具调用，画布操作未执行。");
                 upsertMessage(sessionId, { id: assistantId, role: "assistant", text: result.content || streamed || "没有返回内容。" });
@@ -619,15 +652,16 @@ export function CanvasAssistantPanel({
                 addOnlineLog(`Agent Tool Loop ${loop.step} 结束`, { reply: result.content });
             }
         } catch (error) {
+            if (!turnTelemetryRef.current.has(assistantId)) return;
             addOnlineLog("请求失败", error instanceof Error ? error.message : error);
             appendMessage(sessionId, { id: nanoid(), role: "error", title: "操作失败", text: error instanceof Error ? error.message : "操作失败" });
             finishAgentTurn(assistantId);
         } finally {
-            setIsRunning(false);
+            clearRunningTurn(assistantId);
         }
     };
 
-    const continueOnlineToolLoop = async (sessionId: string, assistantId: string, messages: ResponseInputMessage[], result: { content: string; toolCalls: ResponseToolCall[] }, step: number) => {
+    const continueOnlineToolLoop = async (sessionId: string, assistantId: string, messages: ResponseInputMessage[], result: { content: string; toolCalls: ResponseToolCall[] }, step: number, signal?: AbortSignal) => {
         const toolResults = executeOnlineToolCalls(result.toolCalls, assistantId);
         addOnlineLog("工具执行结果", toolResults);
         appendMessage(sessionId, {
@@ -637,10 +671,10 @@ export function CanvasAssistantPanel({
             text: toolResults.map((item) => toolResultText(item.result)).join("\n"),
             detail: completedToolDetail(step, result.toolCalls, toolResults),
         });
-        await continueOnlineToolLoopAfterResults(sessionId, assistantId, messages, result.toolCalls, toolResults, step);
+        await continueOnlineToolLoopAfterResults(sessionId, assistantId, messages, result.toolCalls, toolResults, step, signal);
     };
 
-    const continueOnlineToolLoopAfterResults = async (sessionId: string, assistantId: string, messages: ResponseInputMessage[], toolCalls: ResponseToolCall[], toolResults: OnlineExecutedToolCall[], step: number) => {
+    const continueOnlineToolLoopAfterResults = async (sessionId: string, assistantId: string, messages: ResponseInputMessage[], toolCalls: ResponseToolCall[], toolResults: OnlineExecutedToolCall[], step: number, signal?: AbortSignal) => {
         const nextMessages: ResponseInputMessage[] = [...messages, ...toolCalls.map(toolCallToResponseInput), ...toolResults.map((item) => ({ role: "tool" as const, tool_call_id: item.toolCallId, content: JSON.stringify(item.result) }))];
         if (step >= ONLINE_AGENT_MAX_STEPS) {
             const finalText = toolResults.map((item) => toolResultText(item.result)).join("\n") || "工具已执行。";
@@ -655,7 +689,7 @@ export function CanvasAssistantPanel({
             streamed = text;
             rememberAssistantText(assistantId, text);
             if (text.trim()) upsertMessage(sessionId, { id: assistantId, role: "assistant", text });
-        });
+        }, { signal });
         if (!turnTelemetryRef.current.has(assistantId)) return;
         rememberAssistantText(assistantId, next.content || streamed);
         addOnlineLog(`Agent Tool Loop ${step + 1} 回复`, next);
@@ -669,7 +703,7 @@ export function CanvasAssistantPanel({
                 addOnlineLog("等待用户确认", next.toolCalls);
                 return;
             }
-            await continueOnlineToolLoop(sessionId, assistantId, nextMessages, next, step + 1);
+            await continueOnlineToolLoop(sessionId, assistantId, nextMessages, next, step + 1, signal);
             return;
         }
         const finalText = next.content || streamed || toolResults.map((item) => toolResultText(item.result)).join("\n") || "工具已执行。";
@@ -876,8 +910,9 @@ export function CanvasAssistantPanel({
         const brief = activeSession.videoBrief;
         const referenceIds = [brief.creatorNodeId, brief.productNodeId].filter((value): value is string => Boolean(value));
         const references = buildAssistantReferences(nodes, new Set(referenceIds));
-        if (await sendMessage(agentVideoDraftRequest(brief), messages, references, { kind: "video-guide-draft-request" }, "选项已完成，请生成适配提示词")) {
-            updateSession(activeSession.id, (session) => ({ ...session, videoGuidePhase: "drafting" }));
+        updateSession(activeSession.id, (session) => ({ ...session, videoGuidePhase: "drafting" }));
+        if (!(await sendMessage(agentVideoDraftRequest(brief), messages, references, { kind: "video-guide-draft-request" }, "选项已完成，请生成适配提示词"))) {
+            updateSession(activeSession.id, (session) => ({ ...session, videoGuidePhase: "collecting" }));
         }
     };
 
