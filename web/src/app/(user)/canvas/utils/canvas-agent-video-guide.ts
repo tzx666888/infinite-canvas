@@ -71,12 +71,12 @@ const PLATFORM_OPTIONS: Record<string, string[]> = {
 };
 const ENGLISH_PLATFORMS: Record<string, string> = { 抖音: "Douyin", 快手: "Kuaishou" };
 const LANGUAGE_OPTIONS: Record<string, string[]> = {
-    菲律宾: ["Filipino", "English"],
+    菲律宾: ["English", "Filipino"],
     马来西亚: ["Bahasa Melayu", "English", "中文"],
-    印度尼西亚: ["Bahasa Indonesia"],
-    泰国: ["ภาษาไทย"],
-    越南: ["Tiếng Việt"],
-    中国: ["中文"],
+    印度尼西亚: ["Bahasa Indonesia", "English"],
+    泰国: ["ภาษาไทย", "English"],
+    越南: ["Tiếng Việt", "English"],
+    中国: ["中文", "English"],
 };
 
 export function nextAgentVideoGuideQuestion(config: AiConfig, brief: CanvasAgentVideoBrief): CanvasAgentVideoGuideQuestion | null {

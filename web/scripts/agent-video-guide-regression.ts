@@ -52,6 +52,11 @@ assert.equal(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product
 assert.equal(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id, videoType: "creator" })?.title, "选择参考模特");
 assert.deepEqual(nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market: undefined })?.options.map((item) => item.label), ["菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国"]);
 assert.deepEqual(nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market: "中国", platform: undefined })?.options.map((item) => item.label), ["抖音", "快手"]);
+for (const market of ["菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国"]) {
+    const languageQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market, platform: market === "中国" ? "抖音" : "TikTok Shop", language: undefined });
+    assert.equal(languageQuestion?.key, "language", `${market} should advance to language selection`);
+    assert.ok(languageQuestion?.options.some((item) => item.patch.language === "English"), `${market} should explicitly offer English`);
+}
 const modelQuestion = nextAgentVideoGuideQuestion(defaultConfig, guidedBrief);
 assert.equal(modelQuestion?.key, "model");
 assert.equal(modelQuestion?.options.some((item) => item.patch.model === omni.model), true, "model choices must come from the central capability contract");
