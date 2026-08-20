@@ -403,6 +403,7 @@ function compileGuidedVideoPrompt(brief: CanvasAgentVideoBrief & { model: string
     if (latinWords < 45 || latinWords > 85) throw new Error("视频提示词必须以英文为主，并控制为 45–85 个英文词；当地语言只放在引号内的口播中。");
     if (brief.generateAudio && !hasWorkbenchSpokenScript(body)) throw new Error('开启声音时必须提供一条格式为 Spoken script: "..." 的已确认口播。');
     if (!brief.generateAudio && hasWorkbenchSpokenScript(body)) throw new Error("关闭声音时不得包含 Spoken script。");
+    const compactBody = compactAgentVideoDirection(body, 72);
     const roleBinding = brief.creatorNodeId
         ? "Image 1 holding Image 2 product is the required presenter-product reference."
         : "<IMAGE_1> is the exact product identity and must remain unchanged.";
@@ -429,7 +430,7 @@ function compileGuidedVideoPrompt(brief: CanvasAgentVideoBrief & { model: string
     const negativeRule = brief.creatorNodeId
         ? "No identity drift, distorted anatomy, extra fingers, product-person hybrid, product warping, invented label or claim, duplicate, or watermark."
         : "No warping, resizing, invented labels or claims, duplicates, floating objects, or watermarks.";
-    const compiled = [VIDEO_WORKBENCH_PROMPT_MARKER, spec, roleBinding, shotBudget, profileRule, body, soundRule, identityRule, negativeRule].join(" ").replace(/\s+/g, " ").trim();
+    const compiled = [VIDEO_WORKBENCH_PROMPT_MARKER, spec, roleBinding, shotBudget, profileRule, compactBody, soundRule, identityRule, negativeRule].join(" ").replace(/\s+/g, " ").trim();
     const finalWords = countLatinWords(compiled);
     if (finalWords < 90 || finalWords > 170) throw new Error(`最终视频提示词必须控制为 90–170 个英文词，当前为 ${finalWords} 个；不能重复包装或堆叠规则。`);
     return compiled;
@@ -437,6 +438,24 @@ function compileGuidedVideoPrompt(brief: CanvasAgentVideoBrief & { model: string
 
 function countLatinWords(value: string) {
     return value.match(/[A-Za-z][A-Za-z0-9'’-]*/g)?.length || 0;
+}
+
+function compactAgentVideoDirection(value: string, maximum: number) {
+    if (countLatinWords(value) <= maximum) return value;
+    const scriptMatch = value.match(/Spoken script\s*:\s*["“][^"”]+["”]/i);
+    if (!scriptMatch || scriptMatch.index === undefined) return limitLatinWords(value, maximum);
+    const script = scriptMatch[0];
+    const visual = `${value.slice(0, scriptMatch.index)} ${value.slice(scriptMatch.index + script.length)}`.replace(/\s+/g, " ").trim();
+    const visualBudget = Math.max(12, maximum - countLatinWords(script));
+    const compactVisual = limitLatinWords(visual, visualBudget).replace(/[\s,;:–-]+$/, "").replace(/[.!?]?$/, ".");
+    return `${compactVisual} ${script}`.trim();
+}
+
+function limitLatinWords(value: string, maximum: number) {
+    const matches = Array.from(value.matchAll(/[A-Za-z][A-Za-z0-9'’-]*/g));
+    if (matches.length <= maximum) return value.trim();
+    const end = (matches[maximum - 1].index || 0) + matches[maximum - 1][0].length;
+    return value.slice(0, end).trim();
 }
 
 function normalizeAgentVideoDraftPrompt(value: string) {

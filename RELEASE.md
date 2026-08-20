@@ -1,4 +1,10 @@
-# Infinite Canvas v3.0.114
+# Infinite Canvas v3.0.115
+
+## v3.0.115 本次发布
+
+- 对已确认草稿做保留口播的确定性长度压缩，使最终视频提示词满足 90–170 英文词的供应商约束。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.115`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.114`；上线前 Compose 与运行状态备份：`/opt/infinite-canvas/backups/release-v3.0.115-20260820T044650Z`。
 
 ## v3.0.114 本次发布
 

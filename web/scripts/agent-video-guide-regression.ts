@@ -166,6 +166,14 @@ assert.deepEqual(creatorVideoOp?.metadata?.inputOrder, [creator.id, product.id])
 assert.deepEqual(creatorVideoOp?.metadata?.agentVideoReferenceRoles, { productNodeId: product.id, creatorNodeId: creator.id });
 assert.match(creatorPrepared.prompt, /Image 1 holding Image 2 product/);
 assert.deepEqual(inferDirectVideoReferencePair(creatorPrepared.prompt, 2), { base: 1, reference: 2 }, "creator plus product must enter the existing product-lock bridge path");
+const productionDraftPrepared = prepareCanvasAgentVideo(defaultConfig, snapshot, {
+    confirmed: true,
+    brief: { ...creatorPrepared.brief, market: "越南", platform: "TikTok Shop", language: "Tiếng Việt", model: minimax.model, seconds: 15, size: "720x1280", generateAudio: true, withSubtitle: true },
+    prompt: extractedDraftPrompt,
+});
+assert.equal(countLatinWords(productionDraftPrepared.prompt) <= 170, true, "a valid 85-word draft must be compacted to fit the final provider prompt budget");
+assert.match(productionDraftPrepared.prompt, /Spoken script: "Cùng xem sản phẩm này trong cuộc sống hằng ngày nhé\."/);
+assert.doesNotMatch(productionDraftPrepared.prompt, /Subtitle:/);
 assert.match(creatorPrepared.prompt, /Senang digunakan setiap hari/);
 assert.match(creatorPrepared.prompt, /synchronized subtitle/i);
 assert.doesNotMatch(creatorPrepared.prompt, /no captions/i);
