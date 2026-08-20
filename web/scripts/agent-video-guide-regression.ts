@@ -203,6 +203,11 @@ const guideCardSource = fs.readFileSync(new URL("../src/app/(user)/canvas/compon
 assert.doesNotMatch(assistantSource, /canvas_request_video_options/);
 assert.doesNotMatch(chatSource, /CanvasVideoOptionsCard|video-options/);
 assert.match(assistantSource, /draftOnly \? "none" : "auto"/, "guided prompt drafting must not carry unrelated canvas tools");
+assert.match(
+    assistantSource,
+    /requestToolResponse\([^\n]+draftOnly \? \[\] : ONLINE_AGENT_TOOLS, draftOnly \? "none" : "auto"/,
+    "guided prompt drafting must explicitly disable tool choice when no tools are supplied",
+);
 assert.match(assistantSource, /buildVideoGuideDraftMessages\(currentBrief\)/, "guided prompt drafting must use the minimal dedicated context");
 assert.doesNotMatch(assistantSource, /draftOnly \? buildToolAgentMessages/, "guided prompt drafting must not serialize the full canvas or reference images");
 assert.match(assistantSource, /canvas_prepare_video/);
