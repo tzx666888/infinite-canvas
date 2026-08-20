@@ -71,9 +71,22 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const TOKAXIS_CHANNEL_ID = "tokaxis";
 const TOKAXIS_BASE_URL = "/api/gateway";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-const TOKAXIS_DEFAULTS_VERSION = 23;
-const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 20;
-const TOKAXIS_FALLBACK_MODELS = ["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["4K"], ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS, "gpt-5.6-sol", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-4o-mini-tts", "tts-1"];
+const TOKAXIS_DEFAULTS_VERSION = 24;
+const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 24;
+export const TOKAXIS_AGENT_TEXT_MODEL_IDS = ["deepseek-v4-pro-ga-260813", "doubao-seed-2-1-pro-260628"] as const;
+const TOKAXIS_FALLBACK_MODELS = [
+    "gpt-image-2",
+    TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
+    ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS,
+    ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS,
+    ...TOKAXIS_AGENT_TEXT_MODEL_IDS,
+    "gpt-5.6-sol",
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-4o-mini-tts",
+    "tts-1",
+];
 const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
 const TOKAXIS_REMOVED_MODEL_IDS = new Set(["minimax-h3-c4"]);
 const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["4K"]]);
@@ -104,7 +117,7 @@ export const defaultConfig: AiConfig = {
     model: "tokaxis::gpt-image-2",
     imageModel: "tokaxis::gpt-image-2",
     videoModel: DEFAULT_GOOGLE_VIDEO_MODEL,
-    textModel: "tokaxis::gpt-5.6-sol",
+    textModel: `tokaxis::${TOKAXIS_AGENT_TEXT_MODEL_IDS[0]}`,
     audioModel: "tokaxis::gpt-4o-mini-tts",
     audioVoice: "alloy",
     audioFormat: "mp3",
@@ -463,7 +476,9 @@ function normalizeTokaxisChannels(config: AiConfig) {
     const modelSource = persistedModels.length ? persistedModels : config.models?.map(modelOptionName) || [];
     const shouldMigrateModels = (config.tokaxisDefaultsVersion || 0) < TOKAXIS_DEFAULTS_VERSION;
     const models = sanitizeTokaxisModels(
-        modelSource.length ? [...modelSource, ...(shouldMigrateModels ? ["gpt-5.6-sol", ...Object.values(TOKAXIS_GOOGLE_IMAGE_MODELS), ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS] : [])] : TOKAXIS_FALLBACK_MODELS,
+        modelSource.length
+            ? [...modelSource, ...TOKAXIS_AGENT_TEXT_MODEL_IDS, ...(shouldMigrateModels ? ["gpt-5.6-sol", ...Object.values(TOKAXIS_GOOGLE_IMAGE_MODELS), ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS] : [])]
+            : TOKAXIS_FALLBACK_MODELS,
     );
     return [
         createModelChannel({
@@ -542,7 +557,9 @@ function modelListsFromModels(models: string[]) {
 }
 
 function sanitizeTokaxisModels(models: string[]) {
-    const visibleModels = uniqueRawModels(models).filter((model) => !TOKAXIS_REMOVED_MODEL_IDS.has(modelOptionName(model).trim().toLowerCase()) && !isDisabledModelName(model) && !TOKAXIS_DISABLED_IMAGE_MODEL_RE.test(model) && (!isImageModelName(model) || TOKAXIS_PUBLIC_IMAGE_MODEL_IDS.has(model)));
+    const visibleModels = uniqueRawModels(models).filter(
+        (model) => !TOKAXIS_REMOVED_MODEL_IDS.has(modelOptionName(model).trim().toLowerCase()) && !isDisabledModelName(model) && !TOKAXIS_DISABLED_IMAGE_MODEL_RE.test(model) && (!isImageModelName(model) || TOKAXIS_PUBLIC_IMAGE_MODEL_IDS.has(model)),
+    );
     return visibleModels.length ? visibleModels : TOKAXIS_FALLBACK_MODELS;
 }
 

@@ -1,4 +1,11 @@
-# Infinite Canvas v3.0.115
+# Infinite Canvas v3.0.116
+
+## v3.0.116 本次发布
+
+- Agent 傻瓜模式默认使用 `deepseek-v4-pro-ga-260813`，并保留 `doubao-seed-2-1-pro-260628` 作为已登记备用通道。
+- 旧版 Agent 文本模型配置自动迁移；工具调用遇到空结果或可重试上游错误时切换另一条 Agent 文本通道。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.116`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.115`；上线前 Compose、容器和镜像状态按时间戳备份。
 
 ## v3.0.115 本次发布
 

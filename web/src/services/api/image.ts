@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { buildApiUrl, isTokaxisProxyBaseUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildApiUrl, isTokaxisProxyBaseUrl, modelOptionName, resolveModelRequestConfig, TOKAXIS_AGENT_TEXT_MODEL_IDS, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { normalizeImageQualityForModel } from "@/lib/image-quality";
@@ -1268,37 +1268,57 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
 }
 
 export async function requestToolResponse(config: AiConfig, messages: ResponseInputMessage[], tools: ResponseFunctionTool[], toolChoice: ToolChoice = "auto", onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
-    const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-            if (requestConfig.apiFormat === "gemini") {
-                return await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, toGeminiToolOptions(tools, toolChoice)), onDelta, options);
+    const initialModel = config.model || config.textModel;
+    const initialName = modelOptionName(initialModel).trim().toLowerCase();
+    const configuredModels = [...(config.textModels || []), ...(config.models || []), ...config.channels.flatMap((channel) => channel.models || [])];
+    const fallbackModels = TOKAXIS_AGENT_TEXT_MODEL_IDS.map((model) => configuredModels.find((candidate) => modelOptionName(candidate).trim().toLowerCase() === model)).filter((model): model is string => Boolean(model));
+    const modelCandidates = [initialModel, ...(TOKAXIS_AGENT_TEXT_MODEL_IDS.includes(initialName as (typeof TOKAXIS_AGENT_TEXT_MODEL_IDS)[number]) ? fallbackModels : [])].filter((model, index, all) => model && all.indexOf(model) === index);
+    let lastError: unknown;
+    for (const model of modelCandidates) {
+        const requestConfig = resolveModelRequestConfig(config, model);
+        let emptyToolResponse = false;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+                const result =
+                    requestConfig.apiFormat === "gemini"
+                        ? await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, toGeminiToolOptions(tools, toolChoice)), onDelta, options)
+                        : await requestStreamingResponse(
+                              requestConfig,
+                              {
+                                  model: requestConfig.model,
+                                  input: toResponseInput(withSystemMessage(requestConfig, messages)),
+                                  tools: tools.map(toResponseTool),
+                                  tool_choice: toolChoice,
+                                  parallel_tool_calls: false,
+                              },
+                              onDelta,
+                              options,
+                          );
+                emptyToolResponse = tools.length > 0 && toolChoice !== "none" && !result.toolCalls.length && !result.content.trim();
+                if (!emptyToolResponse) return result;
+                lastError = new Error("模型没有返回工具调用");
+                break;
+            } catch (error) {
+                lastError = error;
+                const message = error instanceof Error ? error.message : "";
+                if (attempt >= 2 || !/繁忙|限流|暂时不可用|额度不足|服务额度|capacity|429|502|503|504|overloaded/i.test(message)) break;
+                await new Promise<void>((resolve, reject) => {
+                    const timer = globalThis.setTimeout(resolve, 1500 * (attempt + 1));
+                    options?.signal?.addEventListener(
+                        "abort",
+                        () => {
+                            globalThis.clearTimeout(timer);
+                            reject(new DOMException("Aborted", "AbortError"));
+                        },
+                        { once: true },
+                    );
+                });
             }
-            return await requestStreamingResponse(
-                requestConfig,
-                {
-                    model: requestConfig.model,
-                    input: toResponseInput(withSystemMessage(requestConfig, messages)),
-                    tools: tools.map(toResponseTool),
-                    tool_choice: toolChoice,
-                    parallel_tool_calls: false,
-                },
-                onDelta,
-                options,
-            );
-        } catch (error) {
-            const message = error instanceof Error ? error.message : "";
-            if (attempt >= 2 || !/繁忙|限流|暂时不可用|额度不足|服务额度|capacity|429|502|503|504|overloaded/i.test(message)) throw new Error(readAxiosError(error, "请求失败"));
-            await new Promise<void>((resolve, reject) => {
-                const timer = globalThis.setTimeout(resolve, 1500 * (attempt + 1));
-                options?.signal?.addEventListener("abort", () => {
-                    globalThis.clearTimeout(timer);
-                    reject(new DOMException("Aborted", "AbortError"));
-                }, { once: true });
-            });
         }
+        if (emptyToolResponse || model !== modelCandidates.at(-1)) continue;
+        throw new Error(readAxiosError(lastError, "请求失败"));
     }
-    throw new Error("模型服务请求失败，请稍后重试");
+    throw new Error(readAxiosError(lastError, "模型服务请求失败，请稍后重试"));
 }
 
 export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat">) {

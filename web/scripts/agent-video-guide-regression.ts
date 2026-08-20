@@ -6,7 +6,10 @@ import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/app/(user)
 import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, agentVideoPromptProfileSupportsType, extractAgentVideoDraftPrompt, lockPreparedAgentVideoConfig, nextAgentVideoGuideQuestion, prepareCanvasAgentVideo, shouldRestartAgentVideoGuide } from "../src/app/(user)/canvas/utils/canvas-agent-video-guide.ts";
 import { inferDirectVideoReferencePair } from "../src/app/(user)/canvas/utils/video-reference-model.ts";
 import { prepareVideoGenerationPreflight } from "../src/app/(user)/canvas/utils/video-generation-preflight.ts";
-import { defaultConfig, modelOptionName } from "../src/stores/use-config-store.ts";
+import { defaultConfig, modelOptionName, TOKAXIS_AGENT_TEXT_MODEL_IDS } from "../src/stores/use-config-store.ts";
+
+assert.equal(modelOptionName(defaultConfig.textModel), TOKAXIS_AGENT_TEXT_MODEL_IDS[0], "simple Agent mode must default to DeepSeek");
+assert.deepEqual(TOKAXIS_AGENT_TEXT_MODEL_IDS, ["deepseek-v4-pro-ga-260813", "doubao-seed-2-1-pro-260628"], "simple Agent mode must keep DeepSeek and Doubao as its offline-safe text model pair");
 
 const product = imageNode("product", 100, 120);
 const creator = imageNode("creator", 100, 620);
@@ -227,6 +230,8 @@ const localAssistantSource = fs.readFileSync(new URL("../src/app/(user)/canvas/c
 const chatSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-agent-chat-ui.tsx", import.meta.url), "utf8");
 const guideCardSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-agent-video-guide-card.tsx", import.meta.url), "utf8");
 const imageApiSource = fs.readFileSync(new URL("../src/services/api/image.ts", import.meta.url), "utf8");
+assert.match(imageApiSource, /模型没有返回工具调用/, "an empty tool response must be eligible for the configured Agent model fallback");
+assert.match(imageApiSource, /TOKAXIS_AGENT_TEXT_MODEL_IDS/, "Agent requests must know the DeepSeek/Doubao fallback pair");
 assert.doesNotMatch(assistantSource, /canvas_request_video_options/);
 assert.doesNotMatch(chatSource, /CanvasVideoOptionsCard|video-options/);
 assert.match(assistantSource, /draftOnly \? "none" : "auto"/, "guided prompt drafting must not carry unrelated canvas tools");
