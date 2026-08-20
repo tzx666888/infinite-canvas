@@ -3,7 +3,7 @@ import fs from "node:fs";
 
 import { CanvasNodeType, type CanvasNodeData } from "../src/app/(user)/canvas/types.ts";
 import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/app/(user)/canvas/utils/canvas-agent-ops.ts";
-import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, agentVideoPromptProfileSupportsType, lockPreparedAgentVideoConfig, nextAgentVideoGuideQuestion, prepareCanvasAgentVideo, shouldRestartAgentVideoGuide } from "../src/app/(user)/canvas/utils/canvas-agent-video-guide.ts";
+import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, agentVideoPromptProfileSupportsType, extractAgentVideoDraftPrompt, lockPreparedAgentVideoConfig, nextAgentVideoGuideQuestion, prepareCanvasAgentVideo, shouldRestartAgentVideoGuide } from "../src/app/(user)/canvas/utils/canvas-agent-video-guide.ts";
 import { inferDirectVideoReferencePair } from "../src/app/(user)/canvas/utils/video-reference-model.ts";
 import { prepareVideoGenerationPreflight } from "../src/app/(user)/canvas/utils/video-generation-preflight.ts";
 import { defaultConfig, modelOptionName } from "../src/stores/use-config-store.ts";
@@ -77,6 +77,23 @@ assert.equal(nextAgentVideoGuideQuestion(defaultConfig, readyBrief), null);
 assert.match(agentVideoDraftRequest(readyBrief), /不要重复提问/);
 assert.match(agentVideoDraftRequest(readyBrief), /禁止口播、旁白和 Spoken script/);
 assert.match(agentVideoConfirmRequest(), /confirmed=true/);
+const extractedDraftPrompt = extractAgentVideoDraftPrompt([
+    { role: "assistant", text: "旧回复" },
+    { role: "user", text: "选项已完成，请生成适配提示词", detail: { kind: "video-guide-draft-request" } },
+    { role: "assistant", text: '需求摘要：越南 TikTok Shop 竖屏带货。\n\n**英文视频提示词：** "Create a bright apartment product demonstration with one adult presenter holding the exact referenced package, moving naturally from an immediate close-up hook to one clear use gesture, then ending on a stable hero shot under soft commercial lighting. Keep the product scale, colors, logo, label placement, and presenter identity unchanged. Spoken script: "Dùng thật tiện mỗi ngày.""\n\n同步字幕：同口播。' },
+]);
+assert.match(extractedDraftPrompt, /^Create a bright apartment product demonstration/);
+assert.match(extractedDraftPrompt, /Spoken script: "Dùng thật tiện mỗi ngày\."$/);
+assert.doesNotMatch(extractedDraftPrompt, /需求摘要|同步字幕|英文视频提示词/);
+
+const onlinePanelSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-assistant-panel.tsx", import.meta.url), "utf8");
+const localPanelSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-local-agent-panel.tsx", import.meta.url), "utf8");
+assert.doesNotMatch(onlinePanelSource, /sendMessage\(agentVideoConfirmRequest/);
+assert.doesNotMatch(localPanelSource, /sendPrompt\(agentVideoConfirmRequest/);
+assert.match(onlinePanelSource, /onPrepareAgentVideo\(\{ brief: activeSession\.videoBrief, prompt, confirmed: true \}\)/);
+assert.match(localPanelSource, /onPrepareAgentVideoRef\.current\(\{ brief: videoBriefRef\.current, prompt, confirmed: true \}\)/);
+assert.match(onlinePanelSource, /extractAgentVideoDraftPrompt\(activeSession\.messages\)/);
+assert.match(localPanelSource, /extractAgentVideoDraftPrompt\(useCanvasAgentStore\.getState\(\)\.messages\)/);
 
 const productDirection =
     "Open on the exact product standing upright on a clean Indonesian kitchen counter under warm window light, then let an adult hand lift it at realistic scale, demonstrate one smooth practical use, and return it beside the package for a crisp hero close-up. Keep the same silhouette, colors, materials, labels, part count, and proportions throughout, with restrained camera motion and believable contact shadows.";

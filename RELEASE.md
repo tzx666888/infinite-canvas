@@ -1,4 +1,11 @@
-# Infinite Canvas v3.0.104
+# Infinite Canvas v3.0.113
+
+## v3.0.113 本次发布
+
+- 用户在审阅并确认视频提示词后，画布直接使用该草稿准备视频节点，不再发起第二次模型请求。
+- 在线 Agent 与本地 Agent 都采用同一确定性确认逻辑；确认操作不额外扣 Agent 积分，也不会自动提交付费视频生成。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.113`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.112`；上线前 Compose 与运行状态备份：`/opt/infinite-canvas/backups/release-v3.0.113-20260820T043035Z`。
 
 ## 默认发布流程（长期规则）
 

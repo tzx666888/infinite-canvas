@@ -30,9 +30,9 @@ import { prepareToolArguments, ToolArgumentValidationError } from "../utils/canv
 import {
     AGENT_VIDEO_TYPE_OPTIONS,
     agentVideoCapabilityCatalog,
-    agentVideoConfirmRequest,
     agentVideoDraftRequest,
     agentVideoGuideIntro,
+    extractAgentVideoDraftPrompt,
     mergeCanvasAgentVideoBrief,
     missingAgentVideoBriefFields,
     shouldRestartAgentVideoGuide,
@@ -918,8 +918,24 @@ export function CanvasAssistantPanel({
     };
 
     const confirmVideoGuidePrompt = () => {
-        if (!activeSession || isRunning) return;
-        void sendMessage(agentVideoConfirmRequest(), messages, [], { kind: "video-guide-confirm" }, "确认提示词，准备视频节点");
+        if (!activeSession?.videoBrief || isRunning) return;
+        const prompt = extractAgentVideoDraftPrompt(activeSession.messages);
+        if (!prompt) {
+            appendMessage(activeSession.id, { id: nanoid(), role: "error", title: "无法准备视频节点", text: "没有找到刚才生成的完整英文提示词，请重新点击“让 Agent 生成提示词”后再确认。" });
+            return;
+        }
+        try {
+            const prepared = onPrepareAgentVideo({ brief: activeSession.videoBrief, prompt, confirmed: true });
+            if (!prepared.ok) {
+                appendMessage(activeSession.id, { id: nanoid(), role: "error", title: "视频节点准备失败", text: prepared.error });
+                return;
+            }
+            updateSession(activeSession.id, (session) => ({ ...session, videoBrief: prepared.brief, videoGuidePhase: "prepared", updatedAt: new Date().toISOString() }));
+            appendMessage(activeSession.id, { id: nanoid(), role: "assistant", text: "视频节点已准备完成。提示词和参考图已写入，请在画布节点检查后点击生成。", detail: { kind: "video-prepared", videoNodeId: prepared.videoNodeId, brief: prepared.brief } });
+            addOnlineLog("视频节点确定性准备完成", { videoNodeId: prepared.videoNodeId });
+        } catch (error) {
+            appendMessage(activeSession.id, { id: nanoid(), role: "error", title: "视频节点准备失败", text: error instanceof Error ? error.message : "视频节点准备失败，请重试。" });
+        }
     };
 
     const resetVideoGuide = () => {

@@ -206,6 +206,23 @@ export function agentVideoConfirmRequest() {
     return "确认使用刚才展示的完整英文提示词。请调用 canvas_prepare_video，confirmed=true；只准备并选中普通视频节点，不要自动生成视频。";
 }
 
+type AgentVideoDraftMessage = {
+    role?: string;
+    text?: unknown;
+    detail?: unknown;
+};
+
+export function extractAgentVideoDraftPrompt(messages: AgentVideoDraftMessage[]) {
+    let draftRequestIndex = -1;
+    messages.forEach((message, index) => {
+        if (message.role === "user" && messageDetailKind(message.detail) === "video-guide-draft-request") draftRequestIndex = index;
+    });
+    if (draftRequestIndex < 0) return "";
+    const response = messages.slice(draftRequestIndex + 1).find((message) => message.role === "assistant" && typeof message.text === "string" && message.text.trim());
+    if (!response || typeof response.text !== "string") return "";
+    return normalizeAgentVideoDraftPrompt(response.text);
+}
+
 export function agentVideoBriefSummary(brief: CanvasAgentVideoBrief) {
     const type = AGENT_VIDEO_TYPE_OPTIONS.find((item) => item.value === brief.videoType)?.label;
     return [type, brief.market, brief.platform, brief.language, brief.model ? modelOptionName(brief.model) : "", brief.size === "1280x720" ? "横屏" : "竖屏", brief.seconds ? `${brief.seconds} 秒` : "", brief.generateAudio ? "有声" : "无声", brief.withSubtitle ? "有字幕" : "无字幕"].filter(Boolean).join(" · ");
@@ -420,6 +437,25 @@ function compileGuidedVideoPrompt(brief: CanvasAgentVideoBrief & { model: string
 
 function countLatinWords(value: string) {
     return value.match(/[A-Za-z][A-Za-z0-9'’-]*/g)?.length || 0;
+}
+
+function normalizeAgentVideoDraftPrompt(value: string) {
+    let text = value.trim().replace(/^```(?:text|markdown)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const label = /(?:\*\*\s*)?(?:英文视频提示词|English video prompt)\s*[:：](?:\s*\*\*)?\s*/i.exec(text);
+    if (label) text = text.slice(label.index + label[0].length).trim();
+    const nextSection = text.search(/\n\s*(?:#{1,6}\s*)?(?:\*\*\s*)?(?:中文需求摘要|需求摘要|同步字幕|字幕|Chinese summary|Subtitle)(?:\s*\([^\n)]*\))?(?:\s*\*\*)?\s*[:：]/i);
+    if (nextSection >= 0) text = text.slice(0, nextSection).trim();
+    text = text.replace(/^[-*]\s+/, "").replace(/^`+|`+$/g, "").trim();
+    const quotePairs: ReadonlyArray<readonly [string, string]> = [["\"", "\""], ["“", "”"], ["'", "'"]];
+    const outerQuotes = quotePairs.find(([open, close]) => text.startsWith(open) && text.endsWith(close));
+    if (outerQuotes) text = text.slice(outerQuotes[0].length, -outerQuotes[1].length).trim();
+    return text.replace(/\s+/g, " ").trim();
+}
+
+function messageDetailKind(value: unknown) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+    const kind = (value as Record<string, unknown>).kind;
+    return typeof kind === "string" ? kind : "";
 }
 
 function validateDuration(seconds: number, capability: AvailableAgentVideoModel) {

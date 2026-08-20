@@ -13,7 +13,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useCanvasAgentStore, type AgentAttachment, type AgentChatItem, type AgentEventLog, type AgentPanelTab, type AgentPendingToolCall, type AgentThreadSummary } from "../stores/use-canvas-agent-store";
 import { summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
-import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, agentVideoGuideIntro, mergeCanvasAgentVideoBrief, missingAgentVideoBriefFields, shouldRestartAgentVideoGuide, validateAgentVideoReferences, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
+import { agentVideoCapabilityCatalog, agentVideoDraftRequest, agentVideoGuideIntro, extractAgentVideoDraftPrompt, mergeCanvasAgentVideoBrief, missingAgentVideoBriefFields, shouldRestartAgentVideoGuide, validateAgentVideoReferences, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
 import { CanvasNodeType, type CanvasAgentVideoBrief, type CanvasAgentVideoGuidePhase } from "../types";
 import { AgentChatComposer, AgentChatMessage, AgentPendingToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
 import { CanvasAgentVideoGuideCard } from "./canvas-agent-video-guide-card";
@@ -612,7 +612,24 @@ export function CanvasLocalAgentPanel({
 
     const confirmVideoGuidePrompt = () => {
         if (sending || waiting) return;
-        void sendPrompt(agentVideoConfirmRequest(), { kind: "video-guide-confirm" }, "确认提示词，准备视频节点");
+        const prompt = extractAgentVideoDraftPrompt(useCanvasAgentStore.getState().messages);
+        if (!prompt) {
+            addMessage({ role: "error", title: "无法准备视频节点", text: "没有找到刚才生成的完整英文提示词，请重新点击“让 Agent 生成提示词”后再确认。" });
+            return;
+        }
+        try {
+            const prepared = onPrepareAgentVideoRef.current({ brief: videoBriefRef.current, prompt, confirmed: true });
+            if (!prepared.ok) {
+                addMessage({ role: "error", title: "视频节点准备失败", text: prepared.error });
+                return;
+            }
+            updateVideoBrief(prepared.brief);
+            updateVideoGuidePhase("prepared");
+            addMessage({ role: "assistant", text: "视频节点已准备完成。提示词和参考图已写入，请在画布节点检查后点击生成。", detail: { kind: "video-prepared", videoNodeId: prepared.videoNodeId, brief: prepared.brief } });
+            addEventLog("视频节点确定性准备完成", { videoNodeId: prepared.videoNodeId });
+        } catch (error) {
+            addMessage({ role: "error", title: "视频节点准备失败", text: error instanceof Error ? error.message : "视频节点准备失败，请重试。" });
+        }
     };
 
     const resetVideoGuide = () => {
