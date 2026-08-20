@@ -200,6 +200,7 @@ const assistantSource = fs.readFileSync(new URL("../src/app/(user)/canvas/compon
 const localAssistantSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-local-agent-panel.tsx", import.meta.url), "utf8");
 const chatSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-agent-chat-ui.tsx", import.meta.url), "utf8");
 const guideCardSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-agent-video-guide-card.tsx", import.meta.url), "utf8");
+const imageApiSource = fs.readFileSync(new URL("../src/services/api/image.ts", import.meta.url), "utf8");
 assert.doesNotMatch(assistantSource, /canvas_request_video_options/);
 assert.doesNotMatch(chatSource, /CanvasVideoOptionsCard|video-options/);
 assert.match(assistantSource, /draftOnly \? "none" : "auto"/, "guided prompt drafting must not carry unrelated canvas tools");
@@ -208,6 +209,7 @@ assert.match(
     /requestToolResponse\([^\n]+draftOnly \? \[\] : ONLINE_AGENT_TOOLS, draftOnly \? "none" : "auto"/,
     "guided prompt drafting must explicitly disable tool choice when no tools are supplied",
 );
+assert.match(imageApiSource, /type ToolChoice = "auto" \| "none" \| "required"/, "the response client must support the standard no-tools choice");
 assert.match(assistantSource, /buildVideoGuideDraftMessages\(currentBrief\)/, "guided prompt drafting must use the minimal dedicated context");
 assert.doesNotMatch(assistantSource, /draftOnly \? buildToolAgentMessages/, "guided prompt drafting must not serialize the full canvas or reference images");
 assert.match(assistantSource, /canvas_prepare_video/);
