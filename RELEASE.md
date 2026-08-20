@@ -1,4 +1,10 @@
-# Infinite Canvas v3.0.116
+# Infinite Canvas v3.0.117
+
+## v3.0.117 本次发布
+
+- Agent 傻瓜模式的纯文本视频草稿请求改用有限 JSON 响应，避免线上 SSE 连接悬挂造成“生成模型适配提示词超时”。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.117`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.116`；上线前 Compose、容器和镜像状态按时间戳备份。
 
 ## v3.0.116 本次发布
 

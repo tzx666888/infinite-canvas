@@ -241,6 +241,7 @@ assert.match(
     "guided prompt drafting must explicitly disable tool choice when no tools are supplied",
 );
 assert.match(imageApiSource, /type ToolChoice = "auto" \| "none" \| "required"/, "the response client must support the standard no-tools choice");
+assert.match(imageApiSource, /body\.tools\.length === 0 && body\.tool_choice === "none"/, "guided prompt drafting must use a finite JSON response instead of a hanging SSE stream");
 assert.match(assistantSource, /buildVideoGuideDraftMessages\(currentBrief\)/, "guided prompt drafting must use the minimal dedicated context");
 assert.doesNotMatch(assistantSource, /draftOnly \? buildToolAgentMessages/, "guided prompt drafting must not serialize the full canvas or reference images");
 assert.match(assistantSource, /canvas_prepare_video/);

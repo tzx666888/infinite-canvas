@@ -890,10 +890,17 @@ function consumeResponseStreamText(state: ResponseStreamState, text: string, onD
 }
 
 async function requestStreamingResponse(config: AiConfig, body: Record<string, unknown>, onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
+    // The foolproof video-guide draft is a plain text request (no tools and
+    // tool_choice=none). Some upstream/proxy combinations keep an SSE
+    // connection open after delivering the final text, which makes the guide
+    // hit its client timeout even though the model already answered. Use a
+    // bounded JSON response for this path; tool loops still use SSE so their
+    // tool-call handling and streaming UX remain unchanged.
+    const stream = !(Array.isArray(body.tools) && body.tools.length === 0 && body.tool_choice === "none");
     const response = await fetch(aiApiUrl(config, "/responses"), {
         method: "POST",
-        headers: { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" },
-        body: JSON.stringify({ ...body, stream: true }),
+        headers: { ...aiHeaders(config, "application/json"), Accept: stream ? "text/event-stream" : "application/json" },
+        body: JSON.stringify({ ...body, stream }),
         signal: options?.signal,
     });
     if (!response.ok) throw new Error(await readFetchError(response, "请求失败"));
