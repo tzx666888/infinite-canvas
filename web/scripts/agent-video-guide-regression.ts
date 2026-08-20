@@ -202,7 +202,9 @@ const chatSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/
 const guideCardSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-agent-video-guide-card.tsx", import.meta.url), "utf8");
 assert.doesNotMatch(assistantSource, /canvas_request_video_options/);
 assert.doesNotMatch(chatSource, /CanvasVideoOptionsCard|video-options/);
-assert.match(assistantSource, /toolChoice: "auto"/);
+assert.match(assistantSource, /draftOnly \? "none" : "auto"/, "guided prompt drafting must not carry unrelated canvas tools");
+assert.match(assistantSource, /buildVideoGuideDraftMessages\(currentBrief\)/, "guided prompt drafting must use the minimal dedicated context");
+assert.doesNotMatch(assistantSource, /draftOnly \? buildToolAgentMessages/, "guided prompt drafting must not serialize the full canvas or reference images");
 assert.match(assistantSource, /canvas_prepare_video/);
 assert.match(assistantSource, /45–85 个英文词/);
 assert.match(assistantSource, /Spoken script/);
