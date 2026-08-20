@@ -1,4 +1,10 @@
-# Infinite Canvas v3.0.113
+# Infinite Canvas v3.0.114
+
+## v3.0.114 本次发布
+
+- 在 v3.0.113 的确定性确认基础上，兼容生产模型实际返回的单引号口播和冗余 `Subtitle:` 段落。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.114`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.113`；上线前 Compose 与运行状态备份：`/opt/infinite-canvas/backups/release-v3.0.114-20260820T044055Z`。
 
 ## v3.0.113 本次发布
 

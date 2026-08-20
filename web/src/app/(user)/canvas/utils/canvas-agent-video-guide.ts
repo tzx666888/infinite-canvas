@@ -449,6 +449,9 @@ function normalizeAgentVideoDraftPrompt(value: string) {
     const quotePairs: ReadonlyArray<readonly [string, string]> = [["\"", "\""], ["“", "”"], ["'", "'"]];
     const outerQuotes = quotePairs.find(([open, close]) => text.startsWith(open) && text.endsWith(close));
     if (outerQuotes) text = text.slice(outerQuotes[0].length, -outerQuotes[1].length).trim();
+    text = text
+        .replace(/\s+Subtitle(?:\s*\([^)]*\))?\s*:\s*[\s\S]*$/i, "")
+        .replace(/Spoken script(?:\s*\([^)]*\))?\s*:\s*['‘’“”\"]([^'‘’“”\"]+)['‘’“”\"]/i, (_match, script: string) => `Spoken script: "${script.trim()}"`);
     return text.replace(/\s+/g, " ").trim();
 }
 

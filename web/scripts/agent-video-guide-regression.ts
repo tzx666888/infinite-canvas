@@ -80,11 +80,12 @@ assert.match(agentVideoConfirmRequest(), /confirmed=true/);
 const extractedDraftPrompt = extractAgentVideoDraftPrompt([
     { role: "assistant", text: "旧回复" },
     { role: "user", text: "选项已完成，请生成适配提示词", detail: { kind: "video-guide-draft-request" } },
-    { role: "assistant", text: '需求摘要：越南 TikTok Shop 竖屏带货。\n\n**英文视频提示词：** "Create a bright apartment product demonstration with one adult presenter holding the exact referenced package, moving naturally from an immediate close-up hook to one clear use gesture, then ending on a stable hero shot under soft commercial lighting. Keep the product scale, colors, logo, label placement, and presenter identity unchanged. Spoken script: "Dùng thật tiện mỗi ngày.""\n\n同步字幕：同口播。' },
+    { role: "assistant", text: "需求摘要：越南 TikTok Shop 竖屏带货。 英文视频提示词：\"Create a 15-second vertical video (720x1280) for TikTok Shop Vietnam using MiniMaxH3-720p. Show the product from the reference image in a natural everyday Vietnamese home scene. Keep its identity, colors, labels, and proportions exactly as in the reference. Depict a person using it casually in real time, with soft natural lighting and a clean, uncluttered background. No extra text, logos, or graphic overlays. Spoken script (Vietnamese): 'Cùng xem sản phẩm này trong cuộc sống hằng ngày nhé.' Subtitle: same Vietnamese sentence, synced.\"" },
 ]);
-assert.match(extractedDraftPrompt, /^Create a bright apartment product demonstration/);
-assert.match(extractedDraftPrompt, /Spoken script: "Dùng thật tiện mỗi ngày\."$/);
+assert.match(extractedDraftPrompt, /^Create a 15-second vertical video/);
+assert.match(extractedDraftPrompt, /Spoken script: "Cùng xem sản phẩm này trong cuộc sống hằng ngày nhé\."$/);
 assert.doesNotMatch(extractedDraftPrompt, /需求摘要|同步字幕|英文视频提示词/);
+assert.doesNotMatch(extractedDraftPrompt, /Subtitle:/);
 
 const onlinePanelSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-assistant-panel.tsx", import.meta.url), "utf8");
 const localPanelSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-local-agent-panel.tsx", import.meta.url), "utf8");
