@@ -11,6 +11,7 @@ export type ViewportTransform = {
 
 export enum CanvasNodeType {
     Image = "image",
+    Panorama = "panorama",
     Text = "text",
     Config = "config",
     Director = "director",
@@ -244,6 +245,9 @@ export type CanvasNodeMetadata = {
     /** Persisted scene graph from the enhanced 3D director test module. */
     directorProject?: unknown;
     directorReference?: boolean;
+    panoramaSourcePrompt?: string;
+    panoramaFinalPrompt?: string;
+    panoramaProjection?: "equirectangular" | "backdrop";
     selectedHookType?: string;
     excludedHookTypes?: string[];
     storyboardPlanId?: string;

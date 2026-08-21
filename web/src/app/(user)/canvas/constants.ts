@@ -1,5 +1,6 @@
 import { CanvasNodeType } from "./types";
 import type { CanvasNodeMetadata } from "./types";
+import { PANORAMA_IMAGE_SIZE, PANORAMA_NODE_SIZE } from "./utils/canvas-panorama";
 
 type CanvasNodeSpec = {
     width: number;
@@ -10,6 +11,7 @@ type CanvasNodeSpec = {
 
 export const NODE_DEFAULT_SIZE = {
     [CanvasNodeType.Image]: { width: 340, height: 240, title: "New Generation" },
+    [CanvasNodeType.Panorama]: { ...PANORAMA_NODE_SIZE, title: "全景图" },
     [CanvasNodeType.Text]: { width: 340, height: 240, title: "Note" },
     [CanvasNodeType.Config]: { width: 340, height: 240, title: "生成配置" },
     [CanvasNodeType.Director]: { width: 360, height: 240, title: "导演台" },
@@ -21,6 +23,10 @@ export const NODE_SPECS = {
     [CanvasNodeType.Image]: {
         ...NODE_DEFAULT_SIZE[CanvasNodeType.Image],
         metadata: { content: "", status: "idle" },
+    },
+    [CanvasNodeType.Panorama]: {
+        ...NODE_DEFAULT_SIZE[CanvasNodeType.Panorama],
+        metadata: { content: "", status: "idle", size: PANORAMA_IMAGE_SIZE, panoramaSourcePrompt: "" },
     },
     [CanvasNodeType.Text]: {
         ...NODE_DEFAULT_SIZE[CanvasNodeType.Text],

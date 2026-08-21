@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { AlertTriangle, Box, ChevronRight, Image as ImageIcon, Loader2, Music2, RefreshCw, Star, Video } from "lucide-react";
+import { AlertTriangle, Box, ChevronRight, Globe2, Image as ImageIcon, Loader2, Music2, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -11,6 +11,7 @@ import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textare
 import { CanvasNodeType, type CanvasNodeData, type Position } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 import { describeCanvasNodeError } from "../utils/node-error-display";
+import CanvasPanoramaViewer from "./canvas-panorama-viewer";
 
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 type PanelResizeEdge = "left" | "right" | "bottom" | "bottom-right";
@@ -150,7 +151,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [hovered, setHovered] = useState(false);
     const [isEditingContent, setIsEditingContent] = useState(false);
-    const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content || data.metadata?.storageKey);
+    const hasImageContent = (data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Panorama) && Boolean(data.metadata?.content || data.metadata?.storageKey);
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content || data.metadata?.storageKey);
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content || data.metadata?.storageKey);
     const isBatchRoot = data.type === CanvasNodeType.Image && Boolean(data.metadata?.isBatchRoot) && batchCount > 1;
@@ -497,7 +498,7 @@ function NodeContent(props: NodeContentRendererProps): React.ReactElement | null
         return <>{props.renderNodeContent(props.node) ?? null}</>;
     }
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
-    const hasVisibleImageResult = props.node.type === CanvasNodeType.Image && Boolean(props.node.metadata?.content);
+    const hasVisibleImageResult = (props.node.type === CanvasNodeType.Image || props.node.type === CanvasNodeType.Panorama) && Boolean(props.node.metadata?.content);
     if (props.node.metadata?.status === "loading" && !hasVisibleImageResult) return <LoadingContent theme={props.theme} label={props.node.metadata?.statusMessage} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
     if (!props.loadMedia && isMediaNode(props.node) && (props.node.metadata?.content || props.node.metadata?.storageKey)) return <MediaPreviewPlaceholder node={props.node} theme={props.theme} />;
@@ -517,12 +518,13 @@ function MediaPreviewPlaceholder({ node, theme }: Pick<NodeContentRendererProps,
 }
 
 function isMediaNode(node: CanvasNodeData) {
-    return node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio;
+    return node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Panorama || node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio;
 }
 
 const nodeContentRenderers = {
     [CanvasNodeType.Text]: TextContent,
     [CanvasNodeType.Image]: ImageNodeContent,
+    [CanvasNodeType.Panorama]: PanoramaNodeContent,
     [CanvasNodeType.Config]: EmptyImageContent,
     [CanvasNodeType.Director]: DirectorFallbackContent,
     [CanvasNodeType.Video]: VideoNodeContent,
@@ -710,6 +712,18 @@ function ImageNodeContent(props: NodeContentRendererProps) {
             onSetBatchPrimary={props.onSetBatchPrimary}
         />
     );
+}
+
+function PanoramaNodeContent({ node, theme }: NodeContentRendererProps) {
+    if (!node.metadata?.content) {
+        return (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
+                <Globe2 className="size-8 opacity-40" />
+                <span className="text-xs">填写提示词或上传 2:1 全景图</span>
+            </div>
+        );
+    }
+    return <CanvasPanoramaViewer src={node.metadata.content} alt={node.title || "全景图"} />;
 }
 
 function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batchOpening, batchRecovering, onToggleBatch }: NodeContentRendererProps) {

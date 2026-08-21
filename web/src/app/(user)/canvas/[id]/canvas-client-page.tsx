@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { AlertCircle, BookOpen, Bot, CheckCircle2, Clapperboard, Home, ImageIcon, Images, List, Loader2, Menu, Music2, Plus, Redo2, RotateCcw, Settings2, Trash2, Undo2, Upload, Video, XCircle } from "lucide-react";
+import { AlertCircle, BookOpen, Bot, CheckCircle2, Clapperboard, Globe2, Home, ImageIcon, Images, List, Loader2, Menu, Music2, Plus, Redo2, RotateCcw, Settings2, Trash2, Undo2, Upload, Video, XCircle } from "lucide-react";
 import { saveAs } from "file-saver";
 
 import { cancelCanvasImageJob, isTerminalCanvasImageJobError, requestEdit, requestGeneration, requestImageQuestion, resumeCanvasImageJob, supportsResumableImageJobs } from "@/services/api/image";
@@ -61,6 +61,7 @@ import {
 import { fitNodeSize, nodeSizeFromRatio } from "../utils/canvas-node-size";
 import { App, Button, Dropdown, Modal } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "../constants";
+import { PANORAMA_IMAGE_SIZE, PANORAMA_NODE_SIZE, buildPanoramaPrompt, isPanoramaNodeType } from "../utils/canvas-panorama";
 import { ActiveConnectionPath, ConnectionPath } from "../components/canvas-connections";
 import { CanvasConfigComposer } from "../components/canvas-config-composer";
 import { CanvasConfigNodePanel } from "../components/canvas-config-node-panel";
@@ -335,7 +336,7 @@ function ConnectionCreateMenu({
 }: {
     pending: PendingConnectionCreate;
     hasVideo: boolean;
-    onCreate: (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Config | CanvasNodeType.Director | CanvasNodeType.Video | CanvasNodeType.Audio) => void;
+    onCreate: (type: CanvasNodeType.Image | CanvasNodeType.Panorama | CanvasNodeType.Text | CanvasNodeType.Config | CanvasNodeType.Director | CanvasNodeType.Video | CanvasNodeType.Audio) => void;
     onClose: () => void;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -358,6 +359,7 @@ function ConnectionCreateMenu({
             <div className="grid gap-1">
                 <ConnectionCreateOption theme={theme} icon={<List className="size-5" />} title="文本生成" description="脚本、广告词、品牌文案" onClick={() => onCreate(CanvasNodeType.Text)} />
                 <ConnectionCreateOption theme={theme} icon={<ImageIcon className="size-5" />} title="图片生成" onClick={() => onCreate(CanvasNodeType.Image)} />
+                <ConnectionCreateOption theme={theme} icon={<Globe2 className="size-5" />} title="全景图" description="文生全景、图生全景" onClick={() => onCreate(CanvasNodeType.Panorama)} />
                 <ConnectionCreateOption theme={theme} icon={<Clapperboard className="size-5" />} title="导演台" description="机位、构图和参考帧" onClick={() => onCreate(CanvasNodeType.Director)} />
                 {hasVideo ? <ConnectionCreateOption theme={theme} icon={<Video className="size-5" />} title="视频生成" description="镜头、动作和成片" onClick={() => onCreate(CanvasNodeType.Video)} /> : null}
                 <ConnectionCreateOption theme={theme} icon={<Music2 className="size-5" />} title="音频参考" onClick={() => onCreate(CanvasNodeType.Audio)} />
@@ -1072,7 +1074,7 @@ function InfiniteCanvasPage() {
     );
 
     const createConnectedNode = useCallback(
-        (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Config | CanvasNodeType.Director | CanvasNodeType.Video | CanvasNodeType.Audio, pending: PendingConnectionCreate) => {
+        (type: CanvasNodeType.Image | CanvasNodeType.Panorama | CanvasNodeType.Text | CanvasNodeType.Config | CanvasNodeType.Director | CanvasNodeType.Video | CanvasNodeType.Audio, pending: PendingConnectionCreate) => {
             const metadata = type === CanvasNodeType.Config ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) } : undefined;
             const newNode = createCanvasNode(type, pending.position, metadata);
             const connection = normalizeConnection(pending.connection.nodeId, newNode.id, [...nodesRef.current, newNode], pending.connection.handleType);
@@ -1191,13 +1193,13 @@ function InfiniteCanvasPage() {
         connections.forEach((connection) => {
             const target = nodeById.get(connection.toNodeId);
             const source = nodeById.get(connection.fromNodeId);
-            if (target?.type !== CanvasNodeType.Director || source?.type !== CanvasNodeType.Image || !source.metadata?.content) return;
+            if (target?.type !== CanvasNodeType.Director || (source?.type !== CanvasNodeType.Image && source?.type !== CanvasNodeType.Panorama) || !source.metadata?.content) return;
             map.get(target.id)?.push({
                 edgeId: connection.id,
                 sourceNodeId: source.id,
                 imageUrl: source.metadata.content,
                 fileName: source.title || "画布图片.png",
-                projectionMode: "backdrop",
+                projectionMode: source.type === CanvasNodeType.Panorama ? "equirectangular" : "backdrop",
             });
         });
         return map;
@@ -2303,6 +2305,7 @@ function InfiniteCanvasPage() {
                           metadata: {
                               ...node.metadata,
                               prompt,
+                              ...(node.type === CanvasNodeType.Panorama ? { panoramaSourcePrompt: prompt, size: PANORAMA_IMAGE_SIZE } : {}),
                               promptSourceKind: sourceKind,
                               promptTemplateId: templateId,
                               ...(sourceKind === "user_typed" ? {} : machinePromptDraft(prompt, sourceKind, templateId)),
@@ -2319,7 +2322,7 @@ function InfiniteCanvasPage() {
 
     const downloadNodeImage = useCallback(
         (node: CanvasNodeData) => {
-            if ((node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio) || !node.metadata?.content) return;
+            if ((node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Panorama && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio) || !node.metadata?.content) return;
             if (node.metadata.telemetryGeneratedAt) track("node_downloaded", { canvasId: projectId });
             saveAs(node.metadata.content, `canvas-${node.type}-${node.id}.${node.type === CanvasNodeType.Video ? "mp4" : node.type === CanvasNodeType.Audio ? audioExtension(node.metadata.mimeType) : imageExtension(node.metadata.content)}`);
         },
@@ -2877,31 +2880,40 @@ function InfiniteCanvasPage() {
                 setNodes((prev) =>
                     prev.map((node) =>
                         node.id === target.nodeId
-                            ? {
-                                  ...node,
-                                  type: CanvasNodeType.Image,
-                                  title: file.name,
-                                  width: size.width,
-                                  height: size.height,
-                                  metadata: {
-                                      ...node.metadata,
-                                      ...imageMetadata(image),
-                                      errorDetails: undefined,
-                                      freeResize: false,
-                                      isBatchRoot: undefined,
-                                      batchRootId: undefined,
-                                      batchChildIds: undefined,
-                                      batchUsesReferenceImages: undefined,
-                                      generationType: undefined,
-                                      model: undefined,
-                                      size: undefined,
-                                      quality: undefined,
-                                      count: undefined,
-                                      references: undefined,
-                                      primaryImageId: undefined,
-                                      imageBatchExpanded: undefined,
-                                  },
-                              }
+                            ? (() => {
+                                  const isPanorama = node.type === CanvasNodeType.Panorama;
+                                  const nextSize = isPanorama ? NODE_DEFAULT_SIZE[CanvasNodeType.Panorama] : size;
+                                  return {
+                                      ...node,
+                                      type: isPanorama ? CanvasNodeType.Panorama : CanvasNodeType.Image,
+                                      title: file.name,
+                                      position: {
+                                          x: node.position.x + node.width / 2 - nextSize.width / 2,
+                                          y: node.position.y + node.height / 2 - nextSize.height / 2,
+                                      },
+                                      width: nextSize.width,
+                                      height: nextSize.height,
+                                      metadata: {
+                                          ...node.metadata,
+                                          ...imageMetadata(image),
+                                          panoramaProjection: isPanorama ? "equirectangular" : undefined,
+                                          errorDetails: undefined,
+                                          freeResize: false,
+                                          isBatchRoot: undefined,
+                                          batchRootId: undefined,
+                                          batchChildIds: undefined,
+                                          batchUsesReferenceImages: undefined,
+                                          generationType: undefined,
+                                          model: undefined,
+                                          size: undefined,
+                                          quality: undefined,
+                                          count: undefined,
+                                          references: undefined,
+                                          primaryImageId: undefined,
+                                          imageBatchExpanded: undefined,
+                                      },
+                                  };
+                              })()
                             : node,
                     ),
                 );
@@ -3900,7 +3912,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
                 return;
             }
-            const markSourceStatus = sourceNode?.type !== CanvasNodeType.Image && !editingTextNode;
+            const markSourceStatus = sourceNode?.type !== CanvasNodeType.Image && sourceNode?.type !== CanvasNodeType.Panorama && !editingTextNode;
             const statusPrompt = sourceNode?.type === CanvasNodeType.Config ? effectivePrompt : prompt;
             if (!effectivePrompt && (mode === "text" || mode === "audio")) {
                 track("generation", {
@@ -3964,7 +3976,8 @@ function InfiniteCanvasPage() {
                 if (mode === "image") {
                     const count = getGenerationCount(generationConfig.count);
                     const isConfigNode = sourceNode?.type === CanvasNodeType.Config;
-                    const isImageNode = sourceNode?.type === CanvasNodeType.Image;
+                    const isImageNode = sourceNode?.type === CanvasNodeType.Image || sourceNode?.type === CanvasNodeType.Panorama;
+                    const isPanoramaNode = sourceNode?.type === CanvasNodeType.Panorama;
                     const isEmptyImageNode = isImageNode && !sourceNode?.metadata?.content;
                     const sourceReference = sourceNodeReferenceImages(sourceNode || null);
                     const referenceImages = mergeReferenceImages(sourceReference, generationContext.referenceImages);
@@ -3979,12 +3992,16 @@ function InfiniteCanvasPage() {
                           });
                     const requestReferenceImages = fusionReferenceRoles?.orderedImages || referenceImages;
                     const persistedImagePrompt = fusionReferenceRoles?.prompt || effectivePrompt;
-                    let requestPrompt = hasDirectorBlueprintReference ? buildDirectorBlueprintImageEditPrompt(effectivePrompt) : buildIdentityPreservingImageEditPrompt(effectivePrompt, sourceReference.length > 0, requestReferenceImages);
+                    let requestPrompt = isPanoramaNode
+                        ? buildPanoramaPrompt(effectivePrompt, requestReferenceImages.length > 0)
+                        : hasDirectorBlueprintReference
+                          ? buildDirectorBlueprintImageEditPrompt(effectivePrompt)
+                          : buildIdentityPreservingImageEditPrompt(effectivePrompt, sourceReference.length > 0, requestReferenceImages);
                     let fusionPlacementPlan: CanvasFusionPlacementPlan | undefined;
                     const generationType = requestReferenceImages.length ? ("edit" as const) : ("generation" as const);
                     const generationMetadata = buildImageGenerationMetadata(generationType, generationConfig, count, requestReferenceImages);
-                    const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
-                    const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+                    const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isPanoramaNode ? CanvasNodeType.Panorama : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
+                    const imageConfig = isPanoramaNode ? PANORAMA_NODE_SIZE : NODE_DEFAULT_SIZE[CanvasNodeType.Image];
                     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
                     const gap = 96;
                     const rowGap = 36;
@@ -3996,7 +4013,7 @@ function InfiniteCanvasPage() {
                     pendingChildIds = isEmptyImageNode ? childIds : [rootId, ...childIds];
                     const rootNode: CanvasNodeData = {
                         id: rootId,
-                        type: CanvasNodeType.Image,
+                        type: isPanoramaNode ? CanvasNodeType.Panorama : CanvasNodeType.Image,
                         title: effectivePrompt.slice(0, 32) || "Generated Image",
                         position: {
                             x: isEmptyImageNode ? parentPosition.x : parentPosition.x + parentConfig.width + gap,
@@ -4014,12 +4031,13 @@ function InfiniteCanvasPage() {
                             batchChildIds: count > 1 ? childIds : undefined,
                             batchUsesReferenceImages: referenceImages.length > 0,
                             ...generationMetadata,
+                            ...(isPanoramaNode ? { size: PANORAMA_IMAGE_SIZE, panoramaSourcePrompt: effectivePrompt, panoramaFinalPrompt: requestPrompt } : {}),
                             imageBatchExpanded: count > 1 ? true : undefined,
                         },
                     };
                     const childNodes: CanvasNodeData[] = childIds.map((id, index) => ({
                         id,
-                        type: CanvasNodeType.Image,
+                        type: isPanoramaNode ? CanvasNodeType.Panorama : CanvasNodeType.Image,
                         title: effectivePrompt.slice(0, 32) || "Generated Image",
                         position: {
                             x: rootNode.position.x + rootNode.width + 120 + (index % 2) * (imageConfig.width + 36),
@@ -4035,6 +4053,7 @@ function InfiniteCanvasPage() {
                             statusMessage: initialImageStatusMessage,
                             batchRootId: count > 1 ? rootId : undefined,
                             ...generationMetadata,
+                            ...(isPanoramaNode ? { size: PANORAMA_IMAGE_SIZE, panoramaSourcePrompt: effectivePrompt, panoramaFinalPrompt: requestPrompt } : {}),
                         },
                     }));
                     const batchConnections = [...(isEmptyImageNode ? [] : [{ id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]), ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: rootId, toNodeId: childId }))];
@@ -4194,7 +4213,7 @@ function InfiniteCanvasPage() {
                                 ? await requestEdit(imageRequestConfig, targetRequestPrompt, requestReferenceImages, undefined, imageRequestOptions).then((items) => items[0])
                                 : await requestGeneration(imageRequestConfig, targetRequestPrompt, imageRequestOptions).then((items) => items[0]);
                             const uploaded = await uploadImage(image.dataUrl);
-                            const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
+                            const imageSize = isPanoramaNode ? PANORAMA_NODE_SIZE : fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
                             setNodes((prev) => {
                                 const root = prev.find((node) => node.id === rootId);
                                 return prev.map((node) => {
@@ -4211,8 +4230,10 @@ function InfiniteCanvasPage() {
                                                 ...imageMetadata(uploaded),
                                                 ...completedGenerationMetadata(provenance, persistedImagePrompt, node.id === nodeId ? attemptIndex : 1, mode, promptResolutionSnapshot),
                                                 primaryImageId: targetId,
+                                                ...(isPanoramaNode ? { size: PANORAMA_IMAGE_SIZE, panoramaProjection: "equirectangular" as const, panoramaFinalPrompt: requestPrompt } : {}),
                                                 statusMessage: undefined,
                                                 fusionPlacementPlanV1: fusionPlacementPlan,
+                                                ...(isPanoramaNode ? { size: PANORAMA_IMAGE_SIZE, panoramaProjection: "equirectangular" as const, panoramaFinalPrompt: requestPrompt } : {}),
                                             },
                                         };
                                     if (node.id === targetId)
@@ -5618,6 +5639,7 @@ function InfiniteCanvasPage() {
                     onAddText={() => createNode(CanvasNodeType.Text)}
                     onAddConfig={() => createNode(CanvasNodeType.Config)}
                     onAddDirector={() => createNode(CanvasNodeType.Director)}
+                    onAddPanorama={() => createNode(CanvasNodeType.Panorama)}
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
                     onUpload={() => handleUploadRequest()}
@@ -6202,7 +6224,7 @@ async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
                         directorLastSnapshot: await resolveImageUrl(node.metadata.directorLastSnapshotStorageKey, node.metadata.directorLastSnapshot),
                     },
                 };
-            if (node.type !== CanvasNodeType.Image || !content) return node;
+            if ((node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Panorama) || !content) return node;
             if (node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: undefined } };
             if (!content.startsWith("data:image/")) return node;
             return { ...node, metadata: { ...node.metadata, ...imageMetadata(await uploadImage(content)) } };
