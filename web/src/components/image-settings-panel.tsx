@@ -38,6 +38,7 @@ const aspectOptions: AspectOption[] = [
     nativeAspect("1:8", "portrait", true),
     nativeAspect("2:3", "portrait"),
     nativeAspect("3:2", "landscape"),
+    nativeAspect("2:1", "landscape"),
     nativeAspect("3:4", "portrait"),
     nativeAspect("4:1", "landscape", true),
     nativeAspect("4:3", "landscape"),
