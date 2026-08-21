@@ -241,6 +241,8 @@ export type CanvasNodeMetadata = {
     directorPrompt?: string;
     directorPresetId?: string;
     directorMode?: string;
+    /** Persisted scene graph from the enhanced 3D director test module. */
+    directorProject?: unknown;
     directorReference?: boolean;
     selectedHookType?: string;
     excludedHookTypes?: string[];

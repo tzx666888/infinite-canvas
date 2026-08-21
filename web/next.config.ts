@@ -27,7 +27,13 @@ export default function nextConfig(phase: string): NextConfig {
         async headers() {
             return [
                 {
-                    source: "/((?!_next/static|_next/image|api/prompts/image|favicon.ico|icon.png|apple-icon.png).*)",
+                    source: "/director/:path*",
+                    headers: [
+                        { key: "X-Frame-Options", value: "SAMEORIGIN" },
+                    ],
+                },
+                {
+                    source: "/((?!_next/static|_next/image|api/prompts/image|director|favicon.ico|icon.png|apple-icon.png).*)",
                     headers: [
                         { key: "Cache-Control", value: "no-store, no-cache, must-revalidate, proxy-revalidate" },
                         { key: "Pragma", value: "no-cache" },

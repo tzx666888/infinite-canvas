@@ -90,7 +90,7 @@ import { CanvasToolbar } from "../components/canvas-toolbar";
 import { AssetPickerModal, type InsertAssetPayload } from "../components/asset-picker-modal";
 import { CanvasZoomControls } from "../components/canvas-zoom-controls";
 import { CanvasDirectorNode, CanvasDirectorPanel } from "../components/director/canvas-director-node";
-import { DirectorStudioDialog } from "../components/director/director-studio-dialog";
+import { EnhancedDirectorDialog, type EnhancedDirectorPanorama } from "../components/director/enhanced-director-dialog";
 import type { DirectorSnapshotPayload } from "../components/director/director-types";
 import { useCanvasStore } from "../stores/use-canvas-store";
 import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
@@ -1183,6 +1183,32 @@ function InfiniteCanvasPage() {
     const superResolveNode = superResolveNodeId ? nodeById.get(superResolveNodeId) || null : null;
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
     const directorStudioNode = directorStudioNodeId ? nodeById.get(directorStudioNodeId) || null : null;
+    const enhancedDirectorPanoramasByNodeId = useMemo(() => {
+        const map = new Map<string, EnhancedDirectorPanorama[]>();
+        nodes.forEach((node) => {
+            if (node.type === CanvasNodeType.Director) map.set(node.id, []);
+        });
+        connections.forEach((connection) => {
+            const target = nodeById.get(connection.toNodeId);
+            const source = nodeById.get(connection.fromNodeId);
+            if (target?.type !== CanvasNodeType.Director || source?.type !== CanvasNodeType.Image || !source.metadata?.content) return;
+            map.get(target.id)?.push({
+                edgeId: connection.id,
+                sourceNodeId: source.id,
+                imageUrl: source.metadata.content,
+                fileName: source.title || "画布图片.png",
+                projectionMode: "backdrop",
+            });
+        });
+        return map;
+    }, [connections, nodeById, nodes]);
+
+    const handleEnhancedDirectorProjectChange = useCallback((project: unknown) => {
+        if (!directorStudioNodeId) return;
+        setNodes((prev) => prev.map((node) => node.id === directorStudioNodeId && node.type === CanvasNodeType.Director
+            ? { ...node, metadata: { ...node.metadata, directorProject: project } }
+            : node));
+    }, [directorStudioNodeId]);
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
     const pendingVideoSourceNode = pendingVideoGeneration ? nodeById.get(pendingVideoGeneration.nodeId) || pendingVideoGeneration.storyboardReviewSnapshot || null : null;
     const pendingVideoContext = useMemo(
@@ -5662,7 +5688,31 @@ function InfiniteCanvasPage() {
 
                 {angleNode?.metadata?.content ? <CanvasNodeAngleDialog dataUrl={angleNode.metadata.content} open={Boolean(angleNode)} onClose={() => setAngleNodeId(null)} onConfirm={(params) => void generateAngleNode(angleNode!, params)} /> : null}
 
-                {directorStudioNode ? <DirectorStudioDialog open={Boolean(directorStudioNode)} onClose={() => setDirectorStudioNodeId(null)} onSnapshot={(payload) => createDirectorSnapshotNodes(directorStudioNode, payload)} /> : null}
+                {directorStudioNode ? (
+                    <EnhancedDirectorDialog
+                        open={Boolean(directorStudioNode)}
+                        nodeId={directorStudioNode.id}
+                        project={directorStudioNode.metadata?.directorProject}
+                        panoramas={enhancedDirectorPanoramasByNodeId.get(directorStudioNode.id) || []}
+                        onClose={() => setDirectorStudioNodeId(null)}
+                        onProjectChange={handleEnhancedDirectorProjectChange}
+                        onCaptures={async (captures) => {
+                            for (const capture of captures) {
+                                await createDirectorSnapshotNodes(directorStudioNode, {
+                                    dataUrl: capture.dataUrl,
+                                    prompt: "增强导演台场景截图：保留镜头、人物摆位、动作和空间关系。",
+                                    presetId: "front",
+                                    presetLabel: "增强导演台",
+                                    mode: "universal",
+                                    shotSize: "medium shot",
+                                    horizontal: 0,
+                                    vertical: 0,
+                                });
+                            }
+                            setDirectorStudioNodeId(null);
+                        }}
+                    />
+                ) : null}
 
                 <Modal
                     title="图片详情"
