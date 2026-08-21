@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { App, Button, Input, InputNumber, Modal, Switch, Table, Tag } from "antd";
-import { BadgeDollarSign, Pencil, Plus, RefreshCw, Users } from "lucide-react";
+import { App, Button, Input, InputNumber, Modal, Select, Switch, Table, Tag } from "antd";
+import { BadgeDollarSign, Copy, Link2, Pencil, Plus, RefreshCw, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import type { BillingPriceRule, BillingProfile } from "@/lib/auth/types";
-import { createBillingProfile, fetchBillingProfiles, updateBillingProfile } from "@/services/api/auth";
+import { createBillingProfile, createInvitation, fetchBillingProfiles, updateBillingProfile } from "@/services/api/auth";
 import { useUserStore } from "@/stores/use-user-store";
 
 type Draft = { id?: string; name: string; rules: BillingPriceRule[]; active: boolean };
+type InviteDraft = { label: string; maxUses: number; expiresInDays: number; billingProfileId?: string };
 const unitLabels = { request: "次", image: "张", second: "秒" } as const;
 
 export default function DistributorBillingPage() {
@@ -21,6 +22,9 @@ export default function DistributorBillingPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [draft, setDraft] = useState<Draft | null>(null);
+    const [inviteDraft, setInviteDraft] = useState<InviteDraft | null>(null);
+    const [createdInviteLink, setCreatedInviteLink] = useState("");
+    const [inviting, setInviting] = useState(false);
     const canOpen = user?.role === "root" || user?.role === "admin";
 
     const load = useCallback(async () => {
@@ -66,6 +70,22 @@ export default function DistributorBillingPage() {
         }
     };
 
+    const createInviteLink = async () => {
+        if (!inviteDraft) return;
+        setInviting(true);
+        try {
+            const result = await createInvitation(inviteDraft);
+            const link = `${window.location.origin}/login?mode=register&invite=${encodeURIComponent(result.code)}`;
+            setCreatedInviteLink(link);
+            setInviteDraft(null);
+            message.success("邀请链接已生成");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "创建邀请链接失败");
+        } finally {
+            setInviting(false);
+        }
+    };
+
     if (!isReady || !canOpen) return null;
     return (
         <main className="h-full overflow-y-auto bg-background px-4 py-7 sm:px-8">
@@ -84,9 +104,14 @@ export default function DistributorBillingPage() {
                             刷新
                         </Button>
                         {user.role === "admin" ? (
-                            <Button type="primary" icon={<Plus className="size-4" />} onClick={() => void openNew()}>
-                                新建计费方案
-                            </Button>
+                            <>
+                                <Button icon={<Link2 className="size-4" />} onClick={() => setInviteDraft({ label: "", maxUses: 1, expiresInDays: 7, billingProfileId: profiles.find((profile) => profile.active)?.id })}>
+                                    创建邀请链接
+                                </Button>
+                                <Button type="primary" icon={<Plus className="size-4" />} onClick={() => void openNew()}>
+                                    新建计费方案
+                                </Button>
+                            </>
                         ) : null}
                     </div>
                 </div>
@@ -201,6 +226,53 @@ export default function DistributorBillingPage() {
                         <p className="mt-3 text-xs leading-5 text-stone-500">售价不能低于平台成本。客户生成成功后才结算溢价；失败退回客户全额积分，不产生分销收益。</p>
                     </div>
                 ) : null}
+            </Modal>
+
+            <Modal open={Boolean(inviteDraft)} title="创建邀请链接" okText="生成链接" cancelText="取消" confirmLoading={inviting} onOk={() => void createInviteLink()} onCancel={() => setInviteDraft(null)}>
+                {inviteDraft ? (
+                    <div className="space-y-4 pt-3">
+                        <label className="block text-sm font-medium">
+                            邀请备注
+                            <Input className="mt-2" value={inviteDraft.label} maxLength={80} placeholder="例如：客户 A / 代理团队" onChange={(event) => setInviteDraft({ ...inviteDraft, label: event.target.value })} />
+                        </label>
+                        <label className="block text-sm font-medium">
+                            计费方案
+                            <Select
+                                className="mt-2 w-full"
+                                value={inviteDraft.billingProfileId}
+                                options={profiles.filter((profile) => profile.active).map((profile) => ({ value: profile.id, label: profile.name }))}
+                                onChange={(billingProfileId) => setInviteDraft({ ...inviteDraft, billingProfileId })}
+                            />
+                        </label>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <label className="block text-sm font-medium">
+                                可用次数
+                                <InputNumber className="mt-2 !w-full" min={1} max={100} value={inviteDraft.maxUses} onChange={(value) => setInviteDraft({ ...inviteDraft, maxUses: Number(value || 1) })} />
+                            </label>
+                            <label className="block text-sm font-medium">
+                                有效天数
+                                <InputNumber className="mt-2 !w-full" min={1} max={90} value={inviteDraft.expiresInDays} onChange={(value) => setInviteDraft({ ...inviteDraft, expiresInDays: Number(value || 7) })} />
+                            </label>
+                        </div>
+                    </div>
+                ) : null}
+            </Modal>
+
+            <Modal
+                open={Boolean(createdInviteLink)}
+                title="邀请链接已生成"
+                footer={
+                    <Button type="primary" onClick={() => setCreatedInviteLink("")}>
+                        完成
+                    </Button>
+                }
+                onCancel={() => setCreatedInviteLink("")}
+            >
+                <p className="mb-3 text-sm leading-6 text-stone-500">把这个链接发给客户，打开后会自动进入邀请码注册并绑定当前计费方案。</p>
+                <div className="flex items-start gap-2 rounded-lg border border-stone-200 bg-stone-50 p-3 text-sm dark:border-stone-700 dark:bg-stone-900">
+                    <span className="min-w-0 flex-1 break-all">{createdInviteLink}</span>
+                    <Button type="text" icon={<Copy className="size-4" />} aria-label="复制邀请链接" onClick={() => void navigator.clipboard.writeText(createdInviteLink).then(() => message.success("邀请链接已复制"))} />
+                </div>
             </Modal>
         </main>
     );

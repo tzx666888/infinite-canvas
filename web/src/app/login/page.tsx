@@ -25,7 +25,8 @@ export default function LoginPage() {
     const hydrateUser = useUserStore((state) => state.hydrateUser);
     const login = useUserStore((state) => state.login);
     const register = useUserStore((state) => state.register);
-    const [mode, setMode] = useState<"login" | "register">("login");
+    const inviteFromLink = searchParams.get("invite") || "";
+    const [mode, setMode] = useState<"login" | "register">(() => (searchParams.get("mode") === "register" || inviteFromLink ? "register" : "login"));
     const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
     const redirect = useMemo(() => safeRedirect(searchParams.get("redirect")), [searchParams]);
 
@@ -71,7 +72,7 @@ export default function LoginPage() {
                     <p className="mt-3 text-sm leading-6 text-stone-500 dark:text-stone-400">使用站内账号登录；新账号仅通过邀请码开通。</p>
                 </div>
 
-                <Form<FormValues> layout="vertical" size="large" requiredMark={false} onFinish={submit}>
+                <Form<FormValues> layout="vertical" size="large" requiredMark={false} initialValues={{ inviteCode: inviteFromLink }} onFinish={submit}>
                     <Form.Item>
                         <Segmented
                             block

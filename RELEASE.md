@@ -1,4 +1,10 @@
-# Infinite Canvas v3.0.117
+# Infinite Canvas v3.0.119
+
+## v3.0.119 本次发布
+
+- 分销中心增加可直接生成邀请注册链接的操作，链接自动绑定分销计费方案。
+- 保留回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.118`。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.119`。
 
 ## v3.0.117 本次发布
 
