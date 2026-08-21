@@ -9,6 +9,7 @@ services:
       - /opt/infinite-canvas-secrets/canvas-payment.env
     environment:
       PORT: "3100"
+      HOSTNAME: "127.0.0.1"
       TOKAXIS_INTERNAL_ORIGIN: "http://127.0.0.1:3000"
       PROMPT_CACHE_DIR: "/app/data/prompt-cache"
       TELEMETRY_DIR: "/app/data/telemetry"

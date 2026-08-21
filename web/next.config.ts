@@ -16,6 +16,7 @@ export default function nextConfig(phase: string): NextConfig {
 
     return {
         output: "standalone",
+        poweredByHeader: false,
         serverExternalPackages: ["better-sqlite3"],
         allowedDevOrigins: isDev ? ["*.*.*.*"] : [],
         env: {
@@ -31,6 +32,10 @@ export default function nextConfig(phase: string): NextConfig {
                         { key: "Cache-Control", value: "no-store, no-cache, must-revalidate, proxy-revalidate" },
                         { key: "Pragma", value: "no-cache" },
                         { key: "Expires", value: "0" },
+                        { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+                        { key: "X-Content-Type-Options", value: "nosniff" },
+                        { key: "X-Frame-Options", value: "DENY" },
+                        { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
                     ],
                 },
             ];

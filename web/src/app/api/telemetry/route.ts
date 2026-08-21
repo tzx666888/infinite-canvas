@@ -1,6 +1,8 @@
-import { appendFile, chmod, mkdir } from "node:fs/promises";
+import { appendFile, chmod, mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { enforceRateLimit, requestAddress } from "@/lib/auth/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +10,7 @@ export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_BATCH_SIZE = 50;
 const MAX_EVENT_BYTES = 16 * 1024;
+const MAX_DAILY_FILE_BYTES = 32 * 1024 * 1024;
 const EVENT_TYPES = new Set([
     "agent_turn",
     "generation",
@@ -49,6 +52,7 @@ let appendChain: Promise<void> = Promise.resolve();
 export async function POST(request: Request) {
     try {
         if (!telemetryEnabled()) return ok();
+        enforceRateLimit(`telemetry:${requestAddress(request)}`, 120, 60 * 1000);
         const contentLength = Number(request.headers.get("content-length") || 0);
         if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) return ok();
         const text = await readLimitedBody(request);
@@ -145,6 +149,8 @@ function enqueueAppend(directory: string, file: string, content: string) {
     appendChain = appendChain
         .then(async () => {
             await mkdir(directory, { recursive: true, mode: 0o700 });
+            const existing = await stat(file).catch(() => null);
+            if (existing && existing.size + Buffer.byteLength(content, "utf8") > MAX_DAILY_FILE_BYTES) return;
             await appendFile(file, content, { encoding: "utf8", flag: "a", mode: 0o600 });
             await chmod(file, 0o600);
         })

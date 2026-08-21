@@ -1,4 +1,14 @@
-# Infinite Canvas v3.0.121
+# Infinite Canvas v3.122.0
+
+## v3.122.0 本次发布
+
+- 修复 WebDAV 代理未鉴权 SSRF/开放代理漏洞，同时保留登录用户的画布 WebDAV 同步。
+- 修复图片封面代理的重定向 SSRF 风险；Telemetry 增加匿名限流和每日文件容量上限。
+- 修复限流地址优先级，移除 Next.js 标识并补充 HSTS、nosniff、防嵌套和 Referrer-Policy。
+- 生产应用绑定 `127.0.0.1:3100`，运行镜像改为非 root 用户；中转站服务不变。
+- 后续常规发布版本使用 `3.123.0`、`3.124.0` 这类中间版本递增格式。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.122.0`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.121`。
 
 ## v3.0.121 本次发布
 

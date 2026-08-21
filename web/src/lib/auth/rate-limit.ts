@@ -1,4 +1,5 @@
 import { AuthError } from "@/lib/auth/auth-error";
+import { isIP } from "node:net";
 
 type AttemptWindow = { count: number; resetAt: number };
 
@@ -8,7 +9,12 @@ const MAX_TRACKED_WINDOWS = 5_000;
 let lastCleanupAt = 0;
 
 export function requestAddress(request: Request) {
-    return request.headers.get("x-real-ip")?.trim() || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const candidates = [request.headers.get("cf-connecting-ip"), request.headers.get("x-real-ip"), request.headers.get("x-forwarded-for")?.split(",")[0]];
+    for (const candidate of candidates) {
+        const value = candidate?.trim() || "";
+        if (value && isIP(value)) return value;
+    }
+    return "unknown";
 }
 
 export function enforceRateLimit(key: string, limit = 8, windowMs = 10 * 60 * 1000) {

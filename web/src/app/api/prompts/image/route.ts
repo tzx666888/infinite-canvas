@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 import type { NextRequest } from "next/server";
 
+import { assertSafeHttpUrl, fetchWithSafeRedirects } from "@/lib/security/safe-url";
+
 export const runtime = "nodejs";
 
 const cacheRoot = process.env.PROMPT_CACHE_DIR || join(tmpdir(), "infinite-canvas-prompt-cache");
@@ -48,9 +50,9 @@ export async function GET(request: NextRequest) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
     try {
-        const response = await fetch(sourceUrl, {
+        await assertSafeHttpUrl(sourceUrl);
+        const response = await fetchWithSafeRedirects(sourceUrl, {
             cache: "no-store",
-            redirect: "follow",
             signal: controller.signal,
             headers: {
                 accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",

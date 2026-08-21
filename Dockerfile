@@ -27,7 +27,13 @@ COPY --from=web-build /app/web/.next/static /app/web/.next/static
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3100
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system --gid 10001 canvas \
+    && adduser --system --uid 10001 --ingroup canvas canvas \
+    && chown -R canvas:canvas /app
 
 EXPOSE 3100
+USER canvas
 CMD ["sh", "-c", "cd /app/web && exec node server.js"]
