@@ -49,14 +49,15 @@ export function EnhancedDirectorDialog({
     }, [panoramas]);
 
     const postToDirector = useCallback((type: string, payload: unknown) => {
-        iframeRef.current?.contentWindow?.postMessage({ type, payload }, window.location.origin);
+        iframeRef.current?.contentWindow?.postMessage({ type, payload }, "*");
     }, []);
 
     useEffect(() => {
         if (!open) return;
 
         const handleMessage = (event: MessageEvent) => {
-            if (event.origin !== window.location.origin || event.source !== iframeRef.current?.contentWindow) return;
+            const allowedOrigin = event.origin === window.location.origin || event.origin === "null";
+            if (!allowedOrigin || event.source !== iframeRef.current?.contentWindow) return;
             const type = event.data?.type;
             if (type === "storyai:director-ready") {
                 setReady(true);
@@ -127,7 +128,13 @@ export function EnhancedDirectorDialog({
     if (!open) return null;
     return (
         <div className="fixed inset-0 z-[2100] bg-black/80">
-            <iframe ref={iframeRef} title="增强 3D 导演台" src="/director/index.html" className="block h-full w-full border-0" />
+            <iframe
+                ref={iframeRef}
+                title="增强 3D 导演台"
+                src="/director/index.html"
+                sandbox="allow-scripts allow-downloads allow-pointer-lock"
+                className="block h-full w-full border-0"
+            />
         </div>
     );
 }

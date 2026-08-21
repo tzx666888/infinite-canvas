@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { App, Button, Input, Tag } from "antd";
 import { Copy, Download, Edit3, Play, Plus, Send, Sparkles, Trash2 } from "lucide-react";
+import localforage from "localforage";
 import { useRouter } from "next/navigation";
 
 import { requestGeneration } from "@/services/api/image";
@@ -22,8 +23,8 @@ type CreativeWorkflow = {
 };
 type WorkflowResult = { id: string; prompt: string; dataUrl: string; createdAt: number };
 
-const STORAGE_KEY = "infinite-canvas:creative-workflows:test-v1";
-const RESULT_KEY = "infinite-canvas:creative-workflow-results:test-v1";
+const workflowStore = localforage.createInstance({ name: "infinite-canvas", storeName: "creative_workflows" });
+const resultStore = localforage.createInstance({ name: "infinite-canvas", storeName: "creative_workflow_results" });
 
 const STARTERS: CreativeWorkflow[] = [
     {
@@ -67,28 +68,39 @@ export function CreativeWorkflowWorkspace() {
     const [draft, setDraft] = useState<CreativeWorkflow>(STARTERS[0]);
     const [results, setResults] = useState<WorkflowResult[]>([]);
     const [running, setRunning] = useState(false);
+    const [hydrated, setHydrated] = useState(false);
     useEffect(() => {
+        let cancelled = false;
         try {
-            const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-            if (Array.isArray(stored) && stored.length) {
-                setWorkflows(stored);
-                setSelectedId(stored[0].id);
-                setDraft(stored[0]);
-            }
-            const storedResults = JSON.parse(localStorage.getItem(RESULT_KEY) || "[]");
-            if (Array.isArray(storedResults)) setResults(storedResults);
+            void Promise.all([workflowStore.getItem<CreativeWorkflow[]>("definitions"), resultStore.getItem<WorkflowResult[]>("results")]).then(([stored, storedResults]) => {
+                if (cancelled) return;
+                if (Array.isArray(stored) && stored.length) {
+                    setWorkflows(stored);
+                    setSelectedId(stored[0].id);
+                    setDraft(stored[0]);
+                }
+                if (Array.isArray(storedResults)) setResults(storedResults);
+                setHydrated(true);
+            }).catch(() => {
+                if (!cancelled) setHydrated(true);
+            });
         } catch {
             // 本地测试数据损坏时回到内置模板。
         }
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     useEffect(() => {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(workflows));
-    }, [workflows]);
+        if (!hydrated) return;
+        void workflowStore.setItem("definitions", workflows);
+    }, [hydrated, workflows]);
 
     useEffect(() => {
-        localStorage.setItem(RESULT_KEY, JSON.stringify(results.slice(0, 24)));
-    }, [results]);
+        if (!hydrated) return;
+        void resultStore.setItem("results", results.slice(0, 24));
+    }, [hydrated, results]);
 
     const selectWorkflow = (workflow: CreativeWorkflow) => {
         setSelectedId(workflow.id);

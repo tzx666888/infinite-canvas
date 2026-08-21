@@ -1,4 +1,14 @@
-# Infinite Canvas v3.124.0
+# Infinite Canvas v3.127.0
+
+## v3.127.0 本次发布
+
+- 接入增强 3D 导演台、全景图节点和 2:1 全景图尺寸选项。
+- 新增创作工作流页面，支持模板、变量、结果保存和发送到画布。
+- 导演台 iframe 增加脚本沙箱、固定 iframe 来源校验和安全消息通道；不授予同源存储权限。
+- 创作工作流改用 IndexedDB 保存业务数据。
+- 发布前已完成 TypeScript 检查和 Next.js 生产构建；依赖审计工具在当前环境不可用，未将其结果冒充为通过。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.127.0`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.124.0`；保留旧镜像和旧 Compose 配置后再切换。
 
 ## v3.124.0 本次发布
 
