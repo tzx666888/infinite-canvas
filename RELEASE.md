@@ -1,4 +1,12 @@
-# Infinite Canvas v3.122.0
+# Infinite Canvas v3.123.0
+
+## v3.123.0 本次发布
+
+- MiniMaxH3-720p 调整为 2.5 积分/秒，MiniMaxH3-2k 调整为 3 积分/秒。
+- 按秒视频计费保留小数积分，覆盖预扣、失败退款和分销结算；请求与图片计费继续按原规则取整。
+- 生产模型价格纳入版本化 Compose，避免仓库与线上配置漂移；中转站服务不变。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.123.0`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.122.0`。
 
 ## v3.122.0 本次发布
 

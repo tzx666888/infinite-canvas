@@ -266,7 +266,7 @@ try {
         body: JSON.stringify({ model: "Seedance 2.0-fast-720p", prompt: "distributed video", duration: 10 }),
     });
     assert.equal(distributedVideo.body.id, "task_distributor_video");
-    assert.equal((await wallet(origin, distributorCustomerCookie)).credits, customerBeforeVideo - 8, "video retail billing must round the complete order up to whole credits");
+    assert.equal((await wallet(origin, distributorCustomerCookie)).credits, customerBeforeVideo - 7.5, "per-second video billing must preserve fractional credits");
     assert.equal((await wallet(origin, memberCookie)).credits, adminBeforeVideoSettlement, "async video markup must wait for final success");
     const distributedVideoPoll = await requestJson(`${origin}/api/gateway/v1/videos/generations/task_distributor_video`, { headers: { Authorization: `Bearer ${distributorCustomerKey.body.key}` } });
     assert.equal(distributedVideoPoll.body.status, "completed");
@@ -402,7 +402,7 @@ try {
         body: JSON.stringify({ model: "Seedance 2.0-fast-720p", prompt: "compatibility video", duration: 5 }),
     });
     assert.equal(compatibilityVideo.response.status, 200, JSON.stringify(compatibilityVideo.body));
-    assert.equal((await wallet(origin, cookie)).credits, beforeCompatibilityVideo.credits - 3, "a compatibility video task must stay reserved after submission");
+    assert.equal((await wallet(origin, cookie)).credits, beforeCompatibilityVideo.credits - 2.5, "a compatibility video task must preserve fractional credits while reserved");
     const compatibilityVideoPoll = await requestJson(`${origin}/api/gateway/v1/contents/generations/tasks/task_compatibility_video`, { headers: { Authorization: `Bearer ${activeCanvasKey}` } });
     assert.equal(compatibilityVideoPoll.response.status, 200);
     assert.equal(compatibilityVideoPoll.body.status, "failed");

@@ -938,7 +938,7 @@ export function reserveCredits(input: {
     reuseWindowMs?: number;
     remark?: string;
 }): CreditReservation {
-    const requestedAmount = Math.max(0, Math.ceil(input.amount));
+    const requestedAmount = normalizedCreditAmount(input.amount);
     return withImmediateTransaction((database) => {
         const existing = database.prepare("SELECT * FROM billing_transactions WHERE request_id = ?").get(input.requestId);
         if (existing) {
@@ -955,8 +955,8 @@ export function reserveCredits(input: {
             return { requestId: String(existing.request_id), amount: Number(existing.amount), status: existing.status as CreditReservation["status"] };
         }
         let amount = requestedAmount;
-        let baseAmount = Math.max(0, Math.ceil(input.baseAmount ?? amount));
-        let commissionAmount = Math.max(0, Math.floor(input.commissionAmount ?? amount - baseAmount));
+        let baseAmount = normalizedCreditAmount(input.baseAmount ?? amount);
+        let commissionAmount = normalizedCreditAmount(input.commissionAmount ?? amount - baseAmount);
         const reuseWindowMs = Math.max(0, Math.floor(input.reuseWindowMs || 0));
         if (amount && reuseWindowMs && input.upstreamPath) {
             const since = new Date(Date.now() - reuseWindowMs).toISOString();
@@ -1005,6 +1005,10 @@ export function reserveCredits(input: {
         if (amount) insertLedger(database, { userId: input.userId, type: "consume", amount: -amount, balanceAfter: balance, requestId: input.requestId, model: input.model, units: input.units, remark: input.remark?.trim() || `${input.model} 生成预扣` });
         return { requestId: input.requestId, amount, status: "reserved" };
     });
+}
+
+function normalizedCreditAmount(value: number) {
+    return Math.max(0, Number((Number(value) || 0).toFixed(6)));
 }
 
 export function settleCredits(requestId: string, upstreamTaskId?: string, upstreamPath?: string) {

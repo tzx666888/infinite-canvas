@@ -29,8 +29,8 @@ export async function reserveGatewayRequest(request: NextRequest, path: string, 
     const units = rule.unit === "second" ? usage.seconds : rule.unit === "image" ? usage.images : 1;
     const priced = resolveCustomerPrice({ userId: identity.userId, model: usage.model, baseCredits: rule.credits, unit: rule.unit });
     const billableUnits = Math.max(1, units);
-    const baseAmount = Math.max(1, Math.ceil(priced.baseCredits * billableUnits));
-    const amount = Math.max(baseAmount, Math.ceil(priced.retailCredits * billableUnits));
+    const baseAmount = billedAmount(priced.baseCredits, billableUnits, rule.unit);
+    const amount = Math.max(baseAmount, billedAmount(priced.retailCredits, billableUnits, rule.unit));
     const requestId = requestIdOverride?.trim().slice(0, 100) || request.headers.get("x-canvas-request-id")?.trim().slice(0, 100) || randomUUID();
     const agentWindowMs = path === "v1/responses" && rule.unit === "request" ? agentBillingWindowMs() : 0;
     const agentWindowMinutes = Math.max(1, Math.round(agentWindowMs / 60_000));
@@ -53,6 +53,11 @@ export async function reserveGatewayRequest(request: NextRequest, path: string, 
         remark: agentWindowMs ? `${usage.model} Agent 对话计费（${agentWindowMinutes} 分钟内仅计一次）` : undefined,
     });
     return { requestId, path, model: usage.model, amount: reservation.amount };
+}
+
+function billedAmount(rate: number, units: number, unit: PriceUnit) {
+    const precise = Number((rate * units).toFixed(6));
+    return unit === "second" ? Math.max(0, precise) : Math.max(1, Math.ceil(precise));
 }
 
 export async function finalizeGatewayResponse(response: Response, reservation: GatewayReservation | null) {

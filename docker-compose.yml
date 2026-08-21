@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/tzx666888/infinite-canvas:v3.0.102
+    image: ghcr.io/tzx666888/infinite-canvas:v3.123.0
     container_name: infinite-canvas
     network_mode: host
     env_file:
@@ -18,6 +18,7 @@ services:
       AUTH_DATA_DIR: "/app/data/auth"
       CANVAS_AGENT_BILLING_WINDOW_SECONDS: "600"
       CANVAS_PUBLIC_ORIGIN: "https://gptimg.tokaxis.com"
+      CANVAS_MODEL_PRICES_JSON: '{"gpt-image-2":{"credits":2,"unit":"image"},"gemini-3.1-flash-image-4k":{"credits":2,"unit":"image"},"omni":{"credits":1,"unit":"second"},"omni_portrait":{"credits":1,"unit":"second"},"gpt-5.6-sol":{"credits":1,"unit":"request"},"gpt-5.5":{"credits":1,"unit":"request"},"gpt-5.4":{"credits":1,"unit":"request"},"gpt-5.4-mini":{"credits":1,"unit":"request"},"gpt-4o-mini-tts":{"credits":1,"unit":"request"},"tts-1":{"credits":1,"unit":"request"},"doubao-seed-2-1-pro-260628":{"credits":1,"unit":"request"},"deepseek-v4-pro-ga-260813":{"credits":1,"unit":"request"},"MiniMaxH3-720p":{"credits":2.5,"unit":"second"},"MiniMaxH3-2k":{"credits":3,"unit":"second"}}'
     volumes:
       - /opt/infinite-canvas-data/prompt-cache:/app/data/prompt-cache
       - /opt/infinite-canvas-data/telemetry:/app/data/telemetry
