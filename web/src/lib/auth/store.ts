@@ -3,7 +3,22 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { AuthError } from "./auth-error.ts";
 import { canvasDatabase, withImmediateTransaction, type CanvasDatabase } from "./database.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
-import type { AuthUser, BillingPriceRule, BillingProfile, BillingUnit, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserDetails, ManagedUserPaymentOrder, ManagedUserSummary, PaymentOrderSummary } from "./types.ts";
+import type {
+    AdminDistributorOverview,
+    AdminInviteOverview,
+    AdminOverview,
+    AuthUser,
+    BillingPriceRule,
+    BillingProfile,
+    BillingUnit,
+    CanvasApiKeySummary,
+    CreditLedgerEntry,
+    InviteSummary,
+    ManagedUserDetails,
+    ManagedUserPaymentOrder,
+    ManagedUserSummary,
+    PaymentOrderSummary,
+} from "./types.ts";
 
 type AccountRow = Record<string, unknown>;
 type ApiKeyIdentity = { keyId: string; user: AuthUser };
@@ -527,6 +542,103 @@ export async function listManagedUsers(input: { rootUserId: string; query?: stri
         )
         .all();
     return rows.map(toManagedUserSummary).filter((user) => !query || user.username.toLocaleLowerCase().includes(query) || user.displayName.toLocaleLowerCase().includes(query));
+}
+
+export function getAdminOverview(rootUserId: string): AdminOverview {
+    const database = canvasDatabase();
+    requireRoot(database, rootUserId);
+    const accountStats = database
+        .prepare(
+            `SELECT COUNT(*) AS account_count,
+                    COUNT(CASE WHEN status = 'active' THEN 1 END) AS active_account_count,
+                    COUNT(CASE WHEN is_distributor = 1 THEN 1 END) AS distributor_count,
+                    COALESCE(SUM(credits), 0) AS current_credits
+             FROM accounts`,
+        )
+        .get()!;
+    const ledgerStats = database
+        .prepare(
+            `SELECT
+                COALESCE(SUM(CASE WHEN type = 'consume' AND amount < 0 THEN -amount ELSE 0 END), 0) AS consumed_credits,
+                COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS added_credits,
+                COALESCE(SUM(CASE WHEN type = 'commission' AND amount > 0 THEN amount ELSE 0 END), 0) AS commission_credits
+             FROM credit_ledger`,
+        )
+        .get()!;
+    const paymentStats = database
+        .prepare(
+            `SELECT COUNT(*) AS order_count,
+                    COALESCE(SUM(amount_cents), 0) AS amount_cents,
+                    COALESCE(SUM(credits), 0) AS credits
+             FROM payment_orders
+             WHERE status = 'paid'`,
+        )
+        .get()!;
+    const inviteStats = database.prepare("SELECT COUNT(*) AS invite_count, COALESCE(SUM(used_count), 0) AS used_invite_count FROM invites").get()!;
+    const distributedCustomerCount = database.prepare("SELECT COUNT(*) AS count FROM accounts WHERE owner_admin_id IS NOT NULL").get()!;
+    const distributors = database
+        .prepare(
+            `SELECT a.id, a.username, a.display_name, a.status,
+                    (SELECT COUNT(*) FROM invites i WHERE i.created_by = a.id) AS invite_count,
+                    (SELECT COALESCE(SUM(i.used_count), 0) FROM invites i WHERE i.created_by = a.id) AS used_invite_count,
+                    (SELECT COUNT(*) FROM accounts child WHERE child.owner_admin_id = a.id) AS customer_count,
+                    (SELECT COALESCE(SUM(child.credits), 0) FROM accounts child WHERE child.owner_admin_id = a.id) AS customer_credits,
+                    (SELECT COALESCE(SUM(CASE WHEN l.type = 'consume' AND l.amount < 0 THEN -l.amount ELSE 0 END), 0)
+                       FROM credit_ledger l WHERE l.user_id IN (SELECT child.id FROM accounts child WHERE child.owner_admin_id = a.id)) AS customer_consumed_credits,
+                    (SELECT COALESCE(SUM(po.credits), 0) FROM payment_orders po
+                       WHERE po.status = 'paid' AND po.user_id IN (SELECT child.id FROM accounts child WHERE child.owner_admin_id = a.id)) AS customer_recharge_credits,
+                    (SELECT COALESCE(SUM(po.amount_cents), 0) FROM payment_orders po
+                       WHERE po.status = 'paid' AND po.user_id IN (SELECT child.id FROM accounts child WHERE child.owner_admin_id = a.id)) AS customer_recharge_amount_cents,
+                    (SELECT COALESCE(SUM(CASE WHEN l.type = 'commission' AND l.amount > 0 THEN l.amount ELSE 0 END), 0)
+                       FROM credit_ledger l WHERE l.user_id = a.id) AS commission_credits
+             FROM accounts a
+             WHERE a.is_distributor = 1
+             ORDER BY customer_count DESC, a.created_at ASC`,
+        )
+        .all()
+        .map((row): AdminDistributorOverview => ({
+            id: String(row.id),
+            username: String(row.username),
+            displayName: String(row.display_name),
+            status: row.status === "disabled" ? "disabled" : "active",
+            inviteCount: Number(row.invite_count || 0),
+            usedInviteCount: Number(row.used_invite_count || 0),
+            customerCount: Number(row.customer_count || 0),
+            customerCredits: Number(row.customer_credits || 0),
+            customerConsumedCredits: Number(row.customer_consumed_credits || 0),
+            customerRechargeCredits: Number(row.customer_recharge_credits || 0),
+            customerRechargeAmountYuan: Number(row.customer_recharge_amount_cents || 0) / 100,
+            commissionCredits: Number(row.commission_credits || 0),
+        }));
+    const invites = database
+        .prepare(
+            `SELECT i.*, a.username AS created_by_username, p.name AS billing_profile_name,
+                    i.used_count AS registered_count
+             FROM invites i JOIN accounts a ON a.id = i.created_by
+             LEFT JOIN billing_profiles p ON p.id = i.billing_profile_id
+             ORDER BY i.created_at DESC LIMIT 500`,
+        )
+        .all()
+        .map((row): AdminInviteOverview => ({ ...toInviteSummary(row), registeredCount: Number(row.registered_count || 0) }));
+    return {
+        totals: {
+            accountCount: Number(accountStats.account_count || 0),
+            activeAccountCount: Number(accountStats.active_account_count || 0),
+            distributorCount: Number(accountStats.distributor_count || 0),
+            currentCredits: Number(accountStats.current_credits || 0),
+            totalConsumedCredits: Number(ledgerStats.consumed_credits || 0),
+            totalAddedCredits: Number(ledgerStats.added_credits || 0),
+            commissionCredits: Number(ledgerStats.commission_credits || 0),
+            rechargeAmountYuan: Number(paymentStats.amount_cents || 0) / 100,
+            rechargeCredits: Number(paymentStats.credits || 0),
+            rechargeOrderCount: Number(paymentStats.order_count || 0),
+            inviteCount: Number(inviteStats.invite_count || 0),
+            usedInviteCount: Number(inviteStats.used_invite_count || 0),
+            distributedCustomerCount: Number(distributedCustomerCount.count || 0),
+        },
+        distributors,
+        invites,
+    };
 }
 
 export async function getManagedUserDetails(input: { rootUserId: string; userId: string; ledgerPage?: number; paymentPage?: number; pageSize?: number }): Promise<ManagedUserDetails> {

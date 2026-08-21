@@ -33,6 +33,10 @@ const upstream = createServer(async (request, response) => {
         response.end(JSON.stringify({ data: [{ id: "gpt-5.6-sol" }, { id: "gpt-image-2" }, { id: "Seedance 2.0-fast-720p" }, { id: "unpriced-upstream-model" }] }));
         return;
     }
+    if (request.method === "POST" && request.url === "/handoff/register") {
+        response.end(JSON.stringify({ ok: true, expires_in: 600, key_hint: "sk-t…test" }));
+        return;
+    }
     if (request.method === "POST" && request.url === "/v1/chat/completions") {
         if (bodyText.includes("trigger-moderation")) {
             response.statusCode = 400;
@@ -91,6 +95,8 @@ try {
             CANVAS_PUBLIC_ORIGIN: origin,
             CANVAS_UPSTREAM_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
             CANVAS_UPSTREAM_API_KEY: "upstream-service-secret",
+            TOKAXIS_TTS_INTERNAL_URL: `http://127.0.0.1:${upstreamPort}`,
+            TOKAXIS_TTS_HANDOFF_SECRET: "tts-handoff-secret",
             TOKAXIS_INTERNAL_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
             CANVAS_AUTH_SHARED_SECRET: "legacy-auth-shared-secret-0123456789abcdef",
             CANVAS_SESSION_SECRET: "session-secret-for-private-gateway-e2e-0123456789abcdef",
@@ -147,11 +153,18 @@ try {
     assert.equal(registered.body.user.credits, 20);
     const memberCookie = registered.response.headers.get("set-cookie")?.split(";")[0];
     assert.ok(memberCookie, "registration must issue a member session cookie");
+    const ttsHandoffWithSession = await requestJson(`${origin}/api/tts/handoff`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: memberCookie }, body: "{}" });
+    assert.equal(ttsHandoffWithSession.response.status, 200, JSON.stringify(ttsHandoffWithSession.body));
+    assert.match(ttsHandoffWithSession.body.url, /handoff=/, "a signed-in Canvas user must be able to open TTS without entering a second API key");
 
     const memberUserList = await requestJson(`${origin}/api/admin/users`, { headers: { Cookie: memberCookie } });
     assert.equal(memberUserList.response.status, 403, "ordinary users must never access user management");
     const rootUserList = await requestJson(`${origin}/api/admin/users`, { headers: { Cookie: cookie } });
     assert.equal(rootUserList.response.status, 200, JSON.stringify(rootUserList.body));
+    const adminOverview = await requestJson(`${origin}/api/admin/overview`, { headers: { Cookie: cookie } });
+    assert.equal(adminOverview.response.status, 200, JSON.stringify(adminOverview.body));
+    assert.equal(adminOverview.body.totals.accountCount, 2, "root overview must include all Canvas accounts");
+    assert.ok(Array.isArray(adminOverview.body.distributors));
     const managedMember = rootUserList.body.users.find((item) => item.username === "invited-user");
     assert.ok(managedMember, "root must see registered users");
     assert.equal(managedMember.activeKeyCount, 0, "users without keys must report zero active keys");
@@ -437,8 +450,8 @@ try {
     );
 
     const ttsHandoff = await requestJson(`${origin}/api/tts/handoff`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-    assert.equal(ttsHandoff.response.status, 400);
-    assert.equal(ttsHandoff.body.error, "api_key_required", "the standalone TTS handoff must require an explicit station API key");
+    assert.equal(ttsHandoff.response.status, 401);
+    assert.equal(ttsHandoff.body.code, "account_request_failed", "the standalone TTS handoff must require a Canvas session");
     assert.doesNotMatch(JSON.stringify(ttsHandoff.body), /https?:\/\//i, "an incomplete TTS handoff must not reveal an external website");
 
     const modelRequests = requests.filter((item) => item.url?.startsWith("/v1/"));

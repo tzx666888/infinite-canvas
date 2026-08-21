@@ -1,4 +1,4 @@
-import type { AuthUser, BillingProfile, BillingUnit, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserDetails, ManagedUserSummary, PaymentMethod, PaymentOrderSummary, PaymentPackage } from "@/lib/auth/types";
+import type { AdminOverview, AuthUser, BillingProfile, BillingUnit, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserDetails, ManagedUserSummary, PaymentMethod, PaymentOrderSummary, PaymentPackage } from "@/lib/auth/types";
 
 type AuthResponse = { user: AuthUser };
 
@@ -80,6 +80,10 @@ export async function adjustAccountCredits(input: { username: string; amount: nu
 export async function fetchManagedUsers(query = "") {
     const search = query.trim() ? `?query=${encodeURIComponent(query.trim())}` : "";
     return requestAuth<{ users: ManagedUserSummary[] }>(`/api/admin/users${search}`);
+}
+
+export async function fetchAdminOverview() {
+    return requestAuth<AdminOverview>("/api/admin/overview");
 }
 
 export async function fetchManagedUserDetails(userId: string, input: { ledgerPage?: number; paymentPage?: number; pageSize?: number } = {}) {

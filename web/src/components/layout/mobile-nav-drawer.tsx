@@ -5,7 +5,6 @@ import Link from "next/link";
 
 import { navigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
 import { cn } from "@/lib/utils";
-import { useConfigStore } from "@/stores/use-config-store";
 
 type MobileNavDrawerProps = {
     open: boolean;
@@ -15,21 +14,13 @@ type MobileNavDrawerProps = {
 
 export function MobileNavDrawer({ open, activeToolSlug, onClose }: MobileNavDrawerProps) {
     const { message } = App.useApp();
-    const apiKey = useConfigStore((state) => state.config.channels[0]?.apiKey || "");
-    const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
 
     async function openTokAxisTts() {
-        const key = apiKey.trim();
-        if (!key) {
-            onClose();
-            openConfigDialog(true);
-            return;
-        }
         try {
             const response = await fetch("/api/tts/handoff", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ apiKey: key }),
+                body: JSON.stringify({}),
             });
             const data = await response.json();
             if (!response.ok || !data.url) throw new Error(data.message || data.error || "TTS handoff 失败");

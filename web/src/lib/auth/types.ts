@@ -139,3 +139,42 @@ export type PaymentOrderSummary = {
     paidAt: string | null;
     expiresAt: string;
 };
+
+export type AdminDistributorOverview = {
+    id: string;
+    username: string;
+    displayName: string;
+    status: "active" | "disabled";
+    inviteCount: number;
+    usedInviteCount: number;
+    customerCount: number;
+    customerCredits: number;
+    customerConsumedCredits: number;
+    customerRechargeCredits: number;
+    customerRechargeAmountYuan: number;
+    commissionCredits: number;
+};
+
+export type AdminInviteOverview = InviteSummary & {
+    registeredCount: number;
+};
+
+export type AdminOverview = {
+    totals: {
+        accountCount: number;
+        activeAccountCount: number;
+        distributorCount: number;
+        currentCredits: number;
+        totalConsumedCredits: number;
+        totalAddedCredits: number;
+        commissionCredits: number;
+        rechargeAmountYuan: number;
+        rechargeCredits: number;
+        rechargeOrderCount: number;
+        inviteCount: number;
+        usedInviteCount: number;
+        distributedCustomerCount: number;
+    };
+    distributors: AdminDistributorOverview[];
+    invites: AdminInviteOverview[];
+};

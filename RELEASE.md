@@ -1,4 +1,12 @@
-# Infinite Canvas v3.0.120
+# Infinite Canvas v3.0.121
+
+## v3.0.121 本次发布
+
+- 顶部导航改为高频入口 + “更多”菜单，降低宽屏和缩放场景下的拥挤。
+- TTS handoff 改为登录用户服务端授权，默认使用服务端 TTS/平台授权，不再要求用户手工填第二套 Key。
+- 新增 root 专属 `/admin/overview` 整站运营总览，展示积分、消耗、充值、分销成员和邀请明细。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.121`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.0.120`。
 
 ## v3.0.120 本次发布
 

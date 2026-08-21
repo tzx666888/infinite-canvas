@@ -1,9 +1,9 @@
 "use client";
 
-import { Menu } from "lucide-react";
+import { ChevronDown, Menu } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { App } from "antd";
+import { App, Dropdown } from "antd";
 
 import { navigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
 import { AppConfigModal } from "@/components/layout/app-config-modal";
@@ -11,30 +11,25 @@ import { BrandMark } from "@/components/brand/brand-mark";
 import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { cn } from "@/lib/utils";
-import { useConfigStore } from "@/stores/use-config-store";
 import { useState } from "react";
 
 export function AppTopNav() {
     const { message } = App.useApp();
     const pathname = usePathname();
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
-    const apiKey = useConfigStore((state) => state.config.channels[0]?.apiKey || "");
-    const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const hideHeader = /^\/canvas\/[^/]+/.test(pathname);
     const slug = pathname.split("/").filter(Boolean)[0];
     const activeToolSlug = navigationTools.some((tool) => tool.slug === slug) ? (slug as NavigationToolSlug) : undefined;
+    const primaryTools = navigationTools.filter((tool) => ["canvas", "image", "video", "tts", "prompts"].includes(tool.slug));
+    const moreTools = navigationTools.filter((tool) => !primaryTools.includes(tool));
+    const moreActive = moreTools.some((tool) => tool.slug === activeToolSlug);
 
     async function openTokAxisTts() {
-        const key = apiKey.trim();
-        if (!key) {
-            openConfigDialog(true);
-            return;
-        }
         try {
             const response = await fetch("/api/tts/handoff", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ apiKey: key }),
+                body: JSON.stringify({}),
             });
             const data = await response.json();
             if (!response.ok || !data.url) throw new Error(data.message || data.error || "TTS handoff 失败");
@@ -65,7 +60,7 @@ export function AppTopNav() {
                             </button>
 
                             <nav className="hide-scrollbar ml-8 hidden h-16 min-w-0 items-center gap-6 overflow-x-auto lg:flex xl:gap-7">
-                                {navigationTools.map((tool) => {
+                                {primaryTools.map((tool) => {
                                     const Icon = tool.icon;
                                     const active = tool.slug === activeToolSlug;
                                     const className = cn(
@@ -87,6 +82,23 @@ export function AppTopNav() {
                                         </Link>
                                     );
                                 })}
+                                <Dropdown
+                                    trigger={["click"]}
+                                    menu={{
+                                        items: moreTools.map((tool) => ({ key: tool.slug, label: <Link href={`/${tool.slug}`}>{tool.label}</Link>, icon: <tool.icon className="size-4" /> })),
+                                    }}
+                                >
+                                    <button
+                                        type="button"
+                                        className={cn(
+                                            "relative flex h-16 shrink-0 items-center gap-2 text-sm leading-6 transition",
+                                            moreActive ? "font-medium text-stone-950 dark:text-stone-100" : "text-stone-500 hover:text-stone-950 dark:text-stone-400 dark:hover:text-stone-100",
+                                        )}
+                                    >
+                                        <span>更多</span>
+                                        <ChevronDown className="size-4" />
+                                    </button>
+                                </Dropdown>
                             </nav>
                         </div>
 
