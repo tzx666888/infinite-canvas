@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import BetterSqlite3 from "better-sqlite3";
 
-process.env.AUTH_DATA_DIR = await mkdtemp(path.join(tmpdir(), "canvas-payment-regression-"));
+const authDataDirectory = await mkdtemp(path.join(tmpdir(), "canvas-payment-regression-"));
+process.env.AUTH_DATA_DIR = authDataDirectory;
 process.env.CANVAS_EPAY_ADDRESS = "https://payment.example.test/gateway";
 process.env.CANVAS_EPAY_PARTNER_ID = "1001";
 process.env.CANVAS_EPAY_KEY = "payment-regression-key";
@@ -14,9 +16,30 @@ process.env.CANVAS_EPAY_METHODS = JSON.stringify([
 process.env.CANVAS_EPAY_AMOUNT_OPTIONS = JSON.stringify([1, 100]);
 process.env.CANVAS_CREDITS_PER_YUAN = "10";
 
+// Production already has this table. Recreate the pre-v3.128.0 shape so the
+// regression also proves that the additive realm migration is startup-safe.
+const legacyDatabase = new BetterSqlite3(path.join(authDataDirectory, "canvas.sqlite"));
+legacyDatabase.exec(`
+    CREATE TABLE payment_orders (
+        id TEXT PRIMARY KEY,
+        order_no TEXT NOT NULL UNIQUE,
+        user_id TEXT NOT NULL,
+        payment_method TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+        credits INTEGER NOT NULL CHECK (credits > 0),
+        status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'expired')),
+        provider_trade_no TEXT,
+        created_at TEXT NOT NULL,
+        paid_at TEXT,
+        expires_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+`);
+legacyDatabase.close();
+
 const { canvasDatabase } = await import("../src/lib/auth/database.ts");
-const { buildEpayPaymentForm, getEpayConfig, signEpayParams, verifyEpayParams } = await import("../src/lib/auth/epay.ts");
-const { completePaymentOrder, createPaymentOrder, getManagedUserDetails, getPaymentOrderForUser, walletSummary } = await import("../src/lib/auth/store.ts");
+const { CANVAS_PAYMENT_PRODUCT_NAME, buildEpayPaymentForm, getEpayConfig, signEpayParams, verifyEpayParams } = await import("../src/lib/auth/epay.ts");
+const { completePaymentOrder, createPaymentOrder, getManagedUserDetails, getPaymentOrderForUser, isCanvasPaymentOrderNo, walletSummary } = await import("../src/lib/auth/store.ts");
 
 const database = canvasDatabase();
 const rootUserId = "payment-regression-root";
@@ -29,6 +52,18 @@ database
 
 const config = getEpayConfig();
 const order = createPaymentOrder({ userId, amountYuan: 1, credits: 10, paymentMethod: "alipay" });
+assert.equal(isCanvasPaymentOrderNo(order.orderNo), true);
+assert.equal(database.prepare("SELECT payment_realm FROM payment_orders WHERE id = ?").get(order.order.id)?.payment_realm, "canvas");
+assert.throws(
+    () => database.prepare("INSERT INTO payment_orders (id, order_no, payment_realm, user_id, payment_method, amount_cents, credits, status, created_at, expires_at, updated_at) VALUES ('foreign-order', 'NAPI123', 'newapi', ?, 'alipay', 100, 10, 'pending', ?, ?, ?)").run(userId, timestamp, timestamp, timestamp),
+    /Canvas payment realm only|CHECK constraint failed/,
+    "Canvas 数据库不得接收中转站充值域",
+);
+assert.throws(
+    () => completePaymentOrder({ orderNo: "NAPI123", amountCents: 100, providerTradeNo: "foreign-trade" }),
+    /充值订单不存在/,
+    "中转站订单号不得进入画布结算",
+);
 const form = buildEpayPaymentForm(
     {
         orderNo: order.orderNo,
@@ -41,6 +76,7 @@ const form = buildEpayPaymentForm(
 );
 assert.equal(form.action, "https://payment.example.test/gateway/submit.php");
 assert.equal(form.fields.money, "1.00");
+assert.equal(form.fields.name, CANVAS_PAYMENT_PRODUCT_NAME);
 assert.equal(verifyEpayParams(form.fields, config), true);
 assert.equal(verifyEpayParams({ ...form.fields, money: "2.00" }, config), false);
 
@@ -49,7 +85,7 @@ const callback = {
     type: "alipay",
     out_trade_no: order.orderNo,
     trade_no: "provider-trade-001",
-    name: "视觉画布积分",
+    name: CANVAS_PAYMENT_PRODUCT_NAME,
     money: "1.00",
     trade_status: "TRADE_SUCCESS",
     sign_type: "MD5",

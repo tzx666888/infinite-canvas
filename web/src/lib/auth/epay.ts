@@ -11,6 +11,8 @@ type EpayConfig = {
     packages: PaymentPackage[];
 };
 
+export const CANVAS_PAYMENT_PRODUCT_NAME = "视觉画布积分";
+
 export type EpayPaymentForm = {
     action: string;
     fields: Record<string, string>;
@@ -120,7 +122,7 @@ export function buildEpayPaymentForm(input: { orderNo: string; amountCents: numb
         out_trade_no: input.orderNo,
         notify_url: input.notifyUrl,
         return_url: input.returnUrl,
-        name: "视觉画布积分",
+        name: CANVAS_PAYMENT_PRODUCT_NAME,
         money: (input.amountCents / 100).toFixed(2),
         device: "pc",
         sign_type: "MD5",

@@ -409,11 +409,15 @@ export async function walletSummary(userId: string) {
 }
 
 function expirePendingPaymentOrders(database: CanvasDatabase) {
-    database.prepare("UPDATE payment_orders SET status = 'expired', updated_at = ? WHERE status = 'pending' AND expires_at <= ?").run(now(), now());
+    database.prepare("UPDATE payment_orders SET status = 'expired', updated_at = ? WHERE payment_realm = 'canvas' AND status = 'pending' AND expires_at <= ?").run(now(), now());
 }
 
 function createPaymentOrderNo() {
     return `VCP${randomUUID().replace(/-/g, "").slice(0, 25).toUpperCase()}`;
+}
+
+export function isCanvasPaymentOrderNo(value: string) {
+    return /^VCP[A-F0-9]{25}$/.test(value.trim());
 }
 
 export type CreatedPaymentOrder = {
@@ -431,7 +435,7 @@ export function createPaymentOrder(input: { userId: string; amountYuan: number; 
         if (!account) throw new AuthError("账户不存在", 404);
         expirePendingPaymentOrders(database);
         const existing = database
-            .prepare("SELECT * FROM payment_orders WHERE user_id = ? AND payment_method = ? AND amount_cents = ? AND credits = ? AND status = 'pending' AND expires_at > ? ORDER BY created_at DESC LIMIT 1")
+            .prepare("SELECT * FROM payment_orders WHERE payment_realm = 'canvas' AND user_id = ? AND payment_method = ? AND amount_cents = ? AND credits = ? AND status = 'pending' AND expires_at > ? ORDER BY created_at DESC LIMIT 1")
             .get(input.userId, input.paymentMethod, amountYuan * 100, credits, now());
         if (existing) return { order: toPaymentOrderSummary(existing), orderNo: String(existing.order_no), amountCents: Number(existing.amount_cents) };
 
@@ -439,6 +443,7 @@ export function createPaymentOrder(input: { userId: string; amountYuan: number; 
         const row = {
             id: randomUUID(),
             order_no: createPaymentOrderNo(),
+            payment_realm: "canvas",
             user_id: input.userId,
             payment_method: input.paymentMethod,
             amount_cents: amountYuan * 100,
@@ -450,8 +455,8 @@ export function createPaymentOrder(input: { userId: string; amountYuan: number; 
             updated_at: timestamp,
         };
         database
-            .prepare("INSERT INTO payment_orders (id, order_no, user_id, payment_method, amount_cents, credits, status, created_at, paid_at, expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-            .run(row.id, row.order_no, row.user_id, row.payment_method, row.amount_cents, row.credits, row.status, row.created_at, row.paid_at, row.expires_at, row.updated_at);
+            .prepare("INSERT INTO payment_orders (id, order_no, payment_realm, user_id, payment_method, amount_cents, credits, status, created_at, paid_at, expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run(row.id, row.order_no, row.payment_realm, row.user_id, row.payment_method, row.amount_cents, row.credits, row.status, row.created_at, row.paid_at, row.expires_at, row.updated_at);
         return { order: toPaymentOrderSummary(row), orderNo: row.order_no, amountCents: row.amount_cents };
     });
 }
@@ -459,7 +464,7 @@ export function createPaymentOrder(input: { userId: string; amountYuan: number; 
 export function getPaymentOrderForUser(userId: string, orderId: string) {
     return withImmediateTransaction((database) => {
         expirePendingPaymentOrders(database);
-        const order = database.prepare("SELECT * FROM payment_orders WHERE id = ? AND user_id = ?").get(orderId, userId);
+        const order = database.prepare("SELECT * FROM payment_orders WHERE payment_realm = 'canvas' AND id = ? AND user_id = ?").get(orderId, userId);
         if (!order) throw new AuthError("充值订单不存在", 404);
         return toPaymentOrderSummary(order);
     });
@@ -468,7 +473,7 @@ export function getPaymentOrderForUser(userId: string, orderId: string) {
 export function getPaymentCheckoutForUser(userId: string, orderId: string) {
     return withImmediateTransaction((database) => {
         expirePendingPaymentOrders(database);
-        const order = database.prepare("SELECT * FROM payment_orders WHERE id = ? AND user_id = ?").get(orderId, userId);
+        const order = database.prepare("SELECT * FROM payment_orders WHERE payment_realm = 'canvas' AND id = ? AND user_id = ?").get(orderId, userId);
         if (!order) throw new AuthError("充值订单不存在", 404);
         if (order.status !== "pending") throw new AuthError(order.status === "paid" ? "充值订单已经支付" : "充值订单已失效", 409, "payment_order_unavailable");
         return {
@@ -480,8 +485,9 @@ export function getPaymentCheckoutForUser(userId: string, orderId: string) {
 }
 
 export function completePaymentOrder(input: { orderNo: string; amountCents: number; providerTradeNo?: string }) {
+    if (!isCanvasPaymentOrderNo(input.orderNo)) throw new AuthError("充值订单不存在", 404);
     return withImmediateTransaction((database) => {
-        const order = database.prepare("SELECT * FROM payment_orders WHERE order_no = ?").get(input.orderNo);
+        const order = database.prepare("SELECT * FROM payment_orders WHERE payment_realm = 'canvas' AND order_no = ?").get(input.orderNo);
         if (!order) throw new AuthError("充值订单不存在", 404);
         if (Number(order.amount_cents) !== input.amountCents) throw new AuthError("充值金额校验失败", 400, "payment_amount_mismatch");
         if (order.status === "paid") return { order: toPaymentOrderSummary(order), newlyPaid: false };
@@ -489,10 +495,10 @@ export function completePaymentOrder(input: { orderNo: string; amountCents: numb
 
         const timestamp = now();
         const update = database
-            .prepare("UPDATE payment_orders SET status = 'paid', provider_trade_no = ?, paid_at = ?, updated_at = ? WHERE id = ? AND status IN ('pending', 'expired')")
+            .prepare("UPDATE payment_orders SET status = 'paid', provider_trade_no = ?, paid_at = ?, updated_at = ? WHERE payment_realm = 'canvas' AND id = ? AND status IN ('pending', 'expired')")
             .run(input.providerTradeNo?.slice(0, 128) || null, timestamp, timestamp, order.id);
         if (!Number(update.changes)) {
-            const refreshed = database.prepare("SELECT * FROM payment_orders WHERE id = ?").get(order.id);
+            const refreshed = database.prepare("SELECT * FROM payment_orders WHERE payment_realm = 'canvas' AND id = ?").get(order.id);
             return { order: toPaymentOrderSummary(refreshed || order), newlyPaid: false };
         }
         database.prepare("UPDATE accounts SET credits = credits + ?, updated_at = ? WHERE id = ?").run(Number(order.credits), timestamp, order.user_id);
@@ -571,7 +577,7 @@ export function getAdminOverview(rootUserId: string): AdminOverview {
                     COALESCE(SUM(amount_cents), 0) AS amount_cents,
                     COALESCE(SUM(credits), 0) AS credits
              FROM payment_orders
-             WHERE status = 'paid'`,
+             WHERE payment_realm = 'canvas' AND status = 'paid'`,
         )
         .get()!;
     const inviteStats = database.prepare("SELECT COUNT(*) AS invite_count, COALESCE(SUM(used_count), 0) AS used_invite_count FROM invites").get()!;
@@ -586,9 +592,9 @@ export function getAdminOverview(rootUserId: string): AdminOverview {
                     (SELECT COALESCE(SUM(CASE WHEN l.type = 'consume' AND l.amount < 0 THEN -l.amount ELSE 0 END), 0)
                        FROM credit_ledger l WHERE l.user_id IN (SELECT child.id FROM accounts child WHERE child.owner_admin_id = a.id)) AS customer_consumed_credits,
                     (SELECT COALESCE(SUM(po.credits), 0) FROM payment_orders po
-                       WHERE po.status = 'paid' AND po.user_id IN (SELECT child.id FROM accounts child WHERE child.owner_admin_id = a.id)) AS customer_recharge_credits,
+                       WHERE po.payment_realm = 'canvas' AND po.status = 'paid' AND po.user_id IN (SELECT child.id FROM accounts child WHERE child.owner_admin_id = a.id)) AS customer_recharge_credits,
                     (SELECT COALESCE(SUM(po.amount_cents), 0) FROM payment_orders po
-                       WHERE po.status = 'paid' AND po.user_id IN (SELECT child.id FROM accounts child WHERE child.owner_admin_id = a.id)) AS customer_recharge_amount_cents,
+                       WHERE po.payment_realm = 'canvas' AND po.status = 'paid' AND po.user_id IN (SELECT child.id FROM accounts child WHERE child.owner_admin_id = a.id)) AS customer_recharge_amount_cents,
                     (SELECT COALESCE(SUM(CASE WHEN l.type = 'commission' AND l.amount > 0 THEN l.amount ELSE 0 END), 0)
                        FROM credit_ledger l WHERE l.user_id = a.id) AS commission_credits
              FROM accounts a
@@ -680,17 +686,17 @@ export async function getManagedUserDetails(input: { rootUserId: string; userId:
                 COALESCE(SUM(amount_cents), 0) AS paid_amount_cents,
                 COALESCE(SUM(credits), 0) AS paid_credits
              FROM payment_orders
-             WHERE user_id = ? AND status = 'paid'`,
+             WHERE payment_realm = 'canvas' AND user_id = ? AND status = 'paid'`,
         )
         .get(input.userId)!;
-    const paymentTotal = Number(database.prepare("SELECT COUNT(*) AS total FROM payment_orders WHERE user_id = ?").get(input.userId)?.total || 0);
+    const paymentTotal = Number(database.prepare("SELECT COUNT(*) AS total FROM payment_orders WHERE payment_realm = 'canvas' AND user_id = ?").get(input.userId)?.total || 0);
     const ledgerTotal = Number(ledgerStats.total || 0);
     const ledger = database
         .prepare("SELECT * FROM credit_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
         .all(input.userId, pageSize, (ledgerPage - 1) * pageSize)
         .map(toLedgerEntry);
     const paymentOrders = database
-        .prepare("SELECT * FROM payment_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
+        .prepare("SELECT * FROM payment_orders WHERE payment_realm = 'canvas' AND user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
         .all(input.userId, pageSize, (paymentPage - 1) * pageSize)
         .map(toManagedUserPaymentOrder);
     const currentCredits = Number(account.credits || 0);

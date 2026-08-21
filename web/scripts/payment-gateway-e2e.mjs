@@ -65,6 +65,8 @@ try {
     assert.equal(created.response.status, 201, JSON.stringify(created.body));
     assert.equal(created.body.form.action, "https://payment.example.test/gateway/submit.php");
     assert.equal(created.body.form.fields.money, "1.00");
+    assert.equal(created.body.form.fields.name, "视觉画布积分");
+    assert.match(created.body.form.fields.out_trade_no, /^VCP[A-F0-9]{25}$/);
     assert.equal(created.body.checkoutUrl, `/api/account/payments/orders/${created.body.order.id}/checkout`);
 
     const checkout = await fetch(`${origin}${created.body.checkoutUrl}`, { headers: { Cookie: cookie }, redirect: "manual" });
@@ -77,6 +79,45 @@ try {
     assert.match(checkout.headers.get("content-security-policy") || "", /form-action https:\/\/payment\.example\.test/);
 
     const { signEpayParams } = await import("../src/lib/auth/epay.ts");
+    const foreignCallback = {
+        ...created.body.form.fields,
+        out_trade_no: "NAPI202608210001",
+        name: "中转站充值",
+        trade_no: "provider-foreign-e2e",
+        trade_status: "TRADE_SUCCESS",
+        sign: "",
+    };
+    foreignCallback.sign = signEpayParams(foreignCallback, "payment-regression-key");
+    const foreignNotify = await requestJson(`${origin}/api/account/payments/epay/notify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(foreignCallback),
+    });
+    assert.equal(foreignNotify.response.status, 400);
+    assert.equal(foreignNotify.text, "fail");
+
+    const wrongProductCallback = {
+        ...created.body.form.fields,
+        name: "中转站充值",
+        trade_no: "provider-wrong-product-e2e",
+        trade_status: "TRADE_SUCCESS",
+        sign: "",
+    };
+    wrongProductCallback.sign = signEpayParams(wrongProductCallback, "payment-regression-key");
+    const wrongProductNotify = await requestJson(`${origin}/api/account/payments/epay/notify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(wrongProductCallback),
+    });
+    assert.equal(wrongProductNotify.response.status, 400);
+    assert.equal(wrongProductNotify.text, "fail");
+
+    const walletBeforeCanvasNotify = await requestJson(`${origin}/api/account/wallet`, { headers: { Cookie: cookie } });
+    assert.equal(walletBeforeCanvasNotify.body.credits, 0, "中转站或错误商品回调不得给画布入账");
+
+    const blockedGatewayTopup = await requestJson(`${origin}/api/gateway/api/user/topup`, { headers: { Cookie: cookie } });
+    assert.equal(blockedGatewayTopup.response.status, 404, "画布网关不得代理中转站充值接口");
+
     const callback = {
         ...created.body.form.fields,
         trade_no: "provider-trade-e2e",

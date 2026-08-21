@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { getEpayConfig, parseEpayMoneyCents, verifyEpayParams } from "@/lib/auth/epay";
-import { completePaymentOrder } from "@/lib/auth/store";
+import { CANVAS_PAYMENT_PRODUCT_NAME, getEpayConfig, parseEpayMoneyCents, verifyEpayParams } from "@/lib/auth/epay";
+import { completePaymentOrder, isCanvasPaymentOrderNo } from "@/lib/auth/store";
 
 export async function collectEpayParams(request: Request) {
     const result: Record<string, string> = {};
@@ -19,7 +19,7 @@ export function settleEpayPayment(params: Record<string, string>) {
     if (params.trade_status !== "TRADE_SUCCESS") return { status: "pending" as const };
     const amountCents = parseEpayMoneyCents(params.money || "");
     const orderNo = params.out_trade_no?.trim();
-    if (!amountCents || !orderNo) return { status: "invalid" as const };
+    if (!amountCents || !orderNo || !isCanvasPaymentOrderNo(orderNo) || params.name !== CANVAS_PAYMENT_PRODUCT_NAME) return { status: "invalid" as const };
     const result = completePaymentOrder({ orderNo, amountCents, providerTradeNo: params.trade_no });
     return { status: "paid" as const, order: result.order };
 }

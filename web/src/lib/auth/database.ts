@@ -101,6 +101,7 @@ export function canvasDatabase() {
         CREATE TABLE IF NOT EXISTS payment_orders (
             id TEXT PRIMARY KEY,
             order_no TEXT NOT NULL UNIQUE,
+            payment_realm TEXT NOT NULL DEFAULT 'canvas' CHECK (payment_realm = 'canvas'),
             user_id TEXT NOT NULL REFERENCES accounts(id),
             payment_method TEXT NOT NULL,
             amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
@@ -152,6 +153,7 @@ export function canvasDatabase() {
         "ALTER TABLE billing_transactions ADD COLUMN billing_profile_id TEXT",
         "ALTER TABLE billing_transactions ADD COLUMN base_rate REAL",
         "ALTER TABLE billing_transactions ADD COLUMN retail_rate REAL",
+        "ALTER TABLE payment_orders ADD COLUMN payment_realm TEXT NOT NULL DEFAULT 'canvas'",
     ]) {
         try {
             database.exec(statement);
@@ -159,6 +161,21 @@ export function canvasDatabase() {
             // Existing databases already contain the additive migration column.
         }
     }
+    database.exec("CREATE INDEX IF NOT EXISTS payment_orders_realm_idx ON payment_orders(payment_realm, order_no);");
+    database.exec(`
+        CREATE TRIGGER IF NOT EXISTS payment_orders_canvas_realm_insert
+        BEFORE INSERT ON payment_orders
+        WHEN NEW.payment_realm <> 'canvas'
+        BEGIN
+            SELECT RAISE(ABORT, 'Canvas payment realm only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS payment_orders_canvas_realm_update
+        BEFORE UPDATE OF payment_realm ON payment_orders
+        WHEN NEW.payment_realm <> 'canvas'
+        BEGIN
+            SELECT RAISE(ABORT, 'Canvas payment realm only');
+        END;
+    `);
     database.exec(`
         UPDATE accounts
         SET role = 'member', is_distributor = 1
