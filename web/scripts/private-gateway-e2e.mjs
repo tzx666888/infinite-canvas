@@ -201,6 +201,7 @@ try {
         }),
     });
     assert.equal(profile.response.status, 201, JSON.stringify(profile.body));
+    assert.equal(profile.body.profile.rules.find((rule) => rule.model === "gpt-5.6-sol").baseCredits, 0.7, "distributor profiles must expose the 70% wholesale floor");
     const distributorInvite = await requestJson(`${origin}/api/admin/invitations`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Origin: origin, Cookie: memberCookie },
@@ -256,7 +257,7 @@ try {
     assert.equal((await wallet(origin, memberCookie)).credits, adminBeforeVideoSettlement, "async video markup must wait for final success");
     const distributedVideoPoll = await requestJson(`${origin}/api/gateway/v1/videos/generations/task_distributor_video`, { headers: { Authorization: `Bearer ${distributorCustomerKey.body.key}` } });
     assert.equal(distributedVideoPoll.body.status, "completed");
-    assert.equal((await wallet(origin, memberCookie)).credits, adminBeforeVideoSettlement + 3, "final video success must credit retail total minus platform base total");
+    assert.equal((await wallet(origin, memberCookie)).credits, adminBeforeVideoSettlement + 4, "final video success must credit retail total minus the 70% distributor wholesale total");
     assert.equal((await wallet(origin, memberCookie)).ledger.filter((entry) => entry.type === "commission").length, 3, "video polling must settle commission exactly once");
     const restoreMemberRole = await requestJson(`${origin}/api/admin/users/${managedMember.id}`, {
         method: "PATCH",

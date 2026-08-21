@@ -668,6 +668,16 @@ export async function revokeManagedUserKeys(input: { rootUserId: string; userId:
 
 type BasePriceMap = Record<string, { credits: number; unit: BillingUnit }>;
 
+const DISTRIBUTOR_WHOLESALE_MULTIPLIER = 0.7;
+
+function distributorWholesaleCredits(credits: number) {
+    return Number((credits * DISTRIBUTOR_WHOLESALE_MULTIPLIER).toFixed(6));
+}
+
+function distributorBasePrices(basePrices: BasePriceMap): BasePriceMap {
+    return Object.fromEntries(Object.entries(basePrices).map(([model, rule]) => [model, { ...rule, credits: distributorWholesaleCredits(rule.credits) }]));
+}
+
 function normalizeProfileRules(rules: Array<{ model: string; creditsPerUnit: number }>, basePrices: BasePriceMap): BillingPriceRule[] {
     const seen = new Set<string>();
     return rules.map((rule) => {
@@ -675,7 +685,7 @@ function normalizeProfileRules(rules: Array<{ model: string; creditsPerUnit: num
         const base = basePrices[model];
         const creditsPerUnit = Number(rule.creditsPerUnit);
         if (!model || seen.has(model) || !base) throw new AuthError("计费模型不正确");
-        if (!Number.isFinite(creditsPerUnit) || creditsPerUnit < base.credits) throw new AuthError(`${model} 的分销价不能低于平台成本 ${base.credits}`);
+        if (!Number.isFinite(creditsPerUnit) || creditsPerUnit < base.credits) throw new AuthError(`${model} 的分销价不能低于分销批发底价 ${base.credits}`);
         if (creditsPerUnit > 1_000_000) throw new AuthError("分销价超出允许范围");
         seen.add(model);
         return { model, baseCredits: base.credits, creditsPerUnit, unit: base.unit };
@@ -683,13 +693,14 @@ function normalizeProfileRules(rules: Array<{ model: string; creditsPerUnit: num
 }
 
 function toBillingProfile(database: CanvasDatabase, row: AccountRow, basePrices: BasePriceMap): BillingProfile {
+    const wholesalePrices = Number(row.admin_is_distributor || 0) === 1 ? distributorBasePrices(basePrices) : basePrices;
     const configured = new Map(
         database
             .prepare("SELECT model, credits_per_unit, unit FROM billing_price_rules WHERE profile_id = ? ORDER BY model")
             .all(row.id)
             .map((rule) => [String(rule.model), rule]),
     );
-    const rules = Object.entries(basePrices).map(([model, base]) => {
+    const rules = Object.entries(wholesalePrices).map(([model, base]) => {
         const configuredRule = configured.get(model);
         return { model, baseCredits: base.credits, creditsPerUnit: configuredRule ? Number(configuredRule.credits_per_unit) : base.credits, unit: base.unit } satisfies BillingPriceRule;
     });
@@ -713,7 +724,7 @@ export function listBillingProfiles(input: { actorUserId: string; basePrices: Ba
     const scoped = effectiveRole(actor) === "admin";
     const rows = database
         .prepare(
-            `SELECT p.*, a.username AS admin_username,
+            `SELECT p.*, a.username AS admin_username, a.is_distributor AS admin_is_distributor,
                     (SELECT COUNT(*) FROM accounts child WHERE child.billing_profile_id = p.id) AS invited_users,
                     COALESCE((SELECT SUM(l.amount) FROM credit_ledger l WHERE l.user_id = p.admin_user_id AND l.type = 'commission' AND l.remark LIKE '%' || p.id || '%'), 0) AS earned_credits
                   FROM billing_profiles p JOIN accounts a ON a.id = p.admin_user_id
@@ -727,7 +738,7 @@ export function listBillingProfiles(input: { actorUserId: string; basePrices: Ba
 export function createBillingProfile(input: { actorUserId: string; name: string; rules: Array<{ model: string; creditsPerUnit: number }>; basePrices: BasePriceMap }) {
     const name = input.name.trim().slice(0, 80);
     if (!name) throw new AuthError("请输入计费方案名称");
-    const rules = normalizeProfileRules(input.rules, input.basePrices);
+    const rules = normalizeProfileRules(input.rules, distributorBasePrices(input.basePrices));
     return withImmediateTransaction((database) => {
         const actor = requireAdmin(database, input.actorUserId);
         if (effectiveRole(actor) !== "admin") throw new AuthError("Root 负责平台成本，请使用分销管理员账号创建售价方案", 403);
@@ -736,12 +747,16 @@ export function createBillingProfile(input: { actorUserId: string; name: string;
         database.prepare("INSERT INTO billing_profiles (id, admin_user_id, name, active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)").run(id, input.actorUserId, name, timestamp, timestamp);
         const insert = database.prepare("INSERT INTO billing_price_rules (profile_id, model, credits_per_unit, unit) VALUES (?, ?, ?, ?)");
         for (const rule of rules) insert.run(id, rule.model, rule.creditsPerUnit, rule.unit);
-        return toBillingProfile(database, { id, admin_user_id: input.actorUserId, admin_username: actor.username, name, active: 1, invited_users: 0, earned_credits: 0, created_at: timestamp, updated_at: timestamp }, input.basePrices);
+        return toBillingProfile(
+            database,
+            { id, admin_user_id: input.actorUserId, admin_username: actor.username, admin_is_distributor: 1, name, active: 1, invited_users: 0, earned_credits: 0, created_at: timestamp, updated_at: timestamp },
+            input.basePrices,
+        );
     });
 }
 
 export function updateBillingProfile(input: { actorUserId: string; profileId: string; name?: string; active?: boolean; rules?: Array<{ model: string; creditsPerUnit: number }>; basePrices: BasePriceMap }) {
-    const rules = input.rules ? normalizeProfileRules(input.rules, input.basePrices) : null;
+    const rules = input.rules ? normalizeProfileRules(input.rules, distributorBasePrices(input.basePrices)) : null;
     return withImmediateTransaction((database) => {
         const actor = requireAdmin(database, input.actorUserId);
         const profile = database.prepare("SELECT * FROM billing_profiles WHERE id = ?").get(input.profileId);
@@ -758,7 +773,7 @@ export function updateBillingProfile(input: { actorUserId: string; profileId: st
         }
         const updated = database
             .prepare(
-                "SELECT p.*, a.username AS admin_username, (SELECT COUNT(*) FROM accounts child WHERE child.billing_profile_id = p.id) AS invited_users, 0 AS earned_credits FROM billing_profiles p JOIN accounts a ON a.id = p.admin_user_id WHERE p.id = ?",
+                "SELECT p.*, a.username AS admin_username, a.is_distributor AS admin_is_distributor, (SELECT COUNT(*) FROM accounts child WHERE child.billing_profile_id = p.id) AS invited_users, 0 AS earned_credits FROM billing_profiles p JOIN accounts a ON a.id = p.admin_user_id WHERE p.id = ?",
             )
             .get(input.profileId)!;
         return toBillingProfile(database, updated, input.basePrices);
@@ -768,7 +783,8 @@ export function updateBillingProfile(input: { actorUserId: string; profileId: st
 export function resolveCustomerPrice(input: { userId: string; model: string; baseCredits: number; unit: BillingUnit }) {
     const row = canvasDatabase()
         .prepare(
-            `SELECT child.billing_profile_id, child.owner_admin_id, p.active, owner.is_distributor, owner.status,
+            `SELECT child.billing_profile_id, child.owner_admin_id, child.is_distributor AS child_is_distributor, child.status AS child_status,
+                         p.active, owner.is_distributor, owner.status AS owner_status,
                          r.credits_per_unit, r.unit
                   FROM accounts child
                   LEFT JOIN billing_profiles p ON p.id = child.billing_profile_id AND p.admin_user_id = child.owner_admin_id
@@ -777,13 +793,18 @@ export function resolveCustomerPrice(input: { userId: string; model: string; bas
                   WHERE child.id = ?`,
         )
         .get(input.model.toLowerCase(), input.userId);
-    const valid = row && Number(row.active) === 1 && Number(row.is_distributor) === 1 && row.status === "active" && row.billing_profile_id && row.owner_admin_id;
-    const configured = valid && row.unit === input.unit ? Number(row.credits_per_unit) : input.baseCredits;
-    const retailCredits = Number.isFinite(configured) && configured >= input.baseCredits ? configured : input.baseCredits;
+    const childIsDistributor = Number(row?.child_is_distributor || 0) === 1 && row?.child_status === "active";
+    const ownerIsDistributor = Number(row?.is_distributor || 0) === 1 && row?.owner_status === "active" && row?.owner_admin_id;
+    const distributorPricing = childIsDistributor || Boolean(ownerIsDistributor);
+    const baseCredits = distributorPricing ? distributorWholesaleCredits(input.baseCredits) : input.baseCredits;
+    const validProfile = Boolean(ownerIsDistributor && Number(row?.active) === 1 && row?.billing_profile_id);
+    const configured = validProfile && row?.unit === input.unit ? Number(row?.credits_per_unit) : baseCredits;
+    const retailCredits = Number.isFinite(configured) && configured >= baseCredits ? configured : baseCredits;
     return {
+        baseCredits,
         retailCredits,
-        billingProfileId: valid && retailCredits > input.baseCredits ? String(row!.billing_profile_id) : null,
-        beneficiaryAdminId: valid && retailCredits > input.baseCredits ? String(row!.owner_admin_id) : null,
+        billingProfileId: validProfile && retailCredits > baseCredits ? String(row!.billing_profile_id) : null,
+        beneficiaryAdminId: validProfile && retailCredits > baseCredits ? String(row!.owner_admin_id) : null,
     };
 }
 

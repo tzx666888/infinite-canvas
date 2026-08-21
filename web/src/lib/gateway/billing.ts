@@ -29,7 +29,7 @@ export async function reserveGatewayRequest(request: NextRequest, path: string, 
     const units = rule.unit === "second" ? usage.seconds : rule.unit === "image" ? usage.images : 1;
     const priced = resolveCustomerPrice({ userId: identity.userId, model: usage.model, baseCredits: rule.credits, unit: rule.unit });
     const billableUnits = Math.max(1, units);
-    const baseAmount = Math.max(1, Math.ceil(rule.credits * billableUnits));
+    const baseAmount = Math.max(1, Math.ceil(priced.baseCredits * billableUnits));
     const amount = Math.max(baseAmount, Math.ceil(priced.retailCredits * billableUnits));
     const requestId = requestIdOverride?.trim().slice(0, 100) || request.headers.get("x-canvas-request-id")?.trim().slice(0, 100) || randomUUID();
     const agentWindowMs = path === "v1/responses" && rule.unit === "request" ? agentBillingWindowMs() : 0;
@@ -44,7 +44,7 @@ export async function reserveGatewayRequest(request: NextRequest, path: string, 
         commissionAmount: amount - baseAmount,
         beneficiaryAdminId: priced.beneficiaryAdminId,
         billingProfileId: priced.billingProfileId,
-        baseRate: rule.credits,
+        baseRate: priced.baseCredits,
         retailRate: priced.retailCredits,
         units,
         unit: rule.unit,

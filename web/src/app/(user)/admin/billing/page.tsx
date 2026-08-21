@@ -12,6 +12,7 @@ import { useUserStore } from "@/stores/use-user-store";
 type Draft = { id?: string; name: string; rules: BillingPriceRule[]; active: boolean };
 type InviteDraft = { label: string; maxUses: number; expiresInDays: number; billingProfileId?: string };
 const unitLabels = { request: "次", image: "张", second: "秒" } as const;
+const distributorWholesaleMultiplier = 0.7;
 
 export default function DistributorBillingPage() {
     const { message } = App.useApp();
@@ -49,7 +50,10 @@ export default function DistributorBillingPage() {
 
     const openNew = async () => {
         const result = await fetchBillingProfiles();
-        const rules = Object.entries(result.basePrices).map(([model, rule]) => ({ model, baseCredits: rule.credits, creditsPerUnit: rule.credits, unit: rule.unit }));
+        const rules = Object.entries(result.basePrices).map(([model, rule]) => {
+            const baseCredits = Number((rule.credits * distributorWholesaleMultiplier).toFixed(6));
+            return { model, baseCredits, creditsPerUnit: baseCredits, unit: rule.unit };
+        });
         setDraft({ name: "默认分销价", rules, active: true });
     };
 
@@ -97,7 +101,9 @@ export default function DistributorBillingPage() {
                             分销计费
                         </div>
                         <h1 className="mt-2 text-2xl font-semibold">分销中心</h1>
-                        <p className="mt-2 text-sm text-stone-500">{user.role === "root" ? "查看各分销管理员的售价、客户和溢价收益。" : "平台成本不变，你可自定义售价；生成成功后，差价自动返回你的积分账户。"}</p>
+                        <p className="mt-2 text-sm text-stone-500">
+                            {user.role === "root" ? "查看各分销管理员的售价、客户和溢价收益。分销批发底价按平台原价 7 折计算。" : "分销批发底价按平台原价 7 折计算，你可自定义客户售价；生成成功后，售价与批发底价的差额自动返回你的积分账户。"}
+                        </p>
                     </div>
                     <div className="flex gap-2">
                         <Button icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void load()}>
@@ -201,7 +207,7 @@ export default function DistributorBillingPage() {
                             dataSource={draft.rules}
                             columns={[
                                 { title: "模型", dataIndex: "model", width: 250 },
-                                { title: "平台成本", width: 150, render: (_, rule) => `¥${(rule.baseCredits / 10).toFixed(2)} / ${unitLabels[rule.unit]}` },
+                                { title: "分销批发底价", width: 150, render: (_, rule) => `¥${(rule.baseCredits / 10).toFixed(2)} / ${unitLabels[rule.unit]}` },
                                 {
                                     title: "你的售价",
                                     width: 210,
@@ -223,7 +229,7 @@ export default function DistributorBillingPage() {
                                 { title: "每单位溢价", render: (_, rule) => <span className="text-emerald-600">+{Math.max(0, rule.creditsPerUnit - rule.baseCredits).toFixed(2)} 积分</span> },
                             ]}
                         />
-                        <p className="mt-3 text-xs leading-5 text-stone-500">售价不能低于平台成本。客户生成成功后才结算溢价；失败退回客户全额积分，不产生分销收益。</p>
+                        <p className="mt-3 text-xs leading-5 text-stone-500">分销售价不能低于平台原价的 7 折批发底价。客户生成成功后才结算溢价；失败退回客户全额积分，不产生分销收益。</p>
                     </div>
                 ) : null}
             </Modal>
