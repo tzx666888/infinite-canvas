@@ -2,7 +2,7 @@
 FROM node:22-bookworm-slim AS web-build
 
 WORKDIR /app/web
-ARG NEXT_PUBLIC_APP_VERSION=dev
+ARG NEXT_PUBLIC_APP_VERSION
 ENV NEXT_PUBLIC_APP_VERSION=${NEXT_PUBLIC_APP_VERSION}
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 make g++ \
@@ -13,7 +13,8 @@ RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lock
 COPY VERSION /app/VERSION
 COPY CHANGELOG.md /app/CHANGELOG.md
 COPY web ./
-RUN bun run build
+RUN if [ -z "$NEXT_PUBLIC_APP_VERSION" ]; then export NEXT_PUBLIC_APP_VERSION="$(cat /app/VERSION)"; fi \
+    && bun run build
 
 # 运行镜像：只启动 Next.js，模型请求由站内私有网关转发。
 FROM node:22-bookworm-slim

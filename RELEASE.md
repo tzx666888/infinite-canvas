@@ -1,4 +1,11 @@
-# Infinite Canvas v3.123.0
+# Infinite Canvas v3.124.0
+
+## v3.124.0 本次发布
+
+- 修复生产镜像未传构建参数时界面版本可能显示 `dev` 的问题；构建会自动使用仓库 `VERSION`。
+- 保留 v3.123.0 的 H3 新价格与小数积分结算规则，中转站服务不变。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.124.0`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.123.0`；H3 价格紧急回滚目标仍为 `v3.122.0`。
 
 ## v3.123.0 本次发布
 
