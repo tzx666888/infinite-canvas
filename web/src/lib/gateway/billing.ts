@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { NextRequest } from "next/server";
 
 import { AuthError } from "../auth/auth-error.ts";
 import { listSubmittedBillingTasks, refundCredits, refundCreditsByTask, reserveCredits, resolveCustomerPrice, settleCredits, settleCreditsByTask } from "../auth/store.ts";
@@ -18,7 +17,7 @@ export type GatewayReservation = {
     amount: number;
 };
 
-export async function reserveGatewayRequest(request: NextRequest, path: string, identity: GatewayIdentity, requestIdOverride?: string): Promise<GatewayReservation | null> {
+export async function reserveGatewayRequest(request: Request, path: string, identity: GatewayIdentity, requestIdOverride?: string): Promise<GatewayReservation | null> {
     if (request.method !== "POST" || path === "v1/models") return null;
     const prices = modelPrices();
     if (!billingEnabled()) return null;
@@ -184,7 +183,7 @@ function agentBillingWindowMs() {
     return (Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds, 3600) : DEFAULT_AGENT_BILLING_WINDOW_SECONDS) * 1000;
 }
 
-async function requestUsage(request: NextRequest, path: string) {
+async function requestUsage(request: Request, path: string) {
     let model = "";
     let images = 1;
     let seconds = 1;

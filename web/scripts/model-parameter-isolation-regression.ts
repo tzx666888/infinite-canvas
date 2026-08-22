@@ -77,8 +77,11 @@ assert.match(imageServiceSource, /buildTokaxisGoogleImageChatRequest/, "Google i
 assert.match(proxySource, /unsupported_video_model/, "unknown video models must be rejected at the canvas proxy");
 assert.match(upstreamAuthSource, /CANVAS_UPSTREAM_API_KEY/, "the private gateway must use only its server-side service credential upstream");
 assert.doesNotMatch(upstreamAuthSource, /getCanvasUpstreamApiKey|saveCanvasUpstreamApiKey|internal\/canvas\/token/, "Canvas keys must never resolve to a customer station key");
-assert.match(proxySource, /resolveStationUpstreamAuthorization/, "station keys must bypass the Canvas ledger and settle upstream directly");
+assert.doesNotMatch(proxySource, /resolveStationUpstreamAuthorization|startsWith\(["']sk-/, "station keys must never enter the Canvas gateway");
+assert.match(proxySource, /gateway-ip:.*requestAddress/, "the Canvas model gateway must have an independent per-IP rate limit");
+assert.match(proxySource, /MAX_GATEWAY_BODY_BYTES/, "the Canvas model gateway must reject oversized request bodies before forwarding");
 assert.match(configSource, /value\.startsWith\("vc_live_"\)/, "station Canvas keys must not be rewritten with a legacy sk- prefix before model sync");
+assert.match(configSource, /startsWith\("sk-"\)\s*\?\s*TOKAXIS_STATION_BASE_URL/, "station keys must call NewAPI directly instead of crossing the Canvas gateway");
 assert.doesNotMatch(settingsSource, /grok-imagine-image-lite/, "the server fallback must not expose an unavailable Grok image model");
 assert.doesNotMatch(configSource, /"grok-imagine-image-lite"/, "the client fallback must not expose an unavailable Grok image model");
 

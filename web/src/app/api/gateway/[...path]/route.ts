@@ -4,11 +4,12 @@ import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { AuthError, authErrorResponse } from "../../../../lib/auth/auth-error.ts";
+import { enforceRateLimit, requestAddress } from "../../../../lib/auth/rate-limit.ts";
 import { authenticateCanvasApiKey } from "../../../../lib/auth/store.ts";
 import { ensureGatewayTaskReconciler, finalizeGatewayResponse, publicModelPrices, reconcileGatewayTaskResponse, refundGatewayReservation, reserveGatewayRequest, settleGatewayReservation, type GatewayReservation } from "../../../../lib/gateway/billing.ts";
 import { buildCanvasAttributionHeaders } from "../../../../lib/gateway/attribution.ts";
 import { sanitizeGatewayErrorResponse } from "../../../../lib/gateway/errors.ts";
-import { resolveCanvasUpstreamAuthorization, resolveStationUpstreamAuthorization } from "../../../../lib/gateway/upstream-auth.ts";
+import { resolveCanvasUpstreamAuthorization } from "../../../../lib/gateway/upstream-auth.ts";
 import { storeTemporaryMediaDataUrl } from "../../../../lib/temporary-media.ts";
 
 export const runtime = "nodejs";
@@ -18,6 +19,10 @@ const UPSTREAM_ORIGIN = (process.env.CANVAS_UPSTREAM_ORIGIN || process.env.TOKAX
 const LONG_RUNNING_IMAGE_PATH = /^v1\/images\/(?:generations|edits)$/;
 const IMAGE_HEARTBEAT_INTERVAL_MS = 15_000;
 const IMAGE_HEARTBEAT_CHUNK = new TextEncoder().encode(`${" ".repeat(4096)}\n`);
+const MAX_GATEWAY_BODY_BYTES = positiveEnvironmentInteger("CANVAS_GATEWAY_MAX_BODY_BYTES", 64 * 1024 * 1024);
+const GATEWAY_IP_RATE_LIMIT = positiveEnvironmentInteger("CANVAS_GATEWAY_IP_RATE_LIMIT", 120);
+const GATEWAY_KEY_RATE_LIMIT = positiveEnvironmentInteger("CANVAS_GATEWAY_KEY_RATE_LIMIT", 120);
+const GATEWAY_RATE_WINDOW_MS = 60_000;
 const FORWARDED_PATHS = [
     /^v1\/responses$/,
     /^v1\/chat\/completions$/,
@@ -77,17 +82,21 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         const path = (params.path || []).join("/");
         if (!FORWARDED_PATHS.some((pattern) => pattern.test(path))) return Response.json({ error: { message: "模型接口路径不受支持" } }, { status: 404 });
 
+        rejectOversizedContentLength(request);
+        enforceRateLimit(`gateway-ip:${requestAddress(request)}`, GATEWAY_IP_RATE_LIMIT, GATEWAY_RATE_WINDOW_MS, "模型网关请求过多，请稍后再试");
+
         const suppliedAuthorization = request.headers.get("authorization") || "";
-        const stationAuthorization = resolveStationUpstreamAuthorization(suppliedAuthorization);
-        const identity = stationAuthorization ? null : await authenticateCanvasApiKey(suppliedAuthorization);
-        if (!stationAuthorization && !identity) return Response.json({ error: { code: "invalid_api_key", message: "中转站 Key 或画布 Key 无效" } }, { status: 401 });
+        const identity = await authenticateCanvasApiKey(suppliedAuthorization);
+        if (!identity) return Response.json({ error: { code: "invalid_api_key", message: "画布专用 Key 无效" } }, { status: 401 });
+        enforceRateLimit(`gateway-key:${identity.keyId}`, GATEWAY_KEY_RATE_LIMIT, GATEWAY_RATE_WINDOW_MS, "此画布 Key 请求过多，请稍后再试");
         if (!UPSTREAM_ORIGIN) throw new AuthError("模型服务尚未配置", 503, "gateway_not_configured");
-        const authorization = stationAuthorization || resolveCanvasUpstreamAuthorization();
+        const authorization = resolveCanvasUpstreamAuthorization();
         if (!authorization) throw new AuthError("模型服务授权尚未配置", 503, "gateway_not_configured");
-        if (identity) {
-            ensureGatewayTaskReconciler();
-            reservation = await reserveGatewayRequest(request, path, { keyId: identity.keyId, userId: identity.user.id });
-        }
+
+        const rawBody = request.method === "GET" ? undefined : await readBoundedRequestBody(request);
+        const bodyRequest = () => recreateRequest(request, rawBody);
+        ensureGatewayTaskReconciler();
+        reservation = await reserveGatewayRequest(bodyRequest(), path, { keyId: identity.keyId, userId: identity.user.id });
 
         const upstreamUrl = new URL(`${UPSTREAM_ORIGIN}/${path}`);
         upstreamUrl.search = request.nextUrl.search;
@@ -97,13 +106,13 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         headers.set("Authorization", authorization);
         headers.set("Accept-Encoding", "identity");
         const canvasRequestId = request.headers.get("x-canvas-request-id")?.trim() || randomUUID();
-        if (identity) buildCanvasAttributionHeaders({ userId: identity.user.id, username: identity.user.username }, canvasRequestId).forEach((value, key) => headers.set(key, value));
+        buildCanvasAttributionHeaders({ userId: identity.user.id, username: identity.user.username }, canvasRequestId).forEach((value, key) => headers.set(key, value));
 
         let videoModel = "";
         if (request.method === "POST" && path === "v1/videos/generations") {
-            videoModel = await videoGenerationRequestModel(request);
+            videoModel = await videoGenerationRequestModel(bodyRequest());
             if (!isTokaxisAsyncVideoModel(videoModel)) {
-                if (isTokaxisLegacyGrokVideoModel(videoModel)) return finishGatewayResponse(await proxyLegacyGrokVideoGeneration(request, authorization, headers), reservation);
+                if (isTokaxisLegacyGrokVideoModel(videoModel)) return finishGatewayResponse(await proxyLegacyGrokVideoGeneration(bodyRequest(), authorization, headers), reservation);
                 return finishGatewayResponse(Response.json({ error: { code: "unsupported_video_model", message: `视频模型 ${videoModel || "(空)"} 不支持此生成接口` } }, { status: 400 }), reservation);
             }
         }
@@ -112,7 +121,7 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
 
         let body: ArrayBuffer | undefined;
         try {
-            body = request.method === "GET" ? undefined : isMiniMaxH3Model(videoModel) ? await prepareMiniMaxH3RequestBody(request) : await request.arrayBuffer();
+            body = rawBody === undefined ? undefined : isMiniMaxH3Model(videoModel) ? await prepareMiniMaxH3RequestBody(bodyRequest()) : exactArrayBuffer(rawBody);
         } catch (error) {
             const message = error instanceof Error ? error.message : "参考素材处理失败";
             return finishGatewayResponse(Response.json({ error: { code: "invalid_reference_media", message } }, { status: 400 }), reservation);
@@ -150,6 +159,58 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
     }
 }
 
+function positiveEnvironmentInteger(name: string, fallback: number) {
+    const value = Number(process.env[name] || fallback);
+    return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+function rejectOversizedContentLength(request: Request) {
+    const raw = request.headers.get("content-length");
+    if (!raw) return;
+    const length = Number(raw);
+    if (!Number.isSafeInteger(length) || length < 0) throw new AuthError("Content-Length 无效", 400, "invalid_content_length");
+    if (length > MAX_GATEWAY_BODY_BYTES) throw new AuthError("请求内容过大", 413, "request_body_too_large");
+}
+
+async function readBoundedRequestBody(request: Request) {
+    if (!request.body) return new Uint8Array();
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.byteLength;
+            if (total > MAX_GATEWAY_BODY_BYTES) throw new AuthError("请求内容过大", 413, "request_body_too_large");
+            chunks.push(value);
+        }
+    } finally {
+        reader.releaseLock();
+    }
+    const body = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+        body.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return body;
+}
+
+function recreateRequest(request: NextRequest, body: Uint8Array | undefined) {
+    return new Request(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: body === undefined ? undefined : exactArrayBuffer(body),
+    });
+}
+
+function exactArrayBuffer(value: Uint8Array) {
+    const copy = new Uint8Array(value.byteLength);
+    copy.set(value);
+    return copy.buffer;
+}
+
 async function filterPublicModelCatalog(upstreamResponse: Response, responseHeaders: Headers) {
     const payload = await upstreamResponse.json().catch(() => null);
     const allowedModels = new Set(Object.keys(publicModelPrices()).map((model) => model.toLowerCase()));
@@ -171,10 +232,10 @@ async function finishGatewayResponse(response: Response, reservation: GatewayRes
     return finalizeGatewayResponse(response, reservation);
 }
 
-async function prepareMiniMaxH3RequestBody(request: NextRequest) {
+async function prepareMiniMaxH3RequestBody(request: Request) {
     const payload = (await request.json()) as Record<string, unknown>;
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("MiniMax H3 视频请求必须是 JSON 对象");
-    const publicOrigin = process.env.CANVAS_PUBLIC_ORIGIN || request.nextUrl.origin;
+    const publicOrigin = process.env.CANVAS_PUBLIC_ORIGIN || new URL(request.url).origin;
     for (const field of ["images", "reference_images", "reference_image_urls", "audios", "reference_audios"] as const) {
         const value = payload[field];
         if (value !== undefined) payload[field] = Array.isArray(value) ? await Promise.all(value.map((item) => materializeMiniMaxH3Media(item, publicOrigin))) : await materializeMiniMaxH3Media(value, publicOrigin);
@@ -196,7 +257,7 @@ async function materializeMiniMaxH3Media(value: unknown, publicOrigin: string): 
     return record;
 }
 
-async function videoGenerationRequestModel(request: NextRequest) {
+async function videoGenerationRequestModel(request: Request) {
     try {
         const payload = (await request.clone().json()) as { model?: unknown };
         return typeof payload?.model === "string" ? payload.model : "";
@@ -217,7 +278,7 @@ function isTokaxisLegacyGrokVideoModel(model: string) {
     return TOKAXIS_LEGACY_GROK_VIDEO_MODELS.has(model.trim().toLowerCase().split("::").at(-1) || "");
 }
 
-async function proxyLegacyGrokVideoGeneration(request: NextRequest, authorization: string, upstreamHeaders: Headers) {
+async function proxyLegacyGrokVideoGeneration(request: Request, authorization: string, upstreamHeaders: Headers) {
     try {
         const payload = (await request.json()) as LegacyGrokVideoPayload;
         if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("视频请求必须是 JSON 对象");

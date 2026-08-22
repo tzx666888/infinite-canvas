@@ -106,6 +106,7 @@ try {
             CANVAS_BOOTSTRAP_ROOT_CREDITS: "100",
             CANVAS_INVITE_INITIAL_CREDITS: "20",
             CANVAS_BILLING_ENABLED: "true",
+            CANVAS_GATEWAY_MAX_BODY_BYTES: "1048576",
             CANVAS_MODEL_PRICES_JSON: JSON.stringify({
                 "gpt-5.6-sol": { credits: 1, unit: "request" },
                 "gpt-image-2": { credits: 2, unit: "image" },
@@ -339,6 +340,12 @@ try {
     assert.equal(compatibilityModels.response.status, 200, "saved clients using the old same-origin path must keep working");
     const invalidKey = await requestJson(`${origin}/api/gateway/v1/models`, { headers: { Authorization: "Bearer vc_live_invalid" } });
     assert.equal(invalidKey.response.status, 401);
+    const oversizedRequest = await requestJson(`${origin}/api/gateway/v1/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${activeCanvasKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "gpt-5.6-sol", input: "x".repeat(1048576) }),
+    });
+    assert.equal(oversizedRequest.response.status, 413, "oversized model bodies must be rejected before parsing or forwarding");
 
     const agent = await requestJson(`${origin}/api/gateway/v1/chat/completions`, {
         method: "POST",
@@ -354,11 +361,10 @@ try {
         headers: { Authorization: "Bearer sk-station-user-secret", "Content-Type": "application/json" },
         body: JSON.stringify({ model: "gpt-5.6-sol", messages: [{ role: "user", content: "station-key-only" }] }),
     });
-    assert.equal(stationKeyCall.response.status, 200, JSON.stringify(stationKeyCall.body));
-    assert.equal((await wallet(origin, cookie)).credits, beforeStationKeyCall.credits, "a station key call must not reserve or settle Canvas credits");
+    assert.equal(stationKeyCall.response.status, 401, "station keys must call NewAPI directly and must never enter the Canvas gateway");
+    assert.equal((await wallet(origin, cookie)).credits, beforeStationKeyCall.credits, "a rejected station key must not reserve or settle Canvas credits");
     const stationUpstreamCall = requests.find((item) => item.body?.messages?.[0]?.content === "station-key-only");
-    assert.equal(stationUpstreamCall?.authorization, "Bearer sk-station-user-secret", "a station key must be forwarded as its own upstream settlement credential");
-    assert.equal(stationUpstreamCall?.canvasUserId, undefined, "a station key call must not be attributed to the Canvas ledger");
+    assert.equal(stationUpstreamCall, undefined, "a station key must not consume Canvas bandwidth or upstream rate limits");
 
     const beforeAgentSession = await wallet(origin, cookie);
     for (let round = 0; round < 6; round += 1) {
@@ -467,7 +473,7 @@ try {
     assert.doesNotMatch(JSON.stringify(ttsHandoff.body), /https?:\/\//i, "an incomplete TTS handoff must not reveal an external website");
 
     const modelRequests = requests.filter((item) => item.url?.startsWith("/v1/"));
-    const canvasModelRequests = modelRequests.filter((item) => item.authorization !== "Bearer sk-station-user-secret");
+    const canvasModelRequests = modelRequests;
     assert.ok(canvasModelRequests.length > 0);
     assert.ok(
         canvasModelRequests.every((item) => item.authorization === "Bearer upstream-service-secret"),

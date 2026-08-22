@@ -70,6 +70,7 @@ export type ModelCapability = "image" | "video" | "text" | "audio";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const TOKAXIS_CHANNEL_ID = "tokaxis";
 const TOKAXIS_BASE_URL = "/api/gateway";
+const TOKAXIS_STATION_BASE_URL = "https://ai.tokaxis.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const TOKAXIS_DEFAULTS_VERSION = 24;
 const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 24;
@@ -262,7 +263,7 @@ export const useConfigStore = create<ConfigStore>()(
 
                 if (authApiKey) {
                     try {
-                        const response = await fetch(buildApiUrl(TOKAXIS_BASE_URL, "/models"), {
+                        const response = await fetch(buildApiUrl(tokaxisBaseUrlForKey(authApiKey), "/models"), {
                             headers: { Authorization: `Bearer ${authApiKey}` },
                         });
                         if (!response.ok) {
@@ -430,7 +431,7 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
     return {
         ...config,
         model: modelOptionName(value || config.model),
-        baseUrl: channel.baseUrl,
+        baseUrl: channel.id === TOKAXIS_CHANNEL_ID ? tokaxisBaseUrlForKey(channel.apiKey) : channel.baseUrl,
         apiKey: channel.apiKey,
         apiFormat: channel.apiFormat,
     };
@@ -569,6 +570,10 @@ function normalizeTokaxisApiKey(apiKey: string) {
     return value.startsWith("vc_live_") || value.startsWith("sk-") ? value : `sk-${value}`;
 }
 
+function tokaxisBaseUrlForKey(apiKey: string) {
+    return normalizeTokaxisApiKey(apiKey).startsWith("sk-") ? TOKAXIS_STATION_BASE_URL : TOKAXIS_BASE_URL;
+}
+
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
     return apiFormat === "gemini" ? GEMINI_BASE_URL : TOKAXIS_BASE_URL;
 }
@@ -601,12 +606,6 @@ export function buildApiUrl(baseUrl: string, path: string) {
 function normalizeTokaxisProxyBaseUrl(baseUrl: string) {
     const normalized = baseUrl.trim().replace(/\/+$/, "");
     if (normalized === "/api/tokaxis") return TOKAXIS_BASE_URL;
-    try {
-        const url = new URL(normalized);
-        if (url.hostname.toLowerCase() === "ai.tokaxis.com" && (url.pathname === "" || url.pathname === "/" || url.pathname === "/v1")) return TOKAXIS_BASE_URL;
-    } catch {
-        // Relative URLs such as /api/tokaxis land here.
-    }
     return normalized;
 }
 
