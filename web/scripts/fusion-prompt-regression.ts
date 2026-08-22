@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import type { CanvasFusionPlacementPlan } from "../src/app/(user)/canvas/types";
 import { buildFusionPlannerMessages, buildSceneAwareImageEditPrompt } from "../src/lib/fusion-plan-prompt";
@@ -105,6 +107,14 @@ const plannerUserContent = plannerMessages[1].content;
 assert.ok(Array.isArray(plannerUserContent));
 assert.match(plannerUserContent[0].type === "text" ? plannerUserContent[0].text : "", /用户任务：放在右侧台面/);
 assert.match(plannerUserContent[0].type === "text" ? plannerUserContent[0].text : "", /完整落在画面内且清楚可辨/);
+
+const plannerSource = await readFile(path.join(import.meta.dirname, "../src/services/api/fusion-placement.ts"), "utf8");
+assert.match(plannerSource, /FUSION_PLANNER_MODEL = "tokaxis::gpt-5\.6-sol"/, "视觉规划必须固定使用支持图片输入的模型");
+assert.doesNotMatch(plannerSource, /config\.textModel\s*\|\|/, "视觉规划不得跟随用户选择的 DeepSeek 等普通文本模型");
+
+const canvasClientSource = await readFile(path.join(import.meta.dirname, "../src/app/(user)/canvas/[id]/canvas-client-page.tsx"), "utf8");
+assert.match(canvasClientSource, /视觉分析暂不可用，已自动跳过并继续生图/, "视觉规划失败后必须继续执行真实生图请求");
+assert.doesNotMatch(canvasClientSource, /generationErrorKind = "planner_failed"/, "可降级的视觉规划错误不得把图片节点判为失败");
 
 console.log("fusion prompt regression: passed");
 

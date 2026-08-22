@@ -12,14 +12,13 @@ type ChatCompletionResponse = {
     message?: string;
 };
 
-const DEFAULT_FUSION_PLANNER_MODEL = "tokaxis::gpt-5.6-sol";
+export const FUSION_PLANNER_MODEL = "tokaxis::gpt-5.6-sol";
 
 type FusionPlacementRequestOptions = { signal?: AbortSignal; userPrompt?: string };
 
 export async function requestFusionPlacementPlan(config: AiConfig, sceneImage: ReferenceImage, productImages: ReferenceImage[], options?: FusionPlacementRequestOptions) {
     if (!productImages.length) throw new Error("融图规划至少需要一张产品图");
-    const plannerModel = config.textModel || DEFAULT_FUSION_PLANNER_MODEL;
-    const requestConfig = resolveModelRequestConfig(config, plannerModel);
+    const requestConfig = resolveModelRequestConfig(config, FUSION_PLANNER_MODEL);
     const hydratedSceneImage = await hydrateReferenceImage(sceneImage);
     const hydratedProductImages = await Promise.all(productImages.map(hydrateReferenceImage));
     let lastError: unknown;

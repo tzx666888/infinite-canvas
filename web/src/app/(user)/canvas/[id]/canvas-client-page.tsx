@@ -4176,29 +4176,10 @@ function InfiniteCanvasPage() {
                             } catch (error) {
                                 if (controller.signal.aborted) throw new Error("请求已取消");
                                 if (isGenerationCanceled(error)) throw error;
-                                const plannerError = fusionPlacementPlannerErrorMessage(error);
-                                generationErrorKind = "planner_failed";
                                 console.warn("[canvas] fusion placement planner failed", error);
-                                setNodes((prev) =>
-                                    prev.map((node) =>
-                                        stageNodeIds.has(node.id) || (node.id === nodeId && isConfigNode)
-                                            ? {
-                                                  ...node,
-                                                  metadata: {
-                                                      ...node.metadata,
-                                                      status: NODE_STATUS_ERROR,
-                                                      statusMessage: undefined,
-                                                      errorDetails: plannerError,
-                                                      fusionPlacementPlanV1: undefined,
-                                                  },
-                                              }
-                                            : node,
-                                    ),
-                                );
-                                message.error(plannerError);
-                                targetIds.forEach((targetId) => finishGenerationRequest(targetId, controller));
-                                if (count > 1) finishGenerationRequest(rootId, controller);
-                                return;
+                                fusionPlacementPlan = undefined;
+                                updateImageGenerationStage("视觉分析已跳过，正在直接生图...");
+                                message.info("视觉分析暂不可用，已自动跳过并继续生图");
                             }
                         } else {
                             updateImageGenerationStage("融合产品...");
@@ -6039,17 +6020,6 @@ function Shortcut({ keys, value }: { keys: string[]; value: string }) {
 
 function imageExtension(dataUrl: string) {
     return dataUrl.match(/^data:image[/]([^;]+)/)?.[1] || dataUrl.match(/image[/]([^;]+)/)?.[1] || "png";
-}
-
-function fusionPlacementPlannerErrorMessage(error: unknown) {
-    const raw = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-    const detail = raw.trim();
-    const lower = detail.toLowerCase();
-    if (/524|timeout|timed out|超时/.test(lower)) return "场景摆放规划超时，已停止融合。请稍后重试，或先减少参考产品图。";
-    if (/429|too many|rate|限流|频率/.test(lower)) return "场景摆放规划请求过多，已停止融合。请稍后重试。";
-    if (/401|403|unauthorized|forbidden|api key|令牌|权限/.test(lower)) return "当前令牌无法完成场景摆放规划，已停止融合。请检查模型权限后重试。";
-    if (/json|schema|parse|格式/.test(lower)) return "场景摆放规划返回格式异常，已停止融合。请重试一次。";
-    return "场景摆放规划暂时不可用，已停止融合，避免生成错误合成图。请稍后重试。";
 }
 
 function audioExtension(mimeType?: string) {

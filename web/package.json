@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-    "version": "3.133.0",
+    "version": "3.134.0",
     "private": true,
     "type": "module",
     "scripts": {
@@ -24,6 +24,7 @@
         "test:image-jobs": "node --experimental-strip-types scripts/image-job-recovery-regression.ts",
         "test:canvas-viewport": "node --experimental-strip-types scripts/canvas-viewport-regression.ts",
         "test:canvas-media": "node --experimental-strip-types scripts/canvas-media-budget-regression.ts",
+        "test:csp-media": "node --experimental-strip-types scripts/csp-blob-media-regression.ts",
         "test:canvas-prompts": "node --experimental-strip-types scripts/canvas-prompt-regression.ts",
         "test:auth-bridge": "node --experimental-strip-types scripts/auth-bridge-regression.ts",
         "test:payment-gateway": "node --experimental-strip-types scripts/payment-gateway-regression.ts",
