@@ -777,12 +777,13 @@ assert.match(canvasClientSource, /item\.metadata\?\.status !== NODE_STATUS_ERROR
 assert.match(canvasClientSource, /nodeOwnsVideoTiming = node\?\.type === CanvasNodeType\.Video \|\| node\?\.type === CanvasNodeType\.Config/, "image and storyboard nodes must use the active video duration instead of stale image metadata");
 assert.match(hoverToolbarSource, /label: "生成整片"/, "review sheets must expose the full-video workflow");
 assert.match(hoverToolbarSource, /label: "生成分段"/, "plan nodes must distinguish clip generation from full-video generation");
-assert.match(configStoreSource, /textModel: "tokaxis::gpt-5\.6-sol"/, "built-in text optimization model must default to GPT-5.6 Sol");
-assert.match(configStoreSource, /shouldMigrateTokaxisDefaults \? defaultConfig\.textModel/, "existing persisted defaults must migrate to GPT-5.6 Sol");
+assert.match(configStoreSource, /TOKAXIS_AGENT_TEXT_MODEL_IDS = \["deepseek-v4-pro-ga-260813", "doubao-seed-2-1-pro-260628"\]/, "built-in Agent text routes must include DeepSeek and Doubao");
+assert.match(configStoreSource, /textModel: `tokaxis::\$\{TOKAXIS_AGENT_TEXT_MODEL_IDS\[0\]\}`/, "built-in text optimization must default to the primary Agent text route");
+assert.match(configStoreSource, /shouldMigrateTokaxisDefaults \? defaultConfig\.textModel/, "existing persisted defaults must migrate to the current Agent text route");
 assert.match(
     configStoreSource,
-    /shouldMigrateModels \? \["gpt-5\.6-sol", \.\.\.Object\.values\(TOKAXIS_GOOGLE_IMAGE_MODELS\), \.\.\.ACTIVE_GOOGLE_VIDEO_MODEL_IDS, \.\.\.TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS\]/,
-    "legacy channel model lists must receive GPT-5.6 Sol, Google image sizes, active Omni models, and MiniMax H3 during migration",
+    /\.\.\.TOKAXIS_AGENT_TEXT_MODEL_IDS, \.\.\.\(shouldMigrateModels \? \["gpt-5\.6-sol", \.\.\.Object\.values\(TOKAXIS_GOOGLE_IMAGE_MODELS\), \.\.\.ACTIVE_GOOGLE_VIDEO_MODEL_IDS, \.\.\.TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS\]/,
+    "legacy channel model lists must receive Agent text routes, GPT-5.6 Sol, Google image sizes, active Omni models, and MiniMax H3 during migration",
 );
 assert.doesNotMatch(promptPanelSource, /tokaxis::gpt-5\.5/, "prompt polish UI must not retain a GPT-5.5 fallback");
 assert.match(videoServiceSource, /const requestReferences = references;/, "Google video requests must preserve the routed reference-image set");

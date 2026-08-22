@@ -1,4 +1,4 @@
-import type { CanvasNodeMetadata } from "../types";
+import type { CanvasNodeData, CanvasNodeMetadata } from "../types";
 
 const CANVAS_IMAGE_JOB_RESULT_PATTERN = /^\/api\/image-jobs\/[A-Za-z0-9_-]+\/result\/\d+(?:[?#].*)?$/;
 
@@ -23,6 +23,10 @@ export function stageCanvasImageJobResult(metadata: CanvasNodeMetadata | undefin
 
 export function shouldRecoverCanvasImageJob(metadata?: CanvasNodeMetadata) {
     return Boolean(metadata?.pendingImageJobId);
+}
+
+export function isRecoverableCanvasImageNodeType(type: CanvasNodeData["type"]) {
+    return type === "image" || type === "panorama";
 }
 
 export function imageJobFailureMetadata(metadata: CanvasNodeMetadata | undefined, errorDetails: string, terminal: boolean): CanvasNodeMetadata {

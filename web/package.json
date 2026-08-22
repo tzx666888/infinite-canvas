@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-  "version": "3.128.0",
+    "version": "3.129.0",
     "private": true,
     "type": "module",
     "scripts": {
@@ -28,6 +28,7 @@
         "test:auth-bridge": "node --experimental-strip-types scripts/auth-bridge-regression.ts",
         "test:payment-gateway": "node --experimental-strip-types scripts/payment-gateway-regression.ts",
         "test:payment-gateway-e2e": "node --experimental-strip-types scripts/payment-gateway-e2e.mjs",
+        "test:director-embed": "node --experimental-strip-types scripts/director-embed-regression.ts",
         "test:private-gateway": "node scripts/private-gateway-e2e.mjs",
         "format": "prettier --write .",
         "format:check": "prettier --check ."

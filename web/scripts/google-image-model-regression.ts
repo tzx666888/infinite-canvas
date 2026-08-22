@@ -19,7 +19,8 @@ import {
 } from "../src/lib/tokaxis-google-image.ts";
 import { normalizeImageQualityForModel } from "../src/lib/image-quality.ts";
 
-assert.equal(Object.keys(TOKAXIS_GOOGLE_NATIVE_SIZES).length, 14, "Google 模型必须保留官方 14 种比例");
+assert.equal(Object.keys(TOKAXIS_GOOGLE_NATIVE_SIZES).length, 15, "Google 模型必须保留当前 15 种比例（含 2:1 全景）");
+assert.equal(TOKAXIS_GOOGLE_NATIVE_SIZES["2:1"]["4K"], "6144x3072", "2:1 全景必须映射到原生 4K 尺寸");
 assert.deepEqual(TOKAXIS_GOOGLE_IMAGE_SIZES, ["4K"]);
 
 for (const imageSize of TOKAXIS_GOOGLE_IMAGE_SIZES) {
@@ -98,9 +99,9 @@ assert.match(imageServiceSource, /supportsGptImageInputFidelity\(requestModel\)/
 assert.match(imageServiceSource, /!\/\^gpt-image-2/, "GPT Image 2 requests must omit the unsupported input_fidelity field");
 assert.doesNotMatch(settingsSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["(?:1K|2K)"\]/, "settings API must not expose retired Google image aliases");
 assert.doesNotMatch(configStoreSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["(?:1K|2K)"\]/, "model sync must not expose retired Google image aliases");
-assert.match(configStoreSource, /TOKAXIS_DEFAULTS_VERSION = 22/, "saved model lists must migrate to the current public model contract");
-assert.match(configStoreSource, /TOKAXIS_DEFAULT_SELECTIONS_VERSION = 20/, "saved 1K\/2K selections must migrate to 4K");
+assert.match(configStoreSource, /TOKAXIS_DEFAULTS_VERSION = 24/, "saved model lists must migrate to the current public model contract");
+assert.match(configStoreSource, /TOKAXIS_DEFAULT_SELECTIONS_VERSION = 24/, "saved model selections must migrate to the current 4K and Agent defaults");
 assert.match(settingsPanelSource, /usesNativeGoogleSizes \? resolutionOptions\.filter\(\(item\) => item\.value === "4k"\)/, "Google image settings must show only the 4K resolution choice");
 assert.match(canvasClientSource, /VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS = \["gemini-3\.1-flash-image-4k", "gpt-image-2"\]/, "video bridge fallback must never request retired Google image aliases");
 
-console.log("Google image model contract passed: 4K-only public model, legacy migration, 14 native ratios.");
+console.log("Google image model contract passed: 4K-only public model, legacy migration, 15 native ratios including 2:1.");

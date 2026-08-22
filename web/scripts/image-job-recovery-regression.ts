@@ -43,7 +43,11 @@ process.env.IMAGE_JOB_DIR = jobDirectory;
 process.env.TOKAXIS_INTERNAL_ORIGIN = `http://127.0.0.1:${address.port}`;
 
 const { cancelImageJob, collectImageJobOutputs, getImageJob, readImageJobResult, submitImageJob, toPublicImageJob } = await import("../src/server/image-job-store.ts");
-const { imageJobFailureMetadata, shouldRecoverCanvasImageJob, stageCanvasImageJobResult } = await import("../src/app/(user)/canvas/utils/image-job-recovery.ts");
+const { imageJobFailureMetadata, isRecoverableCanvasImageNodeType, shouldRecoverCanvasImageJob, stageCanvasImageJobResult } = await import("../src/app/(user)/canvas/utils/image-job-recovery.ts");
+
+assert.equal(isRecoverableCanvasImageNodeType("image"), true);
+assert.equal(isRecoverableCanvasImageNodeType("panorama"), true, "全景节点必须恢复已完成的服务端图片任务");
+assert.equal(isRecoverableCanvasImageNodeType("video"), false);
 
 try {
     const nestedOutputs = collectImageJobOutputs({

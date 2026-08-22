@@ -100,7 +100,7 @@ import { composePromptWithUpstreamText } from "../utils/prompt-composition";
 import { selectLeafFailureIds } from "../utils/retry-selection";
 import { canvasNodeErrorMessage } from "../utils/node-error-display";
 import { inferDirectVideoReferencePair, resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
-import { imageJobFailureMetadata, isCanvasImageJobResultUrl, shouldRecoverCanvasImageJob, stageCanvasImageJobResult } from "../utils/image-job-recovery";
+import { imageJobFailureMetadata, isCanvasImageJobResultUrl, isRecoverableCanvasImageNodeType, shouldRecoverCanvasImageJob, stageCanvasImageJobResult } from "../utils/image-job-recovery";
 import { selectRichMediaNodeIds } from "../utils/canvas-media-budget";
 import { lockPreparedAgentVideoConfig, prepareCanvasAgentVideo, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
 import type { VideoGenerationPreflightResult } from "../utils/video-generation-preflight";
@@ -804,7 +804,7 @@ function InfiniteCanvasPage() {
 
     useEffect(() => {
         if (!projectLoaded) return;
-        const pendingNodes = nodes.filter((node) => node.type === CanvasNodeType.Image && shouldRecoverCanvasImageJob(node.metadata));
+        const pendingNodes = nodes.filter((node) => isRecoverableCanvasImageNodeType(node.type) && shouldRecoverCanvasImageJob(node.metadata));
         pendingNodes.forEach((pendingNode) => {
             const jobId = pendingNode.metadata?.pendingImageJobId;
             if (!jobId || recoveringImageJobIdsRef.current.has(jobId) || attemptedImageJobRecoveryIdsRef.current.has(jobId)) return;
@@ -829,8 +829,9 @@ function InfiniteCanvasPage() {
                     }).then((items) => items[0]);
                     stagedResultUrl = image.dataUrl;
                     const uploaded = await uploadImage(image.dataUrl);
-                    const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
-                    const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
+                    const isPanoramaNode = pendingNode.type === CanvasNodeType.Panorama;
+                    const imageConfig = isPanoramaNode ? PANORAMA_NODE_SIZE : NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+                    const imageSize = isPanoramaNode ? PANORAMA_NODE_SIZE : fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
                     setNodes((prev) => {
                         const target = prev.find((node) => node.id === pendingNode.id);
                         const batchRootId = target?.metadata?.batchRootId;
@@ -845,6 +846,7 @@ function InfiniteCanvasPage() {
                                     metadata: {
                                         ...node.metadata,
                                         ...imageMetadata(uploaded),
+                                        ...(isPanoramaNode ? { size: PANORAMA_IMAGE_SIZE, panoramaProjection: "equirectangular" as const } : {}),
                                         pendingImageJobId: undefined,
                                         statusMessage: undefined,
                                         errorDetails: undefined,
@@ -861,6 +863,7 @@ function InfiniteCanvasPage() {
                                     metadata: {
                                         ...node.metadata,
                                         ...imageMetadata(uploaded),
+                                        ...(isPanoramaNode ? { size: PANORAMA_IMAGE_SIZE, panoramaProjection: "equirectangular" as const } : {}),
                                         primaryImageId: pendingNode.id,
                                         statusMessage: undefined,
                                         errorDetails: undefined,
@@ -1205,12 +1208,13 @@ function InfiniteCanvasPage() {
         return map;
     }, [connections, nodeById, nodes]);
 
-    const handleEnhancedDirectorProjectChange = useCallback((project: unknown) => {
-        if (!directorStudioNodeId) return;
-        setNodes((prev) => prev.map((node) => node.id === directorStudioNodeId && node.type === CanvasNodeType.Director
-            ? { ...node, metadata: { ...node.metadata, directorProject: project } }
-            : node));
-    }, [directorStudioNodeId]);
+    const handleEnhancedDirectorProjectChange = useCallback(
+        (project: unknown) => {
+            if (!directorStudioNodeId) return;
+            setNodes((prev) => prev.map((node) => (node.id === directorStudioNodeId && node.type === CanvasNodeType.Director ? { ...node, metadata: { ...node.metadata, directorProject: project } } : node)));
+        },
+        [directorStudioNodeId],
+    );
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
     const pendingVideoSourceNode = pendingVideoGeneration ? nodeById.get(pendingVideoGeneration.nodeId) || pendingVideoGeneration.storyboardReviewSnapshot || null : null;
     const pendingVideoContext = useMemo(
@@ -5718,6 +5722,7 @@ function InfiniteCanvasPage() {
                         panoramas={enhancedDirectorPanoramasByNodeId.get(directorStudioNode.id) || []}
                         onClose={() => setDirectorStudioNodeId(null)}
                         onProjectChange={handleEnhancedDirectorProjectChange}
+                        onFallbackSnapshot={(payload) => createDirectorSnapshotNodes(directorStudioNode, payload)}
                         onCaptures={async (captures) => {
                             for (const capture of captures) {
                                 await createDirectorSnapshotNodes(directorStudioNode, {
@@ -6318,26 +6323,29 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
     const resolvedModel = configuredModel && modelMatchesCapability(configuredModel, mode) ? configuredModel : defaultModel || (mode === "audio" ? defaultConfig.audioModel : config.model || defaultConfig.model);
     const nodeOwnsVideoTiming = node?.type === CanvasNodeType.Video || node?.type === CanvasNodeType.Config;
     const resolvedVideoSeconds = (nodeOwnsVideoTiming ? node?.metadata?.seconds : undefined) || config.videoSeconds || defaultConfig.videoSeconds;
-    return lockPreparedAgentVideoConfig({
-        ...config,
-        model: resolvedModel,
-        imageModel: mode === "image" ? resolvedModel : config.imageModel,
-        videoModel: mode === "video" ? resolvedModel : config.videoModel,
-        textModel: mode === "text" ? resolvedModel : config.textModel,
-        audioModel: mode === "audio" ? resolvedModel : config.audioModel,
-        quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
-        size: node?.metadata?.size || config.size || defaultConfig.size,
-        videoSeconds: resolvedVideoSeconds,
-        vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
-        videoProductScaleMode: node?.metadata?.productScaleMode || config.videoProductScaleMode || defaultConfig.videoProductScaleMode,
-        videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
-        videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
-        audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,
-        audioFormat: node?.metadata?.audioFormat || config.audioFormat || defaultConfig.audioFormat,
-        audioSpeed: node?.metadata?.audioSpeed || config.audioSpeed || defaultConfig.audioSpeed,
-        audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,
-        count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultConfig.count),
-    }, mode === "video" ? node : undefined);
+    return lockPreparedAgentVideoConfig(
+        {
+            ...config,
+            model: resolvedModel,
+            imageModel: mode === "image" ? resolvedModel : config.imageModel,
+            videoModel: mode === "video" ? resolvedModel : config.videoModel,
+            textModel: mode === "text" ? resolvedModel : config.textModel,
+            audioModel: mode === "audio" ? resolvedModel : config.audioModel,
+            quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
+            size: node?.metadata?.size || config.size || defaultConfig.size,
+            videoSeconds: resolvedVideoSeconds,
+            vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
+            videoProductScaleMode: node?.metadata?.productScaleMode || config.videoProductScaleMode || defaultConfig.videoProductScaleMode,
+            videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
+            videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
+            audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,
+            audioFormat: node?.metadata?.audioFormat || config.audioFormat || defaultConfig.audioFormat,
+            audioSpeed: node?.metadata?.audioSpeed || config.audioSpeed || defaultConfig.audioSpeed,
+            audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,
+            count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultConfig.count),
+        },
+        mode === "video" ? node : undefined,
+    );
 }
 
 function resolveGenerationProvenance(node: CanvasNodeData | undefined, override?: GenerationProvenance): GenerationProvenance {
