@@ -21,8 +21,10 @@ assert.deepEqual(prepareDirectorPanoramas([{ id: 1, imageUrl: "ok" }, circular])
 
 const directorHtml = readFileSync(new URL("../public/director/index.html", import.meta.url), "utf8");
 const hostBridge = readFileSync(new URL("../public/director/host-bridge.js", import.meta.url), "utf8");
+const directorDialog = readFileSync(new URL("../src/app/(user)/canvas/components/director/enhanced-director-dialog.tsx", import.meta.url), "utf8");
 assert.match(directorHtml, /<script src="\/director\/host-bridge\.js"><\/script>/, "director shell must load the reliable host handshake before the application bundle");
 assert.match(hostBridge, /\.app-shell/, "host handshake must wait until the director UI has mounted");
 assert.match(hostBridge, /storyai:director-session/, "host handshake must stop only after the parent acknowledges the session");
+assert.match(directorDialog, /sandbox="allow-scripts allow-same-origin allow-downloads allow-pointer-lock"/, "the trusted same-origin director bundle needs its isolated browser storage in order to mount");
 
 console.log("Director embed safety regression checks passed.");

@@ -155,7 +155,7 @@ export function EnhancedDirectorDialog({ open, nodeId, project, panoramas = [], 
     if (fallbackMode) return <DirectorStudioDialog open onClose={onClose} onSnapshot={onFallbackSnapshot} />;
     return (
         <div className="fixed inset-0 z-[2100] bg-[#090909]">
-            <iframe key={frameAttempt} ref={iframeRef} title="增强 3D 导演台" src={iframeSrc} sandbox="allow-scripts allow-downloads allow-pointer-lock" className="block h-full w-full border-0" onError={() => setLoadState("failed")} />
+            <iframe key={frameAttempt} ref={iframeRef} title="增强 3D 导演台" src={iframeSrc} sandbox="allow-scripts allow-same-origin allow-downloads allow-pointer-lock" className="block h-full w-full border-0" onError={() => setLoadState("failed")} />
             <button type="button" onClick={onClose} className="absolute right-4 top-4 z-30 rounded-lg border border-white/20 bg-black/70 px-4 py-2 text-sm text-white shadow-lg backdrop-blur" aria-label="关闭导演台">
                 关闭
             </button>
