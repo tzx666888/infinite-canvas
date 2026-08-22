@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { APP_VERSION } from "@/constant/env";
 
@@ -62,7 +62,7 @@ export function EnhancedDirectorDialog({ open, nodeId, project, panoramas = [], 
         }
     }, []);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!open || fallbackMode) return;
 
         const handleMessage = (event: MessageEvent) => {
