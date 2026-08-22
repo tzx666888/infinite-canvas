@@ -46,7 +46,6 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
             const channel = useConfigStore.getState().config.channels[0];
             const apiKey = channel?.apiKey.trim();
             if (!apiKey) return;
-            if (isTokaxisProxyBaseUrl(channel?.baseUrl || "") && !apiKey.startsWith("vc_live_")) return;
             syncedExistingKey.current = true;
             void useConfigStore.getState().syncModelsFromKey(apiKey);
         };
@@ -59,7 +58,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
         const provisionPlatformKey = () => {
             if (!authReady || !user || provisionedPlatformKeyForUser.current === user.id) return;
             const channel = useConfigStore.getState().config.channels[0];
-            if (!isTokaxisProxyBaseUrl(channel?.baseUrl || "") || channel?.apiKey.trim().startsWith("vc_live_")) return;
+            if (!isTokaxisProxyBaseUrl(channel?.baseUrl || "") || channel?.apiKey.trim()) return;
 
             provisionedPlatformKeyForUser.current = user.id;
             void createCanvasApiKey("平台默认 Key")

@@ -119,7 +119,7 @@ export function AppConfigModal() {
         const ready = config.channels.some((channel) => channel.baseUrl.trim() && (!requiresClientApiKey(channel.baseUrl) || channel.apiKey.trim()) && channel.models.length);
         if (!ready) {
             setActiveTab("channels");
-            message.warning("请先填写画布 Key");
+            message.warning("请先填写中转站 Key 或画布 Key");
             return;
         }
         closeFloatingModelPickers();
@@ -264,7 +264,7 @@ export function AppConfigModal() {
             title={
                 <div>
                     <div className="text-lg font-semibold">配置与用户偏好</div>
-                    <div className="mt-1 text-xs font-normal text-stone-500">画布 Key、平台模型和同步偏好</div>
+                    <div className="mt-1 text-xs font-normal text-stone-500">中转站 Key、画布 Key、平台模型和同步偏好</div>
                 </div>
             }
             open={isConfigOpen}
@@ -316,12 +316,12 @@ export function AppConfigModal() {
                                                 <Form.Item label="Base URL" className="mb-0">
                                                     <Input value={channel.baseUrl} disabled />
                                                 </Form.Item>
-                                                <Form.Item label="画布 Key" required className="mb-0 md:col-span-2">
+                                                <Form.Item label="中转站 Key / 画布 Key" required extra="中转站 Key 只扣中转站余额；画布 Key 只扣画布积分。" className="mb-0 md:col-span-2">
                                                     <div className="flex gap-2">
                                                         <Input.Password
                                                             className="min-w-0 flex-1"
                                                             value={channel.apiKey}
-                                                            placeholder="请输入在账户中心创建的画布 Key"
+                                                            placeholder="请输入 sk- 中转站 Key 或 vc_live_ 画布 Key"
                                                             autoComplete="off"
                                                             onChange={(event) => updateChannel(channel.id, { apiKey: event.target.value })}
                                                             onBlur={() => syncTokaxisModelsIfNeeded(channel.apiKey)}

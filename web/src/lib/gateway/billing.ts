@@ -127,7 +127,7 @@ async function reconcileSubmittedGatewayTasks(state: { started: boolean; running
             const path = task.upstreamPath || fallbackVideoTaskPath(task.model);
             if (!path) continue;
             try {
-                const authorization = await resolveCanvasUpstreamAuthorization({ userId: task.userId, username: task.username, displayName: task.displayName });
+                const authorization = resolveCanvasUpstreamAuthorization();
                 if (!authorization) continue;
                 const response = await fetch(`${origin}/${path}/${encodeURIComponent(task.upstreamTaskId)}`, { headers: { Authorization: authorization }, cache: "no-store" });
                 if (!response.ok) continue;

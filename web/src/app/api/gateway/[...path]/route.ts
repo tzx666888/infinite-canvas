@@ -8,7 +8,7 @@ import { authenticateCanvasApiKey } from "../../../../lib/auth/store.ts";
 import { ensureGatewayTaskReconciler, finalizeGatewayResponse, publicModelPrices, reconcileGatewayTaskResponse, refundGatewayReservation, reserveGatewayRequest, settleGatewayReservation, type GatewayReservation } from "../../../../lib/gateway/billing.ts";
 import { buildCanvasAttributionHeaders } from "../../../../lib/gateway/attribution.ts";
 import { sanitizeGatewayErrorResponse } from "../../../../lib/gateway/errors.ts";
-import { resolveCanvasUpstreamAuthorization } from "../../../../lib/gateway/upstream-auth.ts";
+import { resolveCanvasUpstreamAuthorization, resolveStationUpstreamAuthorization } from "../../../../lib/gateway/upstream-auth.ts";
 import { storeTemporaryMediaDataUrl } from "../../../../lib/temporary-media.ts";
 
 export const runtime = "nodejs";
@@ -77,13 +77,17 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         const path = (params.path || []).join("/");
         if (!FORWARDED_PATHS.some((pattern) => pattern.test(path))) return Response.json({ error: { message: "模型接口路径不受支持" } }, { status: 404 });
 
-        const identity = await authenticateCanvasApiKey(request.headers.get("authorization") || "");
-        if (!identity) return Response.json({ error: { code: "invalid_canvas_key", message: "画布 Key 无效或已撤销" } }, { status: 401 });
+        const suppliedAuthorization = request.headers.get("authorization") || "";
+        const stationAuthorization = resolveStationUpstreamAuthorization(suppliedAuthorization);
+        const identity = stationAuthorization ? null : await authenticateCanvasApiKey(suppliedAuthorization);
+        if (!stationAuthorization && !identity) return Response.json({ error: { code: "invalid_api_key", message: "中转站 Key 或画布 Key 无效" } }, { status: 401 });
         if (!UPSTREAM_ORIGIN) throw new AuthError("模型服务尚未配置", 503, "gateway_not_configured");
-        const authorization = await resolveCanvasUpstreamAuthorization({ userId: identity.user.id, username: identity.user.username, displayName: identity.user.displayName });
+        const authorization = stationAuthorization || resolveCanvasUpstreamAuthorization();
         if (!authorization) throw new AuthError("模型服务授权尚未配置", 503, "gateway_not_configured");
-        ensureGatewayTaskReconciler();
-        reservation = await reserveGatewayRequest(request, path, { keyId: identity.keyId, userId: identity.user.id });
+        if (identity) {
+            ensureGatewayTaskReconciler();
+            reservation = await reserveGatewayRequest(request, path, { keyId: identity.keyId, userId: identity.user.id });
+        }
 
         const upstreamUrl = new URL(`${UPSTREAM_ORIGIN}/${path}`);
         upstreamUrl.search = request.nextUrl.search;
@@ -93,7 +97,7 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         headers.set("Authorization", authorization);
         headers.set("Accept-Encoding", "identity");
         const canvasRequestId = request.headers.get("x-canvas-request-id")?.trim() || randomUUID();
-        buildCanvasAttributionHeaders({ userId: identity.user.id, username: identity.user.username }, canvasRequestId).forEach((value, key) => headers.set(key, value));
+        if (identity) buildCanvasAttributionHeaders({ userId: identity.user.id, username: identity.user.username }, canvasRequestId).forEach((value, key) => headers.set(key, value));
 
         let videoModel = "";
         if (request.method === "POST" && path === "v1/videos/generations") {

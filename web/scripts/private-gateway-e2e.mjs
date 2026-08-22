@@ -348,6 +348,18 @@ try {
     assert.equal(agent.response.status, 200, JSON.stringify(agent.body));
     assert.equal(agent.body.choices[0].message.content, "站内 Agent 已连通");
 
+    const beforeStationKeyCall = await wallet(origin, cookie);
+    const stationKeyCall = await requestJson(`${origin}/api/gateway/v1/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: "Bearer sk-station-user-secret", "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "gpt-5.6-sol", messages: [{ role: "user", content: "station-key-only" }] }),
+    });
+    assert.equal(stationKeyCall.response.status, 200, JSON.stringify(stationKeyCall.body));
+    assert.equal((await wallet(origin, cookie)).credits, beforeStationKeyCall.credits, "a station key call must not reserve or settle Canvas credits");
+    const stationUpstreamCall = requests.find((item) => item.body?.messages?.[0]?.content === "station-key-only");
+    assert.equal(stationUpstreamCall?.authorization, "Bearer sk-station-user-secret", "a station key must be forwarded as its own upstream settlement credential");
+    assert.equal(stationUpstreamCall?.canvasUserId, undefined, "a station key call must not be attributed to the Canvas ledger");
+
     const beforeAgentSession = await wallet(origin, cookie);
     for (let round = 0; round < 6; round += 1) {
         const responseRound = await requestJson(`${origin}/api/gateway/v1/responses`, {
@@ -455,13 +467,14 @@ try {
     assert.doesNotMatch(JSON.stringify(ttsHandoff.body), /https?:\/\//i, "an incomplete TTS handoff must not reveal an external website");
 
     const modelRequests = requests.filter((item) => item.url?.startsWith("/v1/"));
-    assert.ok(modelRequests.length > 0);
+    const canvasModelRequests = modelRequests.filter((item) => item.authorization !== "Bearer sk-station-user-secret");
+    assert.ok(canvasModelRequests.length > 0);
     assert.ok(
-        modelRequests.every((item) => item.authorization === "Bearer upstream-service-secret"),
-        "only the server-owned credential may reach the upstream model service",
+        canvasModelRequests.every((item) => item.authorization === "Bearer upstream-service-secret"),
+        "every Canvas key call must use only the server-owned upstream settlement credential",
     );
     assert.ok(
-        modelRequests.every((item) => !JSON.stringify(item).includes(activeCanvasKey)),
+        canvasModelRequests.every((item) => !JSON.stringify(item).includes(activeCanvasKey)),
         "the customer Canvas key must never be forwarded upstream",
     );
 
@@ -483,6 +496,7 @@ try {
                 credits: finalWallet.credits,
                 creditsPerYuan: finalWallet.creditsPerYuan,
                 upstreamCredentialIsolation: "ok",
+                stationKeyBillingIsolation: "ok",
                 ttsHandoffGuard: "ok",
             },
             null,

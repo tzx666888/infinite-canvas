@@ -5,7 +5,6 @@ import { enforceRateLimit, clearRateLimit, requestAddress } from "@/lib/auth/rat
 import { enforceSameOrigin, parseAuthBody, stringInput } from "@/lib/auth/route-utils";
 import { createSessionToken, AUTH_COOKIE_NAME, sessionCookieOptions } from "@/lib/auth/session";
 import { authenticateLocalUser } from "@/lib/auth/store";
-import { resolveCanvasUpstreamAuthorization } from "@/lib/gateway/upstream-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +18,6 @@ export async function POST(request: Request) {
         const credentials = { username: stringInput(body.username), password: stringInput(body.password), code: stringInput(body.code) || undefined };
         const user = await authenticateLocalUser(credentials);
         if (!user) throw new AuthError("用户名或密码错误", 401);
-        await resolveCanvasUpstreamAuthorization({ userId: user.id, username: user.username, displayName: user.displayName });
         clearRateLimit(clientKey);
         const response = NextResponse.json({ user });
         response.cookies.set(AUTH_COOKIE_NAME, createSessionToken(user.id), sessionCookieOptions());
