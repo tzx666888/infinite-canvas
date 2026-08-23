@@ -3,7 +3,8 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 
-import { createCanvasApiKey } from "@/services/api/auth";
+import { isCanvasKeyAuthenticationError, isCanvasPlatformKey, shouldReplaceCanvasPlatformKey } from "@/lib/platform-key-recovery";
+import { createCanvasApiKey, fetchCanvasApiKeys } from "@/services/api/auth";
 import { isTokaxisProxyBaseUrl, useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -13,7 +14,6 @@ const BUILD_ID_RELOAD_KEY = "infinite-canvas:app_build_reload";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const promptedForMissingKey = useRef(false);
-    const syncedExistingKey = useRef(false);
     const provisionedPlatformKeyForUser = useRef<string | null>(null);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const user = useUserStore((state) => state.user);
@@ -41,40 +41,50 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     }, []);
 
     useEffect(() => {
-        const syncExistingKey = () => {
-            if (syncedExistingKey.current) return;
-            const channel = useConfigStore.getState().config.channels[0];
-            const apiKey = channel?.apiKey.trim();
-            if (!apiKey) return;
-            syncedExistingKey.current = true;
-            void useConfigStore.getState().syncModelsFromKey(apiKey);
-        };
-
-        if (useConfigStore.persist.hasHydrated()) syncExistingKey();
-        return useConfigStore.persist.onFinishHydration(syncExistingKey);
-    }, []);
-
-    useEffect(() => {
-        const provisionPlatformKey = () => {
+        const provisionPlatformKey = async () => {
             if (!authReady || !user || provisionedPlatformKeyForUser.current === user.id) return;
-            const channel = useConfigStore.getState().config.channels[0];
-            if (!isTokaxisProxyBaseUrl(channel?.baseUrl || "") || channel?.apiKey.trim()) return;
+            const configStore = useConfigStore.getState();
+            const channel = configStore.config.channels[0];
+            if (!isTokaxisProxyBaseUrl(channel?.baseUrl || "")) return;
 
             provisionedPlatformKeyForUser.current = user.id;
-            void createCanvasApiKey("平台默认 Key")
-                .then(({ key }) => {
-                    const configStore = useConfigStore.getState();
-                    configStore.setPlatformApiKey(key);
-                    return configStore.syncModelsFromKey(key);
-                })
-                .catch((error) => {
-                    console.warn("[platform-key] automatic canvas key setup failed", error);
-                    openConfigDialog(false);
+            const savedApiKey = channel?.apiKey.trim() || "";
+
+            try {
+                if (savedApiKey && !isCanvasPlatformKey(savedApiKey)) {
+                    await configStore.syncModelsFromKey(savedApiKey);
+                    return;
+                }
+
+                const { apiKeys } = await fetchCanvasApiKeys();
+                const needsReplacement = shouldReplaceCanvasPlatformKey({
+                    apiKey: savedApiKey,
+                    ownerUserId: configStore.config.platformApiKeyOwnerId,
+                    currentUserId: user.id,
+                    apiKeys,
                 });
+
+                if (!needsReplacement && savedApiKey) {
+                    configStore.setPlatformApiKey(savedApiKey, user.id);
+                    try {
+                        await configStore.syncModelsFromKey(savedApiKey);
+                        return;
+                    } catch (error) {
+                        if (!isCanvasKeyAuthenticationError(error)) throw error;
+                    }
+                }
+
+                const { key } = await createCanvasApiKey("平台默认 Key");
+                configStore.setPlatformApiKey(key, user.id);
+                await configStore.syncModelsFromKey(key);
+            } catch (error) {
+                console.warn("[platform-key] automatic Canvas key setup failed", error);
+                openConfigDialog(false);
+            }
         };
 
-        if (useConfigStore.persist.hasHydrated()) provisionPlatformKey();
-        return useConfigStore.persist.onFinishHydration(provisionPlatformKey);
+        if (useConfigStore.persist.hasHydrated()) void provisionPlatformKey();
+        return useConfigStore.persist.onFinishHydration(() => void provisionPlatformKey());
     }, [authReady, openConfigDialog, user]);
 
     useEffect(() => {

@@ -145,7 +145,11 @@ export function AppConfigModal() {
 
     const syncTokaxisModels = async (apiKey: string, quiet = false) => {
         const value = apiKey.trim();
-        if (!value) return;
+        if (!value) {
+            setModelSyncStatus("请先创建画布 Key 或填写中转站 Key");
+            if (!quiet) message.warning("请先创建画布 Key 或填写中转站 Key");
+            return;
+        }
         setSyncingModels(true);
         setModelSyncStatus("");
         try {
@@ -573,6 +577,7 @@ function withChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
     const audioModels = keepOrSuggest(config.audioModels, filterModelsByCapability(models, "audio"), models);
     return {
         ...config,
+        platformApiKeyOwnerId: tokaxis.apiKey.trim() === config.channels[0]?.apiKey.trim() ? config.platformApiKeyOwnerId : undefined,
         channels: nextChannels,
         models,
         baseUrl: tokaxis.baseUrl,

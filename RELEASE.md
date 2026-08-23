@@ -1,4 +1,13 @@
-# Infinite Canvas v3.136.0
+# Infinite Canvas v3.137.0
+
+## v3.137.0 本次发布
+
+- 画布专用 Key 与当前登录用户绑定；切换账号后会验证 Key 所属关系，不再沿用其他用户保存在同一浏览器里的 Key。
+- 空 Key、已撤销 Key和未知 Key 会按当前用户自动创建新的画布专用 Key，并同步 Agent 模型列表。
+- 用户自己的中转站 `sk-` Key 保持原样，只同步中转站模型，不参与画布自动补发。
+- GPT-5.6 继续作为 Agent 首选，豆包继续作为备用，DeepSeek 保持禁用。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.137.0`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.136.0`；上线前备份 Compose、容器状态和画布账户数据库。
 
 ## v3.136.0 本次发布
 

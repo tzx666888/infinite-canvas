@@ -26,6 +26,7 @@ export type ModelChannel = {
 export type AiConfig = {
     channelMode: "remote" | "local";
     tokaxisDefaultsVersion?: number;
+    platformApiKeyOwnerId?: string;
     baseUrl: string;
     apiKey: string;
     apiFormat: ApiCallFormat;
@@ -158,7 +159,7 @@ type ConfigStore = {
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
     updateWebdavConfig: <K extends keyof WebdavSyncConfig>(key: K, value: WebdavSyncConfig[K]) => void;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
-    setPlatformApiKey: (apiKey: string) => void;
+    setPlatformApiKey: (apiKey: string, ownerUserId?: string) => void;
     syncModelsFromKey: (apiKey: string) => Promise<number>;
     openConfigDialog: (shouldPromptContinue?: boolean) => void;
     setConfigDialogOpen: (isOpen: boolean) => void;
@@ -248,10 +249,11 @@ export const useConfigStore = create<ConfigStore>()(
                     },
                 })),
             isAiConfigReady: (config, model) => isAiConfigReady(config, model),
-            setPlatformApiKey: (apiKey) =>
+            setPlatformApiKey: (apiKey, ownerUserId) =>
                 set((state) => ({
                     config: {
                         ...state.config,
+                        platformApiKeyOwnerId: ownerUserId,
                         apiKey: apiKey.trim(),
                         channels: state.config.channels.map((channel, index) => (index === 0 ? { ...channel, apiKey: apiKey.trim() } : channel)),
                     },

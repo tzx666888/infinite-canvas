@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-    "version": "3.136.0",
+    "version": "3.137.0",
     "private": true,
     "type": "module",
     "scripts": {
@@ -27,6 +27,7 @@
         "test:csp-media": "node --experimental-strip-types scripts/csp-blob-media-regression.ts",
         "test:canvas-prompts": "node --experimental-strip-types scripts/canvas-prompt-regression.ts",
         "test:auth-bridge": "node --experimental-strip-types scripts/auth-bridge-regression.ts",
+        "test:platform-key-recovery": "node --experimental-strip-types scripts/platform-key-recovery-regression.ts",
         "test:payment-gateway": "node --experimental-strip-types scripts/payment-gateway-regression.ts",
         "test:payment-gateway-e2e": "node --experimental-strip-types scripts/payment-gateway-e2e.mjs",
         "test:director-embed": "node --experimental-strip-types scripts/director-embed-regression.ts",
