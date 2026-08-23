@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { buildApiUrl, isTokaxisProxyBaseUrl, modelOptionName, resolveModelRequestConfig, TOKAXIS_AGENT_TEXT_MODEL_IDS, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildApiUrl, decodeChannelModel, encodeChannelModel, isTokaxisProxyBaseUrl, modelOptionName, resolveModelRequestConfig, TOKAXIS_AGENT_TEXT_MODEL_IDS, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { normalizeImageQualityForModel } from "@/lib/image-quality";
@@ -1278,8 +1278,11 @@ export async function requestToolResponse(config: AiConfig, messages: ResponseIn
     const initialModel = config.model || config.textModel;
     const initialName = modelOptionName(initialModel).trim().toLowerCase();
     const configuredModels = [...(config.textModels || []), ...(config.models || []), ...config.channels.flatMap((channel) => channel.models || [])];
-    const fallbackModels = TOKAXIS_AGENT_TEXT_MODEL_IDS.map((model) => configuredModels.find((candidate) => modelOptionName(candidate).trim().toLowerCase() === model)).filter((model): model is string => Boolean(model));
-    const modelCandidates = [initialModel, ...(TOKAXIS_AGENT_TEXT_MODEL_IDS.includes(initialName as (typeof TOKAXIS_AGENT_TEXT_MODEL_IDS)[number]) ? fallbackModels : [])].filter((model, index, all) => model && all.indexOf(model) === index);
+    const initialChannelId = decodeChannelModel(initialModel)?.channelId;
+    const fallbackModels = TOKAXIS_AGENT_TEXT_MODEL_IDS.map((model) => configuredModels.find((candidate) => modelOptionName(candidate).trim().toLowerCase() === model) || (initialChannelId ? encodeChannelModel(initialChannelId, model) : model));
+    const isLegacyDeepSeekAgent = initialName === "deepseek-v4-pro-ga-260813";
+    const isManagedAgentModel = isLegacyDeepSeekAgent || TOKAXIS_AGENT_TEXT_MODEL_IDS.includes(initialName as (typeof TOKAXIS_AGENT_TEXT_MODEL_IDS)[number]);
+    const modelCandidates = [...(isLegacyDeepSeekAgent ? [] : [initialModel]), ...(isManagedAgentModel ? fallbackModels : [])].filter((model, index, all) => model && all.indexOf(model) === index);
     let lastError: unknown;
     for (const model of modelCandidates) {
         const requestConfig = resolveModelRequestConfig(config, model);
@@ -1308,7 +1311,8 @@ export async function requestToolResponse(config: AiConfig, messages: ResponseIn
             } catch (error) {
                 lastError = error;
                 const message = error instanceof Error ? error.message : "";
-                if (attempt >= 2 || !/繁忙|限流|暂时不可用|额度不足|服务额度|capacity|429|502|503|504|overloaded/i.test(message)) break;
+                const unavailableRoute = /model_not_found|no available|无可用渠道|无可用.*(?:渠道|分发|distributor)|模型不存在|模型不可用/i.test(message);
+                if (unavailableRoute || attempt >= 2 || !/繁忙|限流|暂时不可用|额度不足|服务额度|capacity|429|502|503|504|overloaded/i.test(message)) break;
                 await new Promise<void>((resolve, reject) => {
                     const timer = globalThis.setTimeout(resolve, 1500 * (attempt + 1));
                     options?.signal?.addEventListener(

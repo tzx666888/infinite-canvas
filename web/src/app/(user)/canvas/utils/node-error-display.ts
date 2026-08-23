@@ -29,7 +29,7 @@ export function describeCanvasNodeError(errorDetails?: string): CanvasNodeErrorD
         };
     }
 
-    if (/no available .*ult|当前模型需要.*账号|model_access_denied|does not have permission/.test(lower)) {
+    if (/no available|model_not_found|distributor|当前模型需要.*账号|model_access_denied|does not have permission/.test(lower) || /无可用渠道|无可用.*分发|模型不存在|模型不可用/.test(text)) {
         return {
             title: "当前模型暂不可用",
             message: "当前选择的模型暂时没有可用资源，请切换模型或稍后再试。",

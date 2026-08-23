@@ -72,9 +72,9 @@ const TOKAXIS_CHANNEL_ID = "tokaxis";
 const TOKAXIS_BASE_URL = "/api/gateway";
 const TOKAXIS_STATION_BASE_URL = "https://ai.tokaxis.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-const TOKAXIS_DEFAULTS_VERSION = 24;
-const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 24;
-export const TOKAXIS_AGENT_TEXT_MODEL_IDS = ["deepseek-v4-pro-ga-260813", "doubao-seed-2-1-pro-260628"] as const;
+const TOKAXIS_DEFAULTS_VERSION = 25;
+const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 25;
+export const TOKAXIS_AGENT_TEXT_MODEL_IDS = ["gpt-5.6-sol", "doubao-seed-2-1-pro-260628"] as const;
 const TOKAXIS_FALLBACK_MODELS = [
     "gpt-image-2",
     TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
@@ -89,7 +89,7 @@ const TOKAXIS_FALLBACK_MODELS = [
     "tts-1",
 ];
 const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
-const TOKAXIS_REMOVED_MODEL_IDS = new Set(["minimax-h3-c4"]);
+const TOKAXIS_REMOVED_MODEL_IDS = new Set(["minimax-h3-c4", "deepseek-v4-pro-ga-260813"]);
 const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["4K"]]);
 const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set<string>([...GROK_DISABLED_VIDEO_MODEL_IDS, ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()), ...GOOGLE_VEO_MODEL_IDS.map((model) => model.toLowerCase())]);
 const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>([...GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS.map((model) => model.toLowerCase())]);
