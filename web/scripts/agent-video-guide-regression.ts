@@ -240,6 +240,9 @@ assert.match(imageApiSource, /模型没有返回工具调用/, "an empty tool re
 assert.match(imageApiSource, /TOKAXIS_AGENT_TEXT_MODEL_IDS/, "Agent requests must know the GPT-5.6/Doubao fallback pair");
 assert.match(imageApiSource, /isLegacyDeepSeekAgent/, "stale tabs must skip the retired DeepSeek Agent route");
 assert.match(imageApiSource, /model_not_found\|no available\|无可用渠道/, "missing model routes must switch to the fallback without retrying the same route");
+assert.match(assistantSource, /ASSISTANT_STREAM_RENDER_INTERVAL_MS = 80/, "streaming Agent replies must be rendered at a bounded cadence");
+assert.equal(assistantSource.match(/scheduleAssistantStream\(sessionId, assistantId, text\)/g)?.length, 2, "both online Agent stream loops must use the bounded renderer");
+assert.equal(assistantSource.match(/flushAssistantStream\(sessionId, assistantId,/g)?.length, 2, "both online Agent stream loops must flush their final reply immediately");
 assert.doesNotMatch(assistantSource, /canvas_request_video_options/);
 assert.doesNotMatch(chatSource, /CanvasVideoOptionsCard|video-options/);
 assert.match(assistantSource, /draftOnly \? "none" : "auto"/, "guided prompt drafting must not carry unrelated canvas tools");

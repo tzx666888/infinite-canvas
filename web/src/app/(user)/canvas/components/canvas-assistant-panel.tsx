@@ -45,6 +45,7 @@ export const CANVAS_AGENT_PANEL_MOTION_MS = 500;
 const PANEL_MOTION_SECONDS = CANVAS_AGENT_PANEL_MOTION_MS / 1000;
 const ONLINE_AGENT_MAX_STEPS = 12;
 const VIDEO_GUIDE_DRAFT_TIMEOUT_MS = 90_000;
+const ASSISTANT_STREAM_RENDER_INTERVAL_MS = 80;
 const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用户在画布上创建电商产品素材。
 
 你可以执行以下画布操作：
@@ -369,6 +370,7 @@ export function CanvasAssistantPanel({
     const turnTelemetryRef = useRef(new Map<string, AgentTurnTelemetryContext>());
     const requestAbortControllersRef = useRef(new Map<string, AbortController>());
     const videoGuideDraftTimeoutsRef = useRef(new Map<string, ReturnType<typeof globalThis.setTimeout>>());
+    const assistantStreamUpdatesRef = useRef(new Map<string, { sessionId: string; text: string; timer?: ReturnType<typeof globalThis.setTimeout> }>());
     const runningAssistantIdRef = useRef("");
     const guidedSelectionRef = useRef("");
 
@@ -465,6 +467,7 @@ export function CanvasAssistantPanel({
     };
 
     const finishAgentTurn = (assistantId: string, assistantText?: string) => {
+        discardAssistantStream(assistantId);
         const context = turnTelemetryRef.current.get(assistantId);
         if (!context) return;
         const timeout = videoGuideDraftTimeoutsRef.current.get(assistantId);
@@ -533,6 +536,42 @@ export function CanvasAssistantPanel({
             };
         });
     };
+
+    const discardAssistantStream = (assistantId: string) => {
+        const pending = assistantStreamUpdatesRef.current.get(assistantId);
+        if (pending?.timer) globalThis.clearTimeout(pending.timer);
+        assistantStreamUpdatesRef.current.delete(assistantId);
+    };
+
+    const flushAssistantStream = (sessionId: string, assistantId: string, text: string) => {
+        discardAssistantStream(assistantId);
+        if (text.trim()) upsertMessage(sessionId, { id: assistantId, role: "assistant", text });
+    };
+
+    const scheduleAssistantStream = (sessionId: string, assistantId: string, text: string) => {
+        const pending = assistantStreamUpdatesRef.current.get(assistantId);
+        if (pending) {
+            pending.text = text;
+            return;
+        }
+        const next = { sessionId, text } as { sessionId: string; text: string; timer?: ReturnType<typeof globalThis.setTimeout> };
+        next.timer = globalThis.setTimeout(() => {
+            const latest = assistantStreamUpdatesRef.current.get(assistantId);
+            assistantStreamUpdatesRef.current.delete(assistantId);
+            if (latest?.text.trim()) upsertMessage(latest.sessionId, { id: assistantId, role: "assistant", text: latest.text });
+        }, ASSISTANT_STREAM_RENDER_INTERVAL_MS);
+        assistantStreamUpdatesRef.current.set(assistantId, next);
+    };
+
+    useEffect(
+        () => () => {
+            assistantStreamUpdatesRef.current.forEach((pending) => {
+                if (pending.timer) globalThis.clearTimeout(pending.timer);
+            });
+            assistantStreamUpdatesRef.current.clear();
+        },
+        [],
+    );
 
     const startChatSession = () => {
         if (activeSession && activeSession.messages.length === 0) {
@@ -629,9 +668,10 @@ export function CanvasAssistantPanel({
             const result = await requestToolResponse({ ...requestConfig, systemPrompt: "" }, messages, draftOnly ? [] : ONLINE_AGENT_TOOLS, draftOnly ? "none" : "auto", (text) => {
                 streamed = text;
                 rememberAssistantText(assistantId, text);
-                if (text.trim()) upsertMessage(sessionId, { id: assistantId, role: "assistant", text });
+                if (text.trim()) scheduleAssistantStream(sessionId, assistantId, text);
             }, { signal });
             if (!turnTelemetryRef.current.has(assistantId)) return;
+            flushAssistantStream(sessionId, assistantId, result.content || streamed);
             rememberAssistantText(assistantId, result.content || streamed);
             addOnlineLog("模型工具回复", result);
             if (result.toolCalls.length) {
@@ -689,9 +729,10 @@ export function CanvasAssistantPanel({
         const next = await requestToolResponse({ ...requestConfig, systemPrompt: "" }, nextMessages, ONLINE_AGENT_TOOLS, "auto", (text) => {
             streamed = text;
             rememberAssistantText(assistantId, text);
-            if (text.trim()) upsertMessage(sessionId, { id: assistantId, role: "assistant", text });
+            if (text.trim()) scheduleAssistantStream(sessionId, assistantId, text);
         }, { signal });
         if (!turnTelemetryRef.current.has(assistantId)) return;
+        flushAssistantStream(sessionId, assistantId, next.content || streamed);
         rememberAssistantText(assistantId, next.content || streamed);
         addOnlineLog(`Agent Tool Loop ${step + 1} 回复`, next);
         if (next.toolCalls.length) {

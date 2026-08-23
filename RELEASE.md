@@ -1,11 +1,12 @@
-# Infinite Canvas v3.135.0
+# Infinite Canvas v3.136.0
 
-## v3.135.0 本次发布
+## v3.136.0 本次发布
 
 - Agent 文本与视觉编排固定使用 `gpt-5.6-sol`，`doubao-seed-2-1-pro-260628` 作为备用；DeepSeek 从画布 Agent 路由和可选模型中移除。
 - 旧配置自动迁移；模型无可用渠道时立即切备用，不再重复等待失效模型。
-- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.135.0`。
-- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.134.0`；上线前备份 Compose、容器状态及画布账户数据。
+- Agent 流式回复每 80 毫秒最多刷新一次画面，最终回复立即落盘，避免连续增量更新触发 React 最大更新深度并造成画布临时黑屏。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.136.0`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.135.0`；同时继续保留 `v3.134.0` 冷回滚容器，上线前备份 Compose、容器状态及画布账户数据。
 
 ## v3.132.0 本次发布
 
