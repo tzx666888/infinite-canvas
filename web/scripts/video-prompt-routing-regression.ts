@@ -32,17 +32,35 @@ assert.doesNotMatch(detailedCompiled, /mini-drama hook|visible natural lip-sync|
 
 const shortCommerceCompiled = buildReferenceVideoPrompt("生成一个带货广告", 2, 2, "10", "auto", "r2v");
 assert.match(shortCommerceCompiled, /USER DIRECTION \(SHORT PRIORITY\)/);
-assert.match(shortCommerceCompiled, /internally compare three materially different hooks/);
+assert.match(shortCommerceCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
 assert.match(shortCommerceCompiled, /near-miss reveal/);
-assert.match(shortCommerceCompiled, /clearly staged surreal adult fall/);
+assert.match(shortCommerceCompiled, /safe staged adult stumble or surreal fall/);
+assert.match(shortCommerceCompiled, /normal walking/);
+assert.match(shortCommerceCompiled, /DO NOT count as a hook/);
+assert.match(shortCommerceCompiled, /2-8s/);
+assert.match(shortCommerceCompiled, /8-10s/);
 assert.match(shortCommerceCompiled, /remain region-neutral/);
 assert.doesNotMatch(shortCommerceCompiled, /Indonesian social-commerce|Bahasa Indonesia|Jakarta/);
+
+const shortIndonesiaTenSecondCompiled = buildReferenceVideoPrompt("生成一段印尼带货视频", 1, 1, "10", "auto", "i2v");
+assert.match(shortIndonesiaTenSecondCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
+assert.match(shortIndonesiaTenSecondCompiled, /first 0\.3s/);
+assert.match(shortIndonesiaTenSecondCompiled, /The user explicitly requested Indonesia/);
+assert.match(shortIndonesiaTenSecondCompiled, /Bahasa Indonesia/);
+assert.match(shortIndonesiaTenSecondCompiled, /2-8s/);
+assert.match(shortIndonesiaTenSecondCompiled, /8-10s/);
+
+const shortIndonesiaFifteenSecondCompiled = buildReferenceVideoPrompt("生成一段印尼带货视频", 1, 1, "15", "auto", "i2v");
+assert.match(shortIndonesiaFifteenSecondCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-3s/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /3-12s/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /12-15s/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /Bahasa Indonesia/);
 
 const shortTextOnlyCommerceCompiled = buildReferenceVideoPrompt("帮我生成一条便携榨汁杯的10秒竖屏带货视频，要强Hook，商品全程清晰，结尾有一个明确的下单CTA。", 0, 0, "10", "auto", "t2v");
 assert.match(shortTextOnlyCommerceCompiled, /text-to-video commercial/);
 assert.match(shortTextOnlyCommerceCompiled, /USER DIRECTION \(SHORT PRIORITY\)/);
 assert.match(shortTextOnlyCommerceCompiled, /No reference images are attached/);
-assert.match(shortTextOnlyCommerceCompiled, /internally compare three materially different hooks/);
+assert.match(shortTextOnlyCommerceCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
 assert.match(shortTextOnlyCommerceCompiled, /remain region-neutral/);
 assert.ok(shortTextOnlyCommerceCompiled.length > 50, "text-only short commerce prompt must be expanded before the upstream request");
 
@@ -58,11 +76,12 @@ assert.match(explicitMelbourneCompiled, /Instagram Reels/);
 const mediumCommerceCompiled = buildReferenceVideoPrompt("请制作一条商品带货短片，先用我指定的快速推镜开场，再展示包装正面和一次真实操作，最后停在商品特写。".repeat(5), 2, 2, "10", "auto", "r2v");
 assert.match(mediumCommerceCompiled, /USER DIRECTION \(MEDIUM PRIORITY\)/);
 assert.match(mediumCommerceCompiled, /preserve the user's existing hook/);
-assert.doesNotMatch(mediumCommerceCompiled, /internally compare three materially different hooks/);
+assert.doesNotMatch(mediumCommerceCompiled, /HOOK ACCEPTANCE GATE/);
 
 const shortProductOnlyCompiled = buildReferenceVideoPrompt("不要人物，生成一个带货广告，只展示商品并上下跳动", 2, 2, "10", "auto", "r2v");
 assert.match(shortProductOnlyCompiled, /Product-only route/);
 assert.match(shortProductOnlyCompiled, /burst-to-reveal, scale contrast, spatial mismatch/);
+assert.match(shortProductOnlyCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
 assert.doesNotMatch(shortProductOnlyCompiled, /surreal adult fall|visible natural lip-sync|one consistent presenter|presenter-matched voice/i);
 
 console.log("Video prompt routing regression checks passed");

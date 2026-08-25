@@ -20,7 +20,7 @@ import {
     seedanceVideoReferenceError,
     SEEDANCE_REFERENCE_LIMITS,
 } from "@/lib/seedance-video";
-import { buildTokaxisMiniMaxH3Payload, isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeTokaxisMiniMaxH3Model, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
+import { buildTokaxisMiniMaxH3Payload, isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, normalizeTokaxisMiniMaxH3Model, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
 import { buildCompactVideoProductScalePrompt, buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
 import { buildApiUrl, isTokaxisProxyBaseUrl, modelOptionName, requiresClientApiKey, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
@@ -371,8 +371,12 @@ function inferDirectedReferencePair(direction: string, requestReferenceCount: nu
 function buildLocalMarketVideoGuidance(direction: string) {
     const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
     if (!wantsCommerce) return "";
+    const explicitlyRequestsIndonesia = /(印尼|印度尼西亚|indonesia|indonesian)/i.test(direction);
     return [
         "Market routing: localize consistently only when USER DIRECTION explicitly names a country, city, language, currency, platform, or cultural setting; otherwise remain region-neutral with none of those assumptions.",
+        explicitlyRequestsIndonesia
+            ? "The user explicitly requested Indonesia: use a plausible Indonesian social-commerce setting and natural Bahasa Indonesia for narration and on-screen CTA unless the user requests another language. Keep the specific product and reference visuals unchanged."
+            : "No country is selected by default. Do not silently turn a globally neutral request into an Indonesian, American, Chinese, or other country-specific advertisement.",
         "Never translate product branding or invent claims, prices, discounts, ratings, urgency, landmarks, flags, or platform badges.",
     ].join("\n");
 }
@@ -381,29 +385,34 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
     const wantsDrama = /(微剧|短剧|剧情|反转|drama|story|storyline|scenario|skit)/i.test(direction);
     const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
     if (!wantsDrama && !wantsCommerce) return "";
-    const revealAt = Math.max(1, Math.min(3, Math.floor(duration * 0.25)));
-    const demoAt = Math.max(revealAt + 1, Math.min(duration - 2, Math.floor(duration * 0.55)));
-    const heroAt = Math.max(demoAt + 1, Math.max(1, duration - 2));
+    const hookEnd = duration >= 15 ? 3 : duration >= 8 ? 2 : 1;
+    const heroDuration = duration >= 15 ? 3 : duration >= 8 ? 2 : 1;
+    const heroAt = Math.max(hookEnd + 1, duration - heroDuration);
+    const demoAt = Math.max(hookEnd + 1, Math.min(heroAt - 1, Math.floor((hookEnd + heroAt) / 2)));
     const lightTouch = promptRoute === "medium";
     if (productOnly) {
         return [
             `Product-only shot rhythm for a ${duration}s short commerce video:`,
             lightTouch
-                ? `- 0-${revealAt}s: preserve the user's hook and add only a compact product-safe visual accent when needed.`
-                : `- 0-${revealAt}s: choose one product-safe strong hook that best fits the references: burst-to-reveal, scale contrast, spatial mismatch, wrong-result reversal, counter-intuitive motion, or a near-miss occurring only in the environment. Do not default to the same motif on every request.`,
-            `- ${revealAt}-${demoAt}s: clear product reveal at plausible scale while preserving exact identity and orientation.`,
+                ? `- 0-${hookEnd}s: preserve the user's hook and add only a compact product-safe visual accent when needed.`
+                : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one product-safe structure: burst-to-reveal, scale contrast, spatial mismatch, wrong-result reversal, counter-intuitive motion, or an environmental near-miss. Ordinary product holding, a logo close-up, a slow pan or push-in, simple placement, gentle floating, or a standard demonstration DO NOT count as a hook. Reject and rewrite any opening that could be mistaken for an ordinary product demo.`,
+            `- By ${hookEnd}s: make the unchanged product unmistakably readable, then cut immediately into its benefit or demonstration.`,
+            `- ${hookEnd}-${demoAt}s: clear product reveal at plausible scale while preserving exact identity and orientation.`,
             `- ${demoAt}-${heroAt}s: product benefit/detail shots using only user-approved motion and effects.`,
             `- ${heroAt}-${duration}s: final product hero and user-requested call-to-action with no person or hand.`,
+            "Keep the story compressed: no dead air, no repeated holding shot, no slow establishing shot, and no beat that fails to reveal the product or advance its selling point.",
             "The hook may transform the environment but never deform, explode, rotate, relabel, duplicate, recolor, or endanger the product.",
         ].join("\n");
     }
     return [
         `Shot rhythm for a ${duration}s short commerce video:`,
         lightTouch
-            ? `- 0-${revealAt}s: preserve the user's existing hook and add only the minimum visual clarification needed.`
-            : `- 0-${revealAt}s: internally compare three materially different hooks—near-miss reveal, burst transformation, scale contrast, spatial mismatch, wrong-result reversal, counter-intuitive motion, or a clearly staged surreal adult fall with a soft unharmed landing—and choose by stop-scroll strength, product clarity, feasibility, safety, and locale fit. Avoid repeating one accident motif.`,
-        `- ${revealAt}-${heroAt}s: reveal the separate product at plausible scale, then show one real detail or demonstration with clean cuts.`,
+            ? `- 0-${hookEnd}s: preserve the user's existing hook and add only the minimum visual clarification needed.`
+            : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one: a safe staged adult stumble or surreal fall with a soft unharmed landing, near-miss reveal, burst transformation, scale contrast, spatial mismatch, wrong-result reversal, or counter-intuitive motion. Ordinary presenter holding the product, normal walking, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook. Reject and rewrite any plan whose opening could be mistaken for an ordinary product demonstration.`,
+        `- By ${hookEnd}s: reveal the separate unchanged product clearly and cut immediately into the selling point.`,
+        `- ${hookEnd}-${heroAt}s: show one real benefit or demonstration with rapid readable cuts; every beat must change the story or reveal useful product information.`,
         `- ${heroAt}-${duration}s: finish on the unchanged product hero and one soft call-to-action.`,
+        "Keep the story compressed: no dead air, no repeated holding shot, no slow establishing shot, and no filler reaction.",
         "Safety and identity lock: falls, collision expectations, and impacts must be staged or surreal, non-graphic and injury-free; never show imitable danger. The product never causes the danger and keeps its exact silhouette, parts, colors, logo, labels, quantity, and orientation.",
         "When audio is enabled, use one rising-tension cue, one clean impact/drop accent, and one reveal accent.",
     ].join("\n");
@@ -493,13 +502,16 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
     if (references.length > MINIMAX_H3_REFERENCE_LIMITS.images) throw new Error(`MiniMax H3 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.images} 张参考图`);
     if (audioReferences.length > MINIMAX_H3_REFERENCE_LIMITS.audios) throw new Error(`MiniMax H3 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.audios} 个参考音频`);
     if (audioReferences.length && !references.length) throw new Error("MiniMax H3 参考音频需要同时提供参考图");
+    const duration = String(normalizeMiniMaxH3Duration(config.videoSeconds));
+    const referenceMode: ReturnType<typeof googleVideoReferenceMode> = references.length > 1 ? "r2v" : references.length === 1 ? "i2v" : "t2v";
+    const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, references.length, duration, config.videoProductScaleMode, referenceMode).trim());
     const [images, audios] = await Promise.all([Promise.all(references.map((image) => resolveSeedanceImageUrl(config, image))), Promise.all(audioReferences.map(resolveSeedanceAudioUrl))]);
     const payload = buildTokaxisMiniMaxH3Payload({
         model: normalizeTokaxisMiniMaxH3Model(model),
-        prompt,
+        prompt: promptText,
         images,
         audios,
-        duration: config.videoSeconds,
+        duration,
         size: config.size,
         generateAudio: boolConfig(config.videoGenerateAudio, true),
     });
