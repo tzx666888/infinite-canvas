@@ -391,35 +391,40 @@ function buildCommerceSpeechDensityGuidance(direction: string, duration: number,
     if (promptRoute !== "short" || forbidsSpeech(direction)) return "";
     const voiceMode = productOnly
         ? "Use one continuous off-screen narrator only; do not create a visible speaker, presenter, mouth, hand, or body."
-        : "Use one consistent presenter-matched voice. Visible lines require natural lip-sync; continue as the same off-screen voice over product detail cuts.";
+        : "Use one consistent voice. Prefer off-screen narration during the expectation-breaking visual hook so the action remains dominant. If a presenter speaks after the product reveal, require natural lip-sync; continue as the same off-screen voice over product detail cuts.";
     const localSpeechRouting =
         "LOCAL SPEECH ROUTING: when the user names a country, region, or language, use that market's natural everyday commercial language, native accent, idiom, sentence length, stress, and short-video speaking pace. An explicitly requested language overrides the country default. If no market is named, stay region-neutral and speak in the user's prompt language. Word targets are semantic word-equivalents, not a literal translated word count: preserve the required information density while keeping locally natural pronunciation and breath.";
+    const claimLock =
+        "CLAIM LOCK: script only facts visibly readable in the attached reference or explicitly supplied by the user. Never invent efficacy, safety, price, discount, rating, guarantee, limited stock, scarcity, urgency, or medical/sexual-performance claims.";
     if (duration >= 15) {
         return [
             "SPOKEN DELIVERY LOCK — MANDATORY: write and audibly deliver 38-47 natural target-language word equivalents across the finished 15-second video.",
+            claimLock,
             localSpeechRouting,
             "Speech timing: start by 0.2s; 0-3s spoken hook 8-10 words, 3-7s problem/product setup 10-12 words, 7-12s benefit or evidence 12-15 words, 12-15s CTA 8-10 words.",
             "Cover at least 13 seconds with intelligible speech. No silent gap may exceed 0.6s; never slow-stretch, repeat, or replace required words with music, sound effects, captions, or planning notes.",
             voiceMode,
-            "State only visible or user-supplied facts. Do not invent efficacy, price, discount, rating, scarcity, or guarantee.",
+            "The spoken hook must react to the visible expectation-breaking event; talking while normally holding the product is not a hook.",
         ].join("\n");
     }
     if (duration >= 8) {
         return [
             `SPOKEN DELIVERY LOCK — MANDATORY: write and audibly deliver 24-32 natural target-language word equivalents across the finished ${duration}-second video.`,
+            claimLock,
             localSpeechRouting,
             `Speech timing: start by 0.2s; 0-2s spoken hook 5-7 words, 2-5s problem/product setup 7-9 words, 5-${Math.max(6, duration - 2)}s benefit or evidence 7-9 words, ${Math.max(6, duration - 2)}-${duration}s CTA 5-7 words.`,
             `Cover at least ${Math.max(6.5, duration - 1.5)} seconds with intelligible speech. No silent gap may exceed 0.45s; never slow-stretch, repeat, or replace required words with music, sound effects, captions, or planning notes.`,
             voiceMode,
-            "State only visible or user-supplied facts. Do not invent efficacy, price, discount, rating, scarcity, or guarantee.",
+            "The spoken hook must react to the visible expectation-breaking event; talking while normally holding the product is not a hook.",
         ].join("\n");
     }
     return [
         `SPOKEN DELIVERY LOCK — MANDATORY: start speaking by 0.2s and audibly deliver ${Math.max(8, Math.round(duration * 2.4))}-${Math.max(11, Math.round(duration * 3.1))} natural target-language word equivalents across this ${duration}-second commercial.`,
+        claimLock,
         localSpeechRouting,
         "Keep the hook, selling point, and CTA verbally distinct with no silent gap over 0.45s; never stretch a few words or replace speech with music.",
         voiceMode,
-        "State only visible or user-supplied facts.",
+        "The spoken hook must react to the visible expectation-breaking event; talking while normally holding the product is not a hook.",
     ].join("\n");
 }
 
@@ -442,11 +447,11 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
     if (productOnly) {
         return [
             `Product-only shot rhythm for a ${duration}s short commerce video:`,
-            speechDensityGuidance,
             lightTouch
                 ? `- 0-${hookEnd}s: preserve the user's hook and add only a compact product-safe visual accent when needed.`
                 : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one product-safe structure: burst-to-reveal, scale contrast, spatial mismatch, wrong-result reversal, counter-intuitive motion, or an environmental near-miss. Ordinary product holding, a logo close-up, a slow pan or push-in, simple placement, gentle floating, or a standard demonstration DO NOT count as a hook. Reject and rewrite any opening that could be mistaken for an ordinary product demo.`,
             lightTouch ? "" : hookBeatPlan,
+            speechDensityGuidance,
             `- By ${hookEnd}s: make the unchanged product unmistakably readable, then cut immediately into its benefit or demonstration.`,
             `- ${hookEnd}-${demoAt}s: clear product reveal at plausible scale while preserving exact identity and orientation.`,
             `- ${demoAt}-${heroAt}s: product benefit/detail shots using only user-approved motion and effects.`,
@@ -457,11 +462,11 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
     }
     return [
         `Shot rhythm for a ${duration}s short commerce video:`,
-        speechDensityGuidance,
         lightTouch
             ? `- 0-${hookEnd}s: preserve the user's existing hook and add only the minimum visual clarification needed.`
             : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one: a safe staged adult stumble or surreal fall with a soft unharmed landing, near-miss reveal, burst transformation, scale contrast, spatial mismatch, wrong-result reversal, or counter-intuitive motion. Ordinary presenter holding the product, normal walking, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook. Reject and rewrite any plan whose opening could be mistaken for an ordinary product demonstration.`,
         lightTouch ? "" : hookBeatPlan,
+        speechDensityGuidance,
         `- By ${hookEnd}s: reveal the separate unchanged product clearly and cut immediately into the selling point.`,
         `- ${hookEnd}-${heroAt}s: show one real benefit or demonstration with rapid readable cuts; every beat must change the story or reveal useful product information.`,
         `- ${heroAt}-${duration}s: finish on the unchanged product hero and one soft call-to-action.`,

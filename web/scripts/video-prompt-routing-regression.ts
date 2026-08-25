@@ -56,6 +56,10 @@ assert.match(shortIndonesiaTenSecondCompiled, /explicitly requested language ove
 assert.match(shortIndonesiaTenSecondCompiled, /24-32 natural target-language word equivalents/);
 assert.match(shortIndonesiaTenSecondCompiled, /0-2s spoken hook 5-7 words/);
 assert.match(shortIndonesiaTenSecondCompiled, /No silent gap may exceed 0\.45s/);
+assert.ok(shortIndonesiaTenSecondCompiled.indexOf("HOOK ACCEPTANCE GATE") < shortIndonesiaTenSecondCompiled.indexOf("SPOKEN DELIVERY LOCK"), "visual hook must be prioritized before speech density");
+assert.match(shortIndonesiaTenSecondCompiled, /CLAIM LOCK/);
+assert.match(shortIndonesiaTenSecondCompiled, /Never invent efficacy, safety, price, discount, rating, guarantee, limited stock, scarcity, urgency/);
+assert.match(shortIndonesiaTenSecondCompiled, /talking while normally holding the product is not a hook/);
 assert.match(shortIndonesiaTenSecondCompiled, /2-8s/);
 assert.match(shortIndonesiaTenSecondCompiled, /8-10s/);
 
@@ -71,6 +75,7 @@ assert.match(shortIndonesiaFifteenSecondCompiled, /Bahasa Indonesia/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /38-47 natural target-language word equivalents/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /0-3s spoken hook 8-10 words/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /No silent gap may exceed 0\.6s/);
+assert.ok(shortIndonesiaFifteenSecondCompiled.indexOf("HOOK ACCEPTANCE GATE") < shortIndonesiaFifteenSecondCompiled.indexOf("SPOKEN DELIVERY LOCK"), "15-second visual hook must be prioritized before speech density");
 
 const shortTextOnlyCommerceCompiled = buildReferenceVideoPrompt("帮我生成一条便携榨汁杯的10秒竖屏带货视频，要强Hook，商品全程清晰，结尾有一个明确的下单CTA。", 0, 0, "10", "auto", "t2v");
 assert.match(shortTextOnlyCommerceCompiled, /text-to-video commercial/);
