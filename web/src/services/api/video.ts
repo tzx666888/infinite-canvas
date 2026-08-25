@@ -202,7 +202,7 @@ export function buildReferenceVideoPrompt(
     const directionLimit = promptRoute === "detailed" ? 2600 : promptRoute === "medium" ? 1700 : 700;
     const userDirection = `USER DIRECTION (${promptRoute.toUpperCase()} PRIORITY): ${limitInlinePrompt(direction || "Animate the references naturally while preserving visual identity and scene continuity.", directionLimit)}`;
     const marketGuidance = buildLocalMarketVideoGuidance(direction);
-    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration, productOnly);
+    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration, productOnly, promptRoute);
     if (promptRoute === "detailed") {
         return [
             `Create a ${duration}-second video using all ${requestReferenceCount} attached images as ordered references.`,
@@ -351,44 +351,43 @@ function inferDirectedReferencePair(direction: string, requestReferenceCount: nu
 }
 
 function buildLocalMarketVideoGuidance(direction: string) {
-    const wantsIndonesia = /(印尼|印度尼西亚|indonesia|indonesian|bahasa(?: indonesia)?|jakarta|shopee|tokopedia|tiktok\s*shop)/i.test(direction);
     const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
-    const lines: string[] = [];
-    if (wantsIndonesia) {
-        lines.push(
-            "Local market: make the video feel like an Indonesian social-commerce ad. If voice or on-screen text is generated, use natural Bahasa Indonesia and Southeast Asian ecommerce rhythm unless the product branding itself uses another language.",
-        );
-    }
-    if (wantsCommerce) {
-        lines.push(
-            "Commerce structure: strong hook in the first 1-2 seconds, immediate product visibility, quick benefit/demo moment, believable use case, final product hero and soft call-to-action. Do not invent unsafe claims, fake prices, or fake platform badges.",
-        );
-    }
-    return lines.join("\n");
+    if (!wantsCommerce) return "";
+    return [
+        "Market routing: localize consistently only when USER DIRECTION explicitly names a country, city, language, currency, platform, or cultural setting; otherwise remain region-neutral with none of those assumptions.",
+        "Never translate product branding or invent claims, prices, discounts, ratings, urgency, landmarks, flags, or platform badges.",
+    ].join("\n");
 }
 
-function buildCommerceDramaVideoGuidance(direction: string, duration: number, productOnly = false) {
+function buildCommerceDramaVideoGuidance(direction: string, duration: number, productOnly = false, promptRoute: VideoPromptDetail = "short") {
     const wantsDrama = /(微剧|短剧|剧情|反转|drama|story|storyline|scenario|skit)/i.test(direction);
     const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
     if (!wantsDrama && !wantsCommerce) return "";
     const revealAt = Math.max(1, Math.min(3, Math.floor(duration * 0.25)));
     const demoAt = Math.max(revealAt + 1, Math.min(duration - 2, Math.floor(duration * 0.55)));
     const heroAt = Math.max(demoAt + 1, Math.max(1, duration - 2));
+    const lightTouch = promptRoute === "medium";
     if (productOnly) {
         return [
             `Product-only shot rhythm for a ${duration}s short commerce video:`,
-            `- 0-${revealAt}s: visual hook using only product, typography, lighting, graphic motion, or environment requested by the user.`,
+            lightTouch
+                ? `- 0-${revealAt}s: preserve the user's hook and add only a compact product-safe visual accent when needed.`
+                : `- 0-${revealAt}s: choose one product-safe strong hook that best fits the references: burst-to-reveal, scale contrast, spatial mismatch, wrong-result reversal, counter-intuitive motion, or a near-miss occurring only in the environment. Do not default to the same motif on every request.`,
             `- ${revealAt}-${demoAt}s: clear product reveal at plausible scale while preserving exact identity and orientation.`,
             `- ${demoAt}-${heroAt}s: product benefit/detail shots using only user-approved motion and effects.`,
             `- ${heroAt}-${duration}s: final product hero and user-requested call-to-action with no person or hand.`,
+            "The hook may transform the environment but never deform, explode, rotate, relabel, duplicate, recolor, or endanger the product.",
         ].join("\n");
     }
     return [
         `Shot rhythm for a ${duration}s short commerce video:`,
-        `- 0-${revealAt}s: mini-drama hook from the primary scene/person reference; show a relatable reaction, curiosity moment, or short presenter line with visible natural lip-sync, not a static product pose.`,
-        `- ${revealAt}-${demoAt}s: product reveal from the product reference as its own object at plausible scale; keep the object separate from hands and body.`,
-        `- ${demoAt}-${heroAt}s: quick benefit/demo close-ups with clean cuts; use motion that makes the product desirable without changing its shape.`,
-        `- ${heroAt}-${duration}s: result/reaction plus product hero shot and soft call-to-action; if the presenter speaks, lips must move naturally in sync.`,
+        lightTouch
+            ? `- 0-${revealAt}s: preserve the user's existing hook and add only the minimum visual clarification needed.`
+            : `- 0-${revealAt}s: internally compare three materially different hooks—near-miss reveal, burst transformation, scale contrast, spatial mismatch, wrong-result reversal, counter-intuitive motion, or a clearly staged surreal adult fall with a soft unharmed landing—and choose by stop-scroll strength, product clarity, feasibility, safety, and locale fit. Avoid repeating one accident motif.`,
+        `- ${revealAt}-${heroAt}s: reveal the separate product at plausible scale, then show one real detail or demonstration with clean cuts.`,
+        `- ${heroAt}-${duration}s: finish on the unchanged product hero and one soft call-to-action.`,
+        "Safety and identity lock: falls, collision expectations, and impacts must be staged or surreal, non-graphic and injury-free; never show imitable danger. The product never causes the danger and keeps its exact silhouette, parts, colors, logo, labels, quantity, and orientation.",
+        "When audio is enabled, use one rising-tension cue, one clean impact/drop accent, and one reveal accent.",
     ].join("\n");
 }
 

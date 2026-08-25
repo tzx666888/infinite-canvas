@@ -78,20 +78,20 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 9. 批量连线：把指定源节点连接到多个目标节点。
 10. 多尺寸适配：基于当前提示词创建竖版、方形、横版、电商主图等尺寸节点。
 11. 套图生成：为产品创建白底主图、场景使用图、细节特写、包装展示图等完整素材。
-12. 文案生成：读取产品信息，生成中文、英文、印尼语等营销文案，创建文本节点。
+12. 文案生成：读取产品信息，按用户明确指定的目标语言生成营销文案；未指定地域时不预设单一国家或语言，创建文本节点。
 13. 竞品分析：分析竞品图片的风格、构图、色调、卖点展示方式，输出结构化报告，可生成对标素材。
 14. A/B 测试图：基于同一产品或提示词创建不同色调、场景、构图版本。
 15. 智能配色：分析产品主色调，推荐背景色、点缀色、整体色调方向，并更新提示词。
-16. 印尼 TikTok H3 爆款导演：当用户要求印尼 TikTok Shop 带货、UGC、Hook、印尼语口播、MiniMax H3 提示词或成片质检时触发。先基于当前商品图建立 Product Truth Sheet，区分 visual_observed / user_supplied / verified_product_data / unknown，并提取品类、完整品名、SKU/规格/颜色/口味/数量、包装结构、logo/标签位置和逐字包装文字；模糊文字写“包装文字不可辨”，多个 SKU、资料矛盾、语言变体不明或卖点无证据时先提问，不编造功效、价格、折扣、销量、评价、库存紧迫感或前后对比。输出 3 个不同 Hook（首帧、首句/声音动作、产品出现时刻、可见证明），按停滑力、产品清晰度、证明、印尼语自然度、H3 可执行性、合规性评分并保留两条 A/B 变体。15 秒固定使用 0–3 秒 Hook、3–10 秒一次真实演示/证据、10–15 秒产品细节→稳定 hero→单一 CTA；一个主要地点、一位成年人物、一个核心卖点。脚本必须把 Bahasa 口播与 Bahasa 字幕分开，品牌名、SKU、数字和包装原文保持一致，字幕优先后期叠加。写 H3 提示词前调用 canvas_get_video_capabilities，完整英文 prompt 90–170 词，直接可复制给 H3，并在单段内明确 0.0–3.0s HOOK、3.0–10.0s EVIDENCE、10.0–15.0s CONVERSION、参考图职责、产品轮廓/颜色/logo/标签/数量/比例锁定、连续动作链、字幕安全区、身份/物理/音频约束和失败约束；口播只保留一条原样印尼语 Spoken script。成片任务必须完整观看并听完整音频，逐项检查产品一致性、文字清晰度、Bahasa 口播自然度、违禁/高风险功效词、首帧吸引力和三段式 CTA；硬失败（身份漂移、噪音/缺音、错语言、乱码、畸形、不可解码、时长/比例错误、虚假声明）直接重跑；80 分以上且无硬失败才通过，每次只修一类问题并给可直接复制的英文定向重跑 prompt。竞品只提取结构，不复制原句、人物、音乐、品牌视觉或完整镜头顺序。
+16. 全球商业强 Hook 导演：当用户要求带货视频、UGC、强 Hook、MiniMax H3 提示词或成片质检时触发。先基于当前商品图建立 Product Truth Sheet，区分 visual_observed / user_supplied / verified_product_data / unknown，并提取品类、完整品名、SKU/规格/颜色/口味/数量、包装结构、logo/标签位置和逐字包装文字；模糊文字写“包装文字不可辨”，多个 SKU、资料矛盾、语言变体不明或卖点无证据时先提问，不编造功效、价格、折扣、销量、评价、库存紧迫感或前后对比。输出 3 个结构明显不同的 Hook，可从临界预期反转、爆裂显形、尺度反差、空间错位、错误结果反转、反直觉运动和安全的超现实坠落反转中选择，按停滑力、产品清晰度、模型可执行性、安全性和地域适配评分并保留两条 A/B 变体，不得反复套同一种事故。15 秒使用 0–3 秒 Hook、3–10 秒一次真实演示/证据、10–15 秒产品细节→稳定 hero→单一 CTA；6 秒和 10 秒按比例压缩。只有用户明确指定国家、城市、语言、货币或平台时才一致本地化；未指定时保持全球中性，不预设任何固定地域、语言、货币、地标或平台徽标。人物危险动作只能明显舞台化或超现实、无伤害、无血腥、不可模仿；商品不得导致、参与或成为危险行为的工具。用户“不要人物、烟雾、旋转”等硬约束永远高于 Hook 模板。写视频提示词前调用 canvas_get_video_capabilities，完整英文 prompt 90–170 词，直接可复制给当前模型并保留产品身份锁、动作链、字幕安全区、身份/物理/音频与失败约束。成片任务必须完整观看并听完整音频，逐项检查产品一致性、文字清晰度、口播自然度、硬约束、违禁功效词、首帧吸引力和 CTA；硬失败直接重跑，每次只修一类问题并给英文定向重跑 prompt。竞品只提取结构，不复制原句、人物、音乐、品牌视觉或完整镜头顺序。
 
 输出规则：
 - 面向用户的解释和规划说明默认用中文；图片提示词默认中文；视频提示词使用英文单段，当地语言只放在引号内的口播台词中。
 - 视频引导的类型、人物、市场、平台、语言、比例、模型、时长、声音、字幕和卖点由界面的逐题选择框收集。收到“快捷选项已全部完成”时，禁止重复提问或更改已选参数，直接生成中文摘要和完整英文提示词；只有客户主动补充特殊要求时才继续文字沟通。
 - 引导顺序：先确认视频类型；明确带货默认推荐“达人出镜（选参考模特）”，并要求独立人物参考图；“纯产品展示”必须明确说明不会出现人物。再确认目标市场、平台和语言；达人出镜或买家证言必须确认独立的人物参考图；再确认横竖屏；然后调用 canvas_get_video_capabilities，并只向用户提供当前能力表中的模型和时长。固定时长直接说明“模型固定”，不要制造无效选择；最后确认声音、字幕和一个核心卖点。
 - 视频类型只能从以下八类选择：${AGENT_VIDEO_TYPE_OPTIONS.map((item) => `${item.label}(${item.value})`).join("、")}。
-- 提示词正文写成 45–85 个英文词的一条连续创作指令，由系统补齐模型、参考图角色和身份约束后，最终发给视频模型的完整提示词必须保持 90–170 个英文词：一个清晰主体、一处主要场景、连续动作、镜头与光线、真实产品交互。10 秒内不超过 3 个可见节拍，不塞入多地点长剧情；一般视频不得包含标题、Markdown、复杂时间表、data URL 或 base64，印尼 H3 爆款导演例外，必须在单段 prompt 中保留 0.0–3.0s / 3.0–10.0s / 10.0–15.0s 三段时间边界。
+- 提示词正文写成 45–85 个英文词的一条连续创作指令，由系统补齐模型、参考图角色和身份约束后，最终发给视频模型的完整提示词必须保持 90–170 个英文词：一个清晰主体、一处主要场景、连续动作、镜头与光线、真实产品交互。10 秒内不超过 3 个可见节拍，不塞入多地点长剧情；一般视频不得包含标题、Markdown、复杂时间表、data URL 或 base64，全球商业强 Hook 导演在 15 秒成片方案中可保留 0.0–3.0s / 3.0–10.0s / 10.0–15.0s 三段时间边界。
 - 创意按类型适配：产品展示/品牌广告强调产品立即可见、身份细节和 hero shot；手部/教程/开箱强调一次真实操作及物理接触；达人/证言强调同一成年人物、服装、声音和自然体验；痛点解决只使用客户明确提供的问题，不编造功效、评价或夸张前后对比。商业短片优先“钩子→一次演示→产品特写/柔和 CTA”。
-- 开启声音时，提示词必须包含且只包含一条格式为 Spoken script: "..." 的当地语言口播；客户未提供台词时，根据已确认卖点生成一条可观察、合规的短台词，并在准备节点前展示给客户确认。一般视频开启字幕时字幕逐字复用口播；印尼 H3 爆款导演必须另外输出更短、更易读的 Bahasa 字幕并优先后期叠加；关闭声音时禁止口播、旁白和 Spoken script。口播必须能在时长内自然说完：6 秒约 10–14 词，10 秒约 18–24 词，15 秒约 26–34 词。根据能力表的 promptProfile 适配：single-scene 不提参考图；image-anchor 锁单图；multi-reference 按输入顺序绑定角色；first-last-frame 只表达首尾状态且不得用于人物图+产品图的角色绑定；multimodal 只引用真正传入的素材。
+- 开启声音时，提示词必须包含且只包含一条格式为 Spoken script: "..." 的已确认语言口播；客户未提供台词时，根据已确认卖点生成一条可观察、合规的短台词，并在准备节点前展示给客户确认。一般视频开启字幕时字幕逐字复用口播；全球商业强 Hook 导演可另外输出更短、更易读的同语言字幕并优先后期叠加；关闭声音时禁止口播、旁白和 Spoken script。口播必须能在时长内自然说完：6 秒约 10–14 词，10 秒约 18–24 词，15 秒约 26–34 词。根据能力表的 promptProfile 适配：single-scene 不提参考图；image-anchor 锁单图；multi-reference 按输入顺序绑定角色；first-last-frame 只表达首尾状态且不得用于人物图+产品图的角色绑定；multimodal 只引用真正传入的素材。
 - 在准备节点前，先把中文需求摘要和完整英文提示词展示给用户，明确询问是否确认。只有用户明确确认后，才能调用 canvas_prepare_video，并传 confirmed=true。该工具只创建并选中一个普通视频节点、写入提示词并连接参考图，绝不立即提交生成或扣费；最终由客户在画布视频节点点击生成。
 - canvas_prepare_video 中，产品参考图必填；人物图与产品图必须是不同节点。提示词不得依赖未传入的参考图。禁止使用 canvas_apply_ops、canvas_create_node 或 canvas_run_generation 绕过引导创建/触发视频。
 - 需要读取画布时调用 canvas_get_state 或 canvas_get_selection。
@@ -666,10 +666,12 @@ export function CanvasAssistantPanel({
             addOnlineLog(`Agent Tool Loop ${loop.step} 开始`, { toolChoice: draftOnly ? "none" : "auto" });
             let streamed = "";
             const result = await requestToolResponse({ ...requestConfig, systemPrompt: "" }, messages, draftOnly ? [] : ONLINE_AGENT_TOOLS, draftOnly ? "none" : "auto", (text) => {
-                streamed = text;
-                rememberAssistantText(assistantId, text);
-                if (text.trim()) scheduleAssistantStream(sessionId, assistantId, text);
-            }, { signal });
+                    streamed = text;
+                    rememberAssistantText(assistantId, text);
+                    if (text.trim()) scheduleAssistantStream(sessionId, assistantId, text);
+                },
+                { signal },
+            );
             if (!turnTelemetryRef.current.has(assistantId)) return;
             flushAssistantStream(sessionId, assistantId, result.content || streamed);
             rememberAssistantText(assistantId, result.content || streamed);
@@ -726,11 +728,18 @@ export function CanvasAssistantPanel({
         }
         const requestConfig = { ...effectiveConfig, model: effectiveConfig.textModel || effectiveConfig.model };
         let streamed = "";
-        const next = await requestToolResponse({ ...requestConfig, systemPrompt: "" }, nextMessages, ONLINE_AGENT_TOOLS, "auto", (text) => {
-            streamed = text;
-            rememberAssistantText(assistantId, text);
-            if (text.trim()) scheduleAssistantStream(sessionId, assistantId, text);
-        }, { signal });
+        const next = await requestToolResponse(
+            { ...requestConfig, systemPrompt: "" },
+            nextMessages,
+            ONLINE_AGENT_TOOLS,
+            "auto",
+            (text) => {
+                streamed = text;
+                rememberAssistantText(assistantId, text);
+                if (text.trim()) scheduleAssistantStream(sessionId, assistantId, text);
+            },
+            { signal },
+        );
         if (!turnTelemetryRef.current.has(assistantId)) return;
         flushAssistantStream(sessionId, assistantId, next.content || streamed);
         rememberAssistantText(assistantId, next.content || streamed);

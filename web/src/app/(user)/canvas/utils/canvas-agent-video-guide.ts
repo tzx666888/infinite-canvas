@@ -28,9 +28,7 @@ export type PrepareCanvasAgentVideoInput = {
     confirmed: boolean;
 };
 
-export type PrepareCanvasAgentVideoResult =
-    | { ok: true; videoNodeId: string; prompt: string; brief: CanvasAgentVideoBrief }
-    | { ok: false; error: string; errorKind: "invalid_args" | "missing_node_id" | "exec_failed" };
+export type PrepareCanvasAgentVideoResult = { ok: true; videoNodeId: string; prompt: string; brief: CanvasAgentVideoBrief } | { ok: false; error: string; errorKind: "invalid_args" | "missing_node_id" | "exec_failed" };
 
 export function agentVideoGuideIntro() {
     return "产品参考图已锁定。接下来每次只需点选一项，不用打字；选完后我会按模型能力生成可直接使用的视频提示词。";
@@ -56,44 +54,49 @@ export type CanvasAgentVideoGuideQuestion = {
     total: number;
 };
 
-const MARKET_OPTIONS = ["菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国"];
+const MARKET_OPTIONS = ["全球通用（不指定地域）", "美国", "澳大利亚", "英国", "新加坡", "菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国", "其他国家/地区（完成后补充）"];
 const ENGLISH_MARKETS: Record<string, string> = {
+    "全球通用（不指定地域）": "a region-neutral global audience",
+    美国: "the United States",
+    澳大利亚: "Australia",
+    英国: "the United Kingdom",
+    新加坡: "Singapore",
     菲律宾: "the Philippines",
     马来西亚: "Malaysia",
     印度尼西亚: "Indonesia",
     泰国: "Thailand",
     越南: "Vietnam",
     中国: "China",
+    "其他国家/地区（完成后补充）": "the market explicitly supplied by the user after this guide",
 };
 const PLATFORM_OPTIONS: Record<string, string[]> = {
     中国: ["抖音", "快手"],
+    "全球通用（不指定地域）": ["TikTok", "Instagram Reels", "YouTube Shorts"],
+    美国: ["TikTok Shop", "Instagram Reels", "YouTube Shorts", "Amazon"],
+    澳大利亚: ["TikTok", "Instagram Reels", "YouTube Shorts"],
+    英国: ["TikTok Shop", "Instagram Reels", "YouTube Shorts"],
+    新加坡: ["TikTok Shop", "Shopee", "Lazada", "Instagram Reels"],
     default: ["TikTok Shop", "Shopee", "Lazada"],
 };
 const ENGLISH_PLATFORMS: Record<string, string> = { 抖音: "Douyin", 快手: "Kuaishou" };
 const LANGUAGE_OPTIONS: Record<string, string[]> = {
+    "全球通用（不指定地域）": ["English"],
+    美国: ["English", "Español"],
+    澳大利亚: ["English"],
+    英国: ["English"],
+    新加坡: ["English", "中文", "Bahasa Melayu"],
     菲律宾: ["English", "Filipino"],
     马来西亚: ["Bahasa Melayu", "English", "中文"],
     印度尼西亚: ["Bahasa Indonesia", "English"],
     泰国: ["ภาษาไทย", "English"],
     越南: ["Tiếng Việt", "English"],
     中国: ["中文", "English"],
+    "其他国家/地区（完成后补充）": ["English"],
 };
 
 export function nextAgentVideoGuideQuestion(config: AiConfig, brief: CanvasAgentVideoBrief): CanvasAgentVideoGuideQuestion | null {
     const needsCreator = agentVideoTypeNeedsCreator(brief.videoType);
-    const keys: CanvasAgentVideoGuideQuestion["key"][] = [
-        "videoType",
-        ...(needsCreator ? (["creatorNodeId"] as const) : []),
-        "market",
-        "platform",
-        "language",
-        "size",
-        "model",
-        "seconds",
-        "generateAudio",
-        "withSubtitle",
-        "sellingPoint",
-    ];
+    const keys: CanvasAgentVideoGuideQuestion["key"][] = ["videoType", ...(needsCreator ? (["creatorNodeId"] as const) : []), "market", "platform", "language", "size", "model", "seconds", "generateAudio", "withSubtitle", "sellingPoint"];
     const key = keys.find((item) => brief[item] === undefined || brief[item] === "");
     if (!key) return null;
     const shared = { key, step: keys.indexOf(key) + 1, total: keys.length };
@@ -106,7 +109,13 @@ export function nextAgentVideoGuideQuestion(config: AiConfig, brief: CanvasAgent
         };
     }
     if (key === "creatorNodeId") return { ...shared, title: "选择参考模特", hint: "产品图已锁定。请从画布选一张模特图，最终会按模特→产品作为两张参考图。", options: [] };
-    if (key === "market") return { ...shared, title: "投放哪个市场？", hint: "市场会决定语言、平台习惯和表达方式。", options: MARKET_OPTIONS.map((value) => ({ label: value, patch: { market: value } })) };
+    if (key === "market")
+        return {
+            ...shared,
+            title: "投放哪个市场？",
+            hint: "不确定可选“全球通用”；列表没有的国家或城市，可选最后一项并在完成后直接补充，Agent 不会套用固定地域。",
+            options: MARKET_OPTIONS.map((value) => ({ label: value, patch: { market: value } })),
+        };
     if (key === "platform") {
         const values = PLATFORM_OPTIONS[brief.market || ""] || PLATFORM_OPTIONS.default;
         return { ...shared, title: "投放到哪个平台？", hint: "只显示当前市场常用的平台。", options: values.map((value) => ({ label: value, patch: { platform: value } })) };
@@ -199,7 +208,8 @@ export function agentVideoDraftRequest(brief: CanvasAgentVideoBrief) {
     const speechRule = brief.generateAudio
         ? `必须包含且只包含一条能在当前时长内自然说完的 ${brief.language || "当地语言"} 口播，格式严格为 Spoken script: "..."。${brief.withSubtitle ? "字幕必须逐字复用这句口播，不得另写字幕。" : "不要生成画面字幕。"}`
         : "禁止口播、旁白和 Spoken script，不要生成画面字幕。";
-    return `快捷选项已全部完成。不要重复提问，也不要修改已选参数。请直接读取当前模型能力，先输出简洁中文需求摘要，再输出一条 45–85 个英文词的连续创作指令，最后等待我确认。提示词只写一个主要场景、最多三个可见节拍，并明确真实产品交互、镜头、光线和参考图身份。${speechRule} 不得写标题、Markdown、时间表或未确认的功效宣称。已选需求：${JSON.stringify(cleanBrief(brief))}`;
+    const marketRule = brief.market === "全球通用（不指定地域）" ? "保持全球中性，不添加任何特定国家、城市、货币、地标、旗帜或平台徽标。" : "只按已选市场做一致本地化，不混入其他国家的语言、货币、地标或平台表达。";
+    return `快捷选项已全部完成。不要重复提问，也不要修改已选参数。请直接读取当前模型能力，先输出简洁中文需求摘要，再输出一条 45–85 个英文词的连续创作指令，最后等待我确认。提示词只写一个主要场景、最多三个可见节拍，并明确真实产品交互、镜头、光线和参考图身份。${marketRule}${speechRule} 不得写标题、Markdown、时间表或未确认的功效宣称。已选需求：${JSON.stringify(cleanBrief(brief))}`;
 }
 
 export function agentVideoConfirmRequest() {
@@ -225,7 +235,19 @@ export function extractAgentVideoDraftPrompt(messages: AgentVideoDraftMessage[])
 
 export function agentVideoBriefSummary(brief: CanvasAgentVideoBrief) {
     const type = AGENT_VIDEO_TYPE_OPTIONS.find((item) => item.value === brief.videoType)?.label;
-    return [type, brief.market, brief.platform, brief.language, brief.model ? modelOptionName(brief.model) : "", brief.size === "1280x720" ? "横屏" : "竖屏", brief.seconds ? `${brief.seconds} 秒` : "", brief.generateAudio ? "有声" : "无声", brief.withSubtitle ? "有字幕" : "无字幕"].filter(Boolean).join(" · ");
+    return [
+        type,
+        brief.market,
+        brief.platform,
+        brief.language,
+        brief.model ? modelOptionName(brief.model) : "",
+        brief.size === "1280x720" ? "横屏" : "竖屏",
+        brief.seconds ? `${brief.seconds} 秒` : "",
+        brief.generateAudio ? "有声" : "无声",
+        brief.withSubtitle ? "有字幕" : "无字幕",
+    ]
+        .filter(Boolean)
+        .join(" · ");
 }
 
 export function mergeCanvasAgentVideoBrief(current: CanvasAgentVideoBrief | undefined, patch: Partial<CanvasAgentVideoBrief>) {
@@ -404,9 +426,7 @@ function compileGuidedVideoPrompt(brief: CanvasAgentVideoBrief & { model: string
     if (brief.generateAudio && !hasWorkbenchSpokenScript(body)) throw new Error('开启声音时必须提供一条格式为 Spoken script: "..." 的已确认口播。');
     if (!brief.generateAudio && hasWorkbenchSpokenScript(body)) throw new Error("关闭声音时不得包含 Spoken script。");
     const compactBody = compactAgentVideoDirection(body, 72);
-    const roleBinding = brief.creatorNodeId
-        ? "Image 1 holding Image 2 product is the required presenter-product reference."
-        : "<IMAGE_1> is the exact product identity and must remain unchanged.";
+    const roleBinding = brief.creatorNodeId ? "Image 1 holding Image 2 product is the required presenter-product reference." : "<IMAGE_1> is the exact product identity and must remain unchanged.";
     const market = ENGLISH_MARKETS[brief.market || ""] || brief.market;
     const platform = ENGLISH_PLATFORMS[brief.platform || ""] || brief.platform;
     const spec = `Create exactly ${brief.seconds} seconds of ${videoAspectRatioForSize(brief.size)} ${platform} commerce footage for ${market}.`;
@@ -447,7 +467,9 @@ function compactAgentVideoDirection(value: string, maximum: number) {
     const script = scriptMatch[0];
     const visual = `${value.slice(0, scriptMatch.index)} ${value.slice(scriptMatch.index + script.length)}`.replace(/\s+/g, " ").trim();
     const visualBudget = Math.max(12, maximum - countLatinWords(script));
-    const compactVisual = limitLatinWords(visual, visualBudget).replace(/[\s,;:–-]+$/, "").replace(/[.!?]?$/, ".");
+    const compactVisual = limitLatinWords(visual, visualBudget)
+        .replace(/[\s,;:–-]+$/, "")
+        .replace(/[.!?]?$/, ".");
     return `${compactVisual} ${script}`.trim();
 }
 
@@ -459,18 +481,27 @@ function limitLatinWords(value: string, maximum: number) {
 }
 
 function normalizeAgentVideoDraftPrompt(value: string) {
-    let text = value.trim().replace(/^```(?:text|markdown)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    let text = value
+        .trim()
+        .replace(/^```(?:text|markdown)?\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
     const label = /(?:\*\*\s*)?(?:英文视频提示词|English video prompt)\s*[:：](?:\s*\*\*)?\s*/i.exec(text);
     if (label) text = text.slice(label.index + label[0].length).trim();
     const nextSection = text.search(/\n\s*(?:#{1,6}\s*)?(?:\*\*\s*)?(?:中文需求摘要|需求摘要|同步字幕|字幕|Chinese summary|Subtitle)(?:\s*\([^\n)]*\))?(?:\s*\*\*)?\s*[:：]/i);
     if (nextSection >= 0) text = text.slice(0, nextSection).trim();
-    text = text.replace(/^[-*]\s+/, "").replace(/^`+|`+$/g, "").trim();
-    const quotePairs: ReadonlyArray<readonly [string, string]> = [["\"", "\""], ["“", "”"], ["'", "'"]];
+    text = text
+        .replace(/^[-*]\s+/, "")
+        .replace(/^`+|`+$/g, "")
+        .trim();
+    const quotePairs: ReadonlyArray<readonly [string, string]> = [
+        ['"', '"'],
+        ["“", "”"],
+        ["'", "'"],
+    ];
     const outerQuotes = quotePairs.find(([open, close]) => text.startsWith(open) && text.endsWith(close));
     if (outerQuotes) text = text.slice(outerQuotes[0].length, -outerQuotes[1].length).trim();
-    text = text
-        .replace(/\s+Subtitle(?:\s*\([^)]*\))?\s*:\s*[\s\S]*$/i, "")
-        .replace(/Spoken script(?:\s*\([^)]*\))?\s*:\s*['‘’“”\"]([^'‘’“”\"]+)['‘’“”\"]/i, (_match, script: string) => `Spoken script: "${script.trim()}"`);
+    text = text.replace(/\s+Subtitle(?:\s*\([^)]*\))?\s*:\s*[\s\S]*$/i, "").replace(/Spoken script(?:\s*\([^)]*\))?\s*:\s*['‘’“”\"]([^'‘’“”\"]+)['‘’“”\"]/i, (_match, script: string) => `Spoken script: "${script.trim()}"`);
     return text.replace(/\s+/g, " ").trim();
 }
 
@@ -511,7 +542,5 @@ function normalizeVideoSize(value?: string): "720x1280" | "1280x720" {
 }
 
 function cleanBrief(value: Partial<CanvasAgentVideoBrief>): CanvasAgentVideoBrief {
-    return Object.fromEntries(
-        Object.entries(value).filter(([, item]) => item !== undefined && item !== ""),
-    ) as CanvasAgentVideoBrief;
+    return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== "")) as CanvasAgentVideoBrief;
 }

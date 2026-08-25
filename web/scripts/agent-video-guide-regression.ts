@@ -3,7 +3,17 @@ import fs from "node:fs";
 
 import { CanvasNodeType, type CanvasNodeData } from "../src/app/(user)/canvas/types.ts";
 import { applyCanvasAgentOps, type CanvasAgentSnapshot } from "../src/app/(user)/canvas/utils/canvas-agent-ops.ts";
-import { agentVideoCapabilityCatalog, agentVideoConfirmRequest, agentVideoDraftRequest, agentVideoPromptProfileSupportsType, extractAgentVideoDraftPrompt, lockPreparedAgentVideoConfig, nextAgentVideoGuideQuestion, prepareCanvasAgentVideo, shouldRestartAgentVideoGuide } from "../src/app/(user)/canvas/utils/canvas-agent-video-guide.ts";
+import {
+    agentVideoCapabilityCatalog,
+    agentVideoConfirmRequest,
+    agentVideoDraftRequest,
+    agentVideoPromptProfileSupportsType,
+    extractAgentVideoDraftPrompt,
+    lockPreparedAgentVideoConfig,
+    nextAgentVideoGuideQuestion,
+    prepareCanvasAgentVideo,
+    shouldRestartAgentVideoGuide,
+} from "../src/app/(user)/canvas/utils/canvas-agent-video-guide.ts";
 import { inferDirectVideoReferencePair } from "../src/app/(user)/canvas/utils/video-reference-model.ts";
 import { prepareVideoGenerationPreflight } from "../src/app/(user)/canvas/utils/video-generation-preflight.ts";
 import { defaultConfig, modelOptionName, TOKAXIS_AGENT_TEXT_MODEL_IDS } from "../src/stores/use-config-store.ts";
@@ -47,24 +57,58 @@ const guidedBrief = {
     size: "720x1280" as const,
 };
 assert.equal(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id })?.key, "videoType", "guide must ask exactly one next question");
-assert.deepEqual(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id })?.options.slice(0, 3).map((item) => item.label), ["达人出镜（选参考模特）", "手部演示", "纯产品展示"]);
+const globalMarketQuestion = nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id, videoType: "product-showcase" });
+assert.equal(globalMarketQuestion?.key, "market");
+assert.ok(
+    globalMarketQuestion?.options.some((item) => item.patch.market === "全球通用（不指定地域）"),
+    "guide must support a region-neutral global route",
+);
+assert.ok(
+    globalMarketQuestion?.options.some((item) => item.patch.market === "澳大利亚"),
+    "guide must not be limited to Southeast Asia",
+);
+assert.deepEqual(
+    nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id })
+        ?.options.slice(0, 3)
+        .map((item) => item.label),
+    ["达人出镜（选参考模特）", "手部演示", "纯产品展示"],
+);
 assert.match(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id })?.options[0]?.description || "", /选择模特图/);
 assert.equal(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id, videoType: "creator" })?.key, "creatorNodeId");
 assert.equal(nextAgentVideoGuideQuestion(defaultConfig, { productNodeId: product.id, videoType: "creator" })?.title, "选择参考模特");
-assert.deepEqual(nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market: undefined })?.options.map((item) => item.label), ["菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国"]);
-assert.deepEqual(nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market: "中国", platform: undefined })?.options.map((item) => item.label), ["抖音", "快手"]);
-for (const market of ["菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国"]) {
+assert.deepEqual(
+    nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market: undefined })?.options.map((item) => item.label),
+    ["全球通用（不指定地域）", "美国", "澳大利亚", "英国", "新加坡", "菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国", "其他国家/地区（完成后补充）"],
+);
+assert.deepEqual(
+    nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market: "中国", platform: undefined })?.options.map((item) => item.label),
+    ["抖音", "快手"],
+);
+for (const market of ["全球通用（不指定地域）", "美国", "澳大利亚", "英国", "新加坡", "菲律宾", "马来西亚", "印度尼西亚", "泰国", "越南", "中国", "其他国家/地区（完成后补充）"]) {
     const languageQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, market, platform: market === "中国" ? "抖音" : "TikTok Shop", language: undefined });
     assert.equal(languageQuestion?.key, "language", `${market} should advance to language selection`);
-    assert.ok(languageQuestion?.options.some((item) => item.patch.language === "English"), `${market} should explicitly offer English`);
+    assert.ok(
+        languageQuestion?.options.some((item) => item.patch.language === "English"),
+        `${market} should explicitly offer English`,
+    );
 }
 const modelQuestion = nextAgentVideoGuideQuestion(defaultConfig, guidedBrief);
 assert.equal(modelQuestion?.key, "model");
-assert.equal(modelQuestion?.options.some((item) => item.patch.model === omni.model), true, "model choices must come from the central capability contract");
+assert.equal(
+    modelQuestion?.options.some((item) => item.patch.model === omni.model),
+    true,
+    "model choices must come from the central capability contract",
+);
 const omniDurationQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, model: omni.model });
-assert.deepEqual(omniDurationQuestion?.options.map((item) => item.label), ["10 秒（模型固定）"]);
+assert.deepEqual(
+    omniDurationQuestion?.options.map((item) => item.label),
+    ["10 秒（模型固定）"],
+);
 const h3DurationQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, model: minimax.model });
-assert.deepEqual(h3DurationQuestion?.options.map((item) => item.label), ["5 秒", "10 秒", "15 秒"]);
+assert.deepEqual(
+    h3DurationQuestion?.options.map((item) => item.label),
+    ["5 秒", "10 秒", "15 秒"],
+);
 const h3Preflight = prepareVideoGenerationPreflight({
     prompt: "A clean product demonstration with natural camera motion.",
     config: { ...defaultConfig, model: minimax.model, videoModel: minimax.model, baseUrl: "/api/tokaxis", videoSeconds: "15", size: "720x1280", vquality: "720" },
@@ -80,7 +124,11 @@ const removedH3Preflight = prepareVideoGenerationPreflight({
 });
 assert.equal(removedH3Preflight.errors.length > 0, true, "removed MiniMax H3 C4 must fail closed");
 const noAudioQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, model: omni.model, seconds: 10, generateAudio: false });
-assert.deepEqual(noAudioQuestion?.options.map((item) => item.patch.withSubtitle), [false], "silent video must not offer an invalid subtitle choice");
+assert.deepEqual(
+    noAudioQuestion?.options.map((item) => item.patch.withSubtitle),
+    [false],
+    "silent video must not offer an invalid subtitle choice",
+);
 const readyBrief = { ...guidedBrief, model: omni.model, seconds: 10, generateAudio: false, withSubtitle: false, sellingPoint: "突出产品外观与质感" };
 assert.equal(nextAgentVideoGuideQuestion(defaultConfig, readyBrief), null);
 assert.match(agentVideoDraftRequest(readyBrief), /不要重复提问/);
@@ -89,7 +137,10 @@ assert.match(agentVideoConfirmRequest(), /confirmed=true/);
 const extractedDraftPrompt = extractAgentVideoDraftPrompt([
     { role: "assistant", text: "旧回复" },
     { role: "user", text: "选项已完成，请生成适配提示词", detail: { kind: "video-guide-draft-request" } },
-    { role: "assistant", text: "需求摘要：越南 TikTok Shop 竖屏带货。 英文视频提示词：\"Create a 15-second vertical video (720x1280) for TikTok Shop Vietnam using MiniMaxH3-720p. Show the product from the reference image in a natural everyday Vietnamese home scene. Keep its identity, colors, labels, and proportions exactly as in the reference. Depict a person using it casually in real time, with soft natural lighting and a clean, uncluttered background. No extra text, logos, or graphic overlays. Spoken script (Vietnamese): 'Cùng xem sản phẩm này trong cuộc sống hằng ngày nhé.' Subtitle: same Vietnamese sentence, synced.\"" },
+    {
+        role: "assistant",
+        text: "需求摘要：越南 TikTok Shop 竖屏带货。 英文视频提示词：\"Create a 15-second vertical video (720x1280) for TikTok Shop Vietnam using MiniMaxH3-720p. Show the product from the reference image in a natural everyday Vietnamese home scene. Keep its identity, colors, labels, and proportions exactly as in the reference. Depict a person using it casually in real time, with soft natural lighting and a clean, uncluttered background. No extra text, logos, or graphic overlays. Spoken script (Vietnamese): 'Cùng xem sản phẩm này trong cuộc sống hằng ngày nhé.' Subtitle: same Vietnamese sentence, synced.\"",
+    },
 ]);
 assert.match(extractedDraftPrompt, /^Create a 15-second vertical video/);
 assert.match(extractedDraftPrompt, /Spoken script: "Cùng xem sản phẩm này trong cuộc sống hằng ngày nhé\."$/);
@@ -124,7 +175,11 @@ const productPrepared = prepareCanvasAgentVideo(defaultConfig, snapshot, {
     },
     prompt: productDirection,
 });
-assert.equal(productPrepared.ops.some((op) => op.type === "run_generation"), false, "guide must never auto-submit a paid generation");
+assert.equal(
+    productPrepared.ops.some((op) => op.type === "run_generation"),
+    false,
+    "guide must never auto-submit a paid generation",
+);
 const productVideoOp = productPrepared.ops.find((op) => op.type === "add_node");
 assert.equal(productVideoOp?.nodeType, CanvasNodeType.Video);
 assert.deepEqual(productVideoOp?.metadata?.inputOrder, [product.id]);
@@ -169,7 +224,10 @@ const creatorPrepared = prepareCanvasAgentVideo(defaultConfig, snapshot, {
     },
     prompt: creatorDirection,
 });
-assert.equal(creatorPrepared.ops.some((op) => op.type === "run_generation"), false);
+assert.equal(
+    creatorPrepared.ops.some((op) => op.type === "run_generation"),
+    false,
+);
 const creatorVideoOp = creatorPrepared.ops.find((op) => op.type === "add_node");
 assert.deepEqual(creatorVideoOp?.metadata?.inputOrder, [creator.id, product.id]);
 assert.deepEqual(creatorVideoOp?.metadata?.agentVideoReferenceRoles, { productNodeId: product.id, creatorNodeId: creator.id });
@@ -206,30 +264,12 @@ assert.notEqual(lockedConfig.vquality, "720");
 assert.equal(lockedConfig.videoGenerateAudio, String(creatorPrepared.brief.generateAudio));
 
 assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: false, brief: productPrepared.brief, prompt: productDirection }), /尚未确认/);
-assert.throws(
-    () => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: { ...productPrepared.brief, seconds: 15 }, prompt: productDirection }),
-    /只支持 10 秒/,
-);
-assert.throws(
-    () => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: { ...creatorPrepared.brief, creatorNodeId: product.id }, prompt: creatorDirection }),
-    /不能是同一张/,
-);
-assert.throws(
-    () => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: { ...productPrepared.brief, model: "tokaxis::future-video" }, prompt: productDirection }),
-    /当前不可用/,
-);
-assert.throws(
-    () => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: productPrepared.brief, prompt: `${productDirection} data:image/png;base64,AA==` }),
-    /不能包含图片数据/,
-);
-assert.throws(
-    () => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: productPrepared.brief, prompt: "Create a clean product video with natural movement." }),
-    /45–85 个英文词/,
-);
-assert.throws(
-    () => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: creatorPrepared.brief, prompt: productDirection }),
-    /Spoken script/,
-);
+assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: { ...productPrepared.brief, seconds: 15 }, prompt: productDirection }), /只支持 10 秒/);
+assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: { ...creatorPrepared.brief, creatorNodeId: product.id }, prompt: creatorDirection }), /不能是同一张/);
+assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: { ...productPrepared.brief, model: "tokaxis::future-video" }, prompt: productDirection }), /当前不可用/);
+assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: productPrepared.brief, prompt: `${productDirection} data:image/png;base64,AA==` }), /不能包含图片数据/);
+assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: productPrepared.brief, prompt: "Create a clean product video with natural movement." }), /45–85 个英文词/);
+assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: creatorPrepared.brief, prompt: productDirection }), /Spoken script/);
 
 const assistantSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-assistant-panel.tsx", import.meta.url), "utf8");
 const localAssistantSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-local-agent-panel.tsx", import.meta.url), "utf8");
@@ -246,11 +286,7 @@ assert.equal(assistantSource.match(/flushAssistantStream\(sessionId, assistantId
 assert.doesNotMatch(assistantSource, /canvas_request_video_options/);
 assert.doesNotMatch(chatSource, /CanvasVideoOptionsCard|video-options/);
 assert.match(assistantSource, /draftOnly \? "none" : "auto"/, "guided prompt drafting must not carry unrelated canvas tools");
-assert.match(
-    assistantSource,
-    /requestToolResponse\([^\n]+draftOnly \? \[\] : ONLINE_AGENT_TOOLS, draftOnly \? "none" : "auto"/,
-    "guided prompt drafting must explicitly disable tool choice when no tools are supplied",
-);
+assert.match(assistantSource, /requestToolResponse\([^\n]+draftOnly \? \[\] : ONLINE_AGENT_TOOLS, draftOnly \? "none" : "auto"/, "guided prompt drafting must explicitly disable tool choice when no tools are supplied");
 assert.match(imageApiSource, /type ToolChoice = "auto" \| "none" \| "required"/, "the response client must support the standard no-tools choice");
 assert.match(imageApiSource, /body\.tools\.length === 0 && body\.tool_choice === "none"/, "guided prompt drafting must use a finite JSON response instead of a hanging SSE stream");
 assert.match(assistantSource, /buildVideoGuideDraftMessages\(currentBrief\)/, "guided prompt drafting must use the minimal dedicated context");

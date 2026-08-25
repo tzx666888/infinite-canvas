@@ -52,13 +52,15 @@ const directImageCommercePrompt = buildIdentityPreservingImageEditPrompt(commerc
 assert.match(directImageCommercePrompt, /preserve its composition/i);
 assert.doesNotMatch(directImageCommercePrompt, /commerce detail set interpretation|reference-derived image generation|independent detail-image/i);
 
-const h3DirectorPrompt = TOKAXIS_PROMPTS.find((item) => item.id === "tokaxis_indonesia_tiktok_h3_director_v2");
-assert.ok(h3DirectorPrompt, "Indonesia TikTok H3 director prompt should be available");
-assert.equal(h3DirectorPrompt.action, "agent_workflow");
-assert.match(h3DirectorPrompt.prompt, /0–3 秒 Hook/);
-assert.match(h3DirectorPrompt.prompt, /Bahasa 口播和 Bahasa 字幕（分开）/);
-assert.match(h3DirectorPrompt.prompt, /可直接投喂 H3/);
-assert.match(h3DirectorPrompt.prompt, /文字清晰度/);
+const globalHookDirectorPrompt = TOKAXIS_PROMPTS.find((item) => item.id === "tokaxis_indonesia_tiktok_h3_director_v2");
+assert.ok(globalHookDirectorPrompt, "backward-compatible global commerce Hook director prompt should be available");
+assert.equal(globalHookDirectorPrompt.action, "agent_workflow");
+assert.equal(globalHookDirectorPrompt.title, "全球商业强 Hook 导演");
+assert.match(globalHookDirectorPrompt.prompt, /0–3 秒 Hook/);
+assert.match(globalHookDirectorPrompt.prompt, /3 个不同 Hook/);
+assert.match(globalHookDirectorPrompt.prompt, /未指定时保持全球中性/);
+assert.match(globalHookDirectorPrompt.prompt, /超现实、无伤害、无血腥/);
+assert.doesNotMatch(globalHookDirectorPrompt.title, /印尼|Indonesia|Bahasa/i);
 
 assert.deepEqual(
     selectLeafFailureIds(

@@ -2,44 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Button, Input, Modal, Slider, Switch, Tooltip } from "antd";
-import {
-    Camera,
-    Eye,
-    EyeOff,
-    ImagePlus,
-    Lock,
-    Maximize2,
-    MoveDiagonal2,
-    Plus,
-    RotateCcw,
-    Sparkles,
-    Trash2,
-    Unlock,
-    UserRound,
-} from "lucide-react";
+import { Camera, Eye, EyeOff, ImagePlus, Lock, Maximize2, MoveDiagonal2, Plus, RotateCcw, Sparkles, Trash2, Unlock, UserRound } from "lucide-react";
 
 import { DIRECTOR_CAMERA_PRESETS, getDirectorCameraPreset } from "./director-camera-presets";
-import {
-    DEFAULT_DIRECTOR_SCENE_SETTINGS,
-    DIRECTOR_BODY_TYPES,
-    DIRECTOR_POSE_GROUPS,
-    createDirectorCharacter,
-    getDirectorBodyPreset,
-    getDirectorPosePreset,
-} from "./director-character-presets";
+import { DEFAULT_DIRECTOR_SCENE_SETTINGS, DIRECTOR_BODY_TYPES, DIRECTOR_POSE_GROUPS, createDirectorCharacter, getDirectorBodyPreset, getDirectorPosePreset } from "./director-character-presets";
 import { DIRECTOR_MULTI_ANGLE_MODES, DIRECTOR_SHOT_SIZES, buildDirectorMultiAnglePrompt } from "./multi-angle-prompts";
 import { DirectorThreeScene, type DirectorThreeSceneHandle } from "./director-three-scene";
-import type {
-    DirectorCameraPresetId,
-    DirectorCharacter,
-    DirectorCharacterBodyType,
-    DirectorCharacterPoseId,
-    DirectorMultiAngleMode,
-    DirectorSceneSettings,
-    DirectorShotSize,
-    DirectorSnapshotPayload,
-    DirectorVector3,
-} from "./director-types";
+import type { DirectorCameraPresetId, DirectorCharacter, DirectorCharacterBodyType, DirectorCharacterPoseId, DirectorMultiAngleMode, DirectorSceneSettings, DirectorShotSize, DirectorSnapshotPayload, DirectorVector3 } from "./director-types";
 
 type DirectorStudioDialogProps = {
     open: boolean;
@@ -97,7 +66,7 @@ export function DirectorStudioDialog({ open, onClose, onSnapshot }: DirectorStud
     } | null>(null);
 
     useEffect(() => {
-        setCharacters((current) => current.length > 0 ? current : [createDirectorCharacter(0, "female")]);
+        setCharacters((current) => (current.length > 0 ? current : [createDirectorCharacter(0, "female")]));
     }, []);
 
     useEffect(() => {
@@ -109,7 +78,7 @@ export function DirectorStudioDialog({ open, onClose, onSnapshot }: DirectorStud
     useEffect(() => {
         if (!open) return;
         const handleWindowResize = () => {
-            setDialogSize((current) => fitDialogToWindow ? getFittedDirectorDialogSize() : clampDirectorDialogSize(current));
+            setDialogSize((current) => (fitDialogToWindow ? getFittedDirectorDialogSize() : clampDirectorDialogSize(current)));
         };
         handleWindowResize();
         window.addEventListener("resize", handleWindowResize);
@@ -121,10 +90,12 @@ export function DirectorStudioDialog({ open, onClose, onSnapshot }: DirectorStud
         const handlePointerMove = (event: PointerEvent) => {
             const resizeState = dialogResizeRef.current;
             if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-            setDialogSize(clampDirectorDialogSize({
-                width: resizeState.startWidth + event.clientX - resizeState.startX,
-                height: resizeState.startHeight + event.clientY - resizeState.startY,
-            }));
+            setDialogSize(
+                clampDirectorDialogSize({
+                    width: resizeState.startWidth + event.clientX - resizeState.startX,
+                    height: resizeState.startHeight + event.clientY - resizeState.startY,
+                }),
+            );
         };
         const handlePointerUp = (event: PointerEvent) => {
             if (dialogResizeRef.current?.pointerId === event.pointerId) dialogResizeRef.current = null;
@@ -140,10 +111,7 @@ export function DirectorStudioDialog({ open, onClose, onSnapshot }: DirectorStud
         };
     }, [open]);
 
-    const selectedCharacter = useMemo(
-        () => characters.find((character) => character.id === selectedCharacterId) ?? null,
-        [characters, selectedCharacterId],
-    );
+    const selectedCharacter = useMemo(() => characters.find((character) => character.id === selectedCharacterId) ?? null, [characters, selectedCharacterId]);
     const activePreset = getDirectorCameraPreset(activePresetId);
     const modeHint = DIRECTOR_MULTI_ANGLE_MODES.find((item) => item.id === mode)?.hint || "";
     const visibleCharacters = characters.filter((character) => character.visible);
@@ -244,17 +212,7 @@ export function DirectorStudioDialog({ open, onClose, onSnapshot }: DirectorStud
     };
 
     return (
-        <Modal
-            title={null}
-            open={open}
-            centered
-            footer={null}
-            width={dialogSize.width}
-            onCancel={onClose}
-            destroyOnHidden
-            styles={{ body: { height: dialogSize.height, overflow: "hidden", padding: 0 } }}
-            className="director-studio-modal"
-        >
+        <Modal title={null} open={open} centered footer={null} width={dialogSize.width} onCancel={onClose} destroyOnHidden styles={{ body: { height: dialogSize.height, overflow: "hidden", padding: 0 } }} className="director-studio-modal">
             <div data-canvas-no-zoom className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl bg-[#101010] text-white">
                 <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-5 py-4">
                     <div>
@@ -291,29 +249,13 @@ export function DirectorStudioDialog({ open, onClose, onSnapshot }: DirectorStud
                     />
 
                     <div className="min-h-0 min-w-0 p-4">
-                        <DirectorThreeScene
-                            ref={sceneRef}
-                            activePresetId={activePresetId}
-                            characters={characters}
-                            selectedCharacterId={selectedCharacterId}
-                            sceneSettings={sceneSettings}
-                            onSelectCharacter={setSelectedCharacterId}
-                        />
+                        <DirectorThreeScene ref={sceneRef} activePresetId={activePresetId} characters={characters} selectedCharacterId={selectedCharacterId} sceneSettings={sceneSettings} onSelectCharacter={setSelectedCharacterId} />
                     </div>
 
                     <div className="ui-scrollbar flex min-h-0 min-w-0 flex-col gap-4 overflow-x-hidden overflow-y-auto border-l border-white/10 p-4">
-                        <SelectedCharacterPanel
-                            character={selectedCharacter}
-                            characterCount={characters.length}
-                            onUpdate={updateSelectedCharacter}
-                            onDelete={handleDeleteSelected}
-                        />
+                        <SelectedCharacterPanel character={selectedCharacter} characterCount={characters.length} onUpdate={updateSelectedCharacter} onDelete={handleDeleteSelected} />
 
-                        <PosePanel
-                            selectedPoseId={selectedCharacter?.poseId ?? "stand"}
-                            disabled={!selectedCharacter || selectedCharacter.locked}
-                            onSelect={(poseId) => updateSelectedCharacter((character) => ({ ...character, poseId }))}
-                        />
+                        <PosePanel selectedPoseId={selectedCharacter?.poseId ?? "stand"} disabled={!selectedCharacter || selectedCharacter.locked} onSelect={(poseId) => updateSelectedCharacter((character) => ({ ...character, poseId }))} />
 
                         <SceneSettingsPanel settings={sceneSettings} onChange={setSceneSettings} />
 
@@ -375,9 +317,7 @@ function CharacterListPanel(props: {
                         <button
                             type="button"
                             onClick={() => onBodyTypeToAddChange(body.id)}
-                            className={`rounded-lg border px-2 py-1.5 text-left text-[11px] transition ${
-                                bodyTypeToAdd === body.id ? "border-white/50 bg-white text-black" : "border-white/10 bg-white/5 text-white/70 hover:border-white/25"
-                            }`}
+                            className={`rounded-lg border px-2 py-1.5 text-left text-[11px] transition ${bodyTypeToAdd === body.id ? "border-white/50 bg-white text-black" : "border-white/10 bg-white/5 text-white/70 hover:border-white/25"}`}
                         >
                             {body.label}
                         </button>
@@ -392,12 +332,7 @@ function CharacterListPanel(props: {
                 {characters.map((character, index) => {
                     const selected = character.id === selectedCharacterId;
                     return (
-                        <div
-                            key={character.id}
-                            className={`rounded-xl border p-2 transition ${
-                                selected ? "border-white/45 bg-white/12" : "border-white/10 bg-white/[0.035] hover:border-white/22"
-                            }`}
-                        >
+                        <div key={character.id} className={`rounded-xl border p-2 transition ${selected ? "border-white/45 bg-white/12" : "border-white/10 bg-white/[0.035] hover:border-white/22"}`}>
                             <button type="button" className="mb-2 flex w-full items-center gap-2 text-left" onClick={() => onSelect(character.id)}>
                                 <span className="grid size-7 place-items-center rounded-full text-xs font-semibold text-black" style={{ backgroundColor: character.color }}>
                                     {index + 1}
@@ -408,12 +343,7 @@ function CharacterListPanel(props: {
                                 </span>
                             </button>
                             <div className="flex items-center gap-1.5">
-                                <Input
-                                    size="small"
-                                    value={character.name}
-                                    onChange={(event) => onRename(character.id, event.target.value)}
-                                    className="min-w-0 flex-1"
-                                />
+                                <Input size="small" value={character.name} onChange={(event) => onRename(character.id, event.target.value)} className="min-w-0 flex-1" />
                                 <Tooltip title={character.visible ? "隐藏" : "显示"}>
                                     <Button size="small" icon={character.visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />} onClick={() => onToggleVisible(character.id)} />
                                 </Tooltip>
@@ -429,20 +359,11 @@ function CharacterListPanel(props: {
     );
 }
 
-function SelectedCharacterPanel(props: {
-    character: DirectorCharacter | null;
-    characterCount: number;
-    onUpdate: (updater: (character: DirectorCharacter) => DirectorCharacter) => void;
-    onDelete: () => void;
-}) {
+function SelectedCharacterPanel(props: { character: DirectorCharacter | null; characterCount: number; onUpdate: (updater: (character: DirectorCharacter) => DirectorCharacter) => void; onDelete: () => void }) {
     const { character, characterCount, onUpdate, onDelete } = props;
     const disabled = !character || character.locked;
     if (!character) {
-        return (
-            <section className="rounded-xl border border-white/10 bg-white/[0.035] p-4 text-sm text-white/52">
-                选择一个角色后编辑属性。
-            </section>
-        );
+        return <section className="rounded-xl border border-white/10 bg-white/[0.035] p-4 text-sm text-white/52">选择一个角色后编辑属性。</section>;
     }
 
     return (
@@ -453,23 +374,13 @@ function SelectedCharacterPanel(props: {
                     角色属性
                 </div>
                 <Tooltip title={character.locked ? "角色已锁定" : "删除角色"}>
-                    <Button
-                        danger
-                        size="small"
-                        icon={<Trash2 className="size-3.5" />}
-                        disabled={character.locked || characterCount <= 1}
-                        onClick={onDelete}
-                    />
+                    <Button danger size="small" icon={<Trash2 className="size-3.5" />} disabled={character.locked || characterCount <= 1} onClick={onDelete} />
                 </Tooltip>
             </div>
 
             <div className="mt-3 space-y-3">
                 <FieldLabel label="名称">
-                    <Input
-                        value={character.name}
-                        disabled={disabled}
-                        onChange={(event) => onUpdate((current) => ({ ...current, name: event.target.value }))}
-                    />
+                    <Input value={character.name} disabled={disabled} onChange={(event) => onUpdate((current) => ({ ...current, name: event.target.value }))} />
                 </FieldLabel>
 
                 <div>
@@ -500,14 +411,7 @@ function SelectedCharacterPanel(props: {
                         <span>统一缩放</span>
                         <span>{character.uniformScale.toFixed(2)}x</span>
                     </div>
-                    <Slider
-                        min={0.5}
-                        max={2}
-                        step={0.05}
-                        value={character.uniformScale}
-                        disabled={disabled}
-                        onChange={(value) => onUpdate((current) => ({ ...current, uniformScale: Number(value) }))}
-                    />
+                    <Slider min={0.5} max={2} step={0.05} value={character.uniformScale} disabled={disabled} onChange={(value) => onUpdate((current) => ({ ...current, uniformScale: Number(value) }))} />
                 </div>
 
                 <div>
@@ -525,23 +429,14 @@ function SelectedCharacterPanel(props: {
                             />
                         ))}
                     </div>
-                    <Input
-                        className="mt-2"
-                        value={character.color}
-                        disabled={disabled}
-                        onChange={(event) => onUpdate((current) => ({ ...current, color: normalizeHexDraft(event.target.value, current.color) }))}
-                    />
+                    <Input className="mt-2" value={character.color} disabled={disabled} onChange={(event) => onUpdate((current) => ({ ...current, color: normalizeHexDraft(event.target.value, current.color) }))} />
                 </div>
             </div>
         </section>
     );
 }
 
-function PosePanel(props: {
-    selectedPoseId: DirectorCharacterPoseId;
-    disabled: boolean;
-    onSelect: (poseId: DirectorCharacterPoseId) => void;
-}) {
+function PosePanel(props: { selectedPoseId: DirectorCharacterPoseId; disabled: boolean; onSelect: (poseId: DirectorCharacterPoseId) => void }) {
     return (
         <section className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
             <div className="text-sm font-semibold">动作库</div>
@@ -572,10 +467,7 @@ function PosePanel(props: {
     );
 }
 
-function SceneSettingsPanel(props: {
-    settings: DirectorSceneSettings;
-    onChange: (next: DirectorSceneSettings) => void;
-}) {
+function SceneSettingsPanel(props: { settings: DirectorSceneSettings; onChange: (next: DirectorSceneSettings) => void }) {
     const { settings, onChange } = props;
     return (
         <section className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
@@ -672,7 +564,7 @@ function CameraAndPromptPanel(props: {
             <Input.TextArea
                 value={props.extraPrompt}
                 onChange={(event) => props.onExtraPromptChange(event.target.value)}
-                placeholder="例如：改成印尼本地带货场景、商品放在手里、阳光室内、真实广告质感"
+                placeholder="例如：面向墨尔本投放、商品放在手里、阳光室内、真实广告质感；未写地域时保持全球中性"
                 autoSize={{ minRows: 3, maxRows: 5 }}
                 className="mt-3"
             />
@@ -697,15 +589,7 @@ function FieldLabel({ label, children }: { label: string; children: ReactNode })
     );
 }
 
-function VectorEditor(props: {
-    title: string;
-    value: DirectorVector3;
-    disabled?: boolean;
-    step: number;
-    min: number;
-    max: number;
-    onChange: (next: DirectorVector3) => void;
-}) {
+function VectorEditor(props: { title: string; value: DirectorVector3; disabled?: boolean; step: number; min: number; max: number; onChange: (next: DirectorVector3) => void }) {
     const { title, value, disabled, step, min, max, onChange } = props;
     const setAxis = (axis: keyof DirectorVector3, nextValue: number) => onChange({ ...value, [axis]: nextValue });
     return (

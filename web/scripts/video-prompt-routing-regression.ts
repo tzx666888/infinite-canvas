@@ -32,10 +32,25 @@ assert.doesNotMatch(detailedCompiled, /mini-drama hook|visible natural lip-sync|
 
 const shortCommerceCompiled = buildReferenceVideoPrompt("生成一个带货广告", 2, 2, "10", "auto", "r2v");
 assert.match(shortCommerceCompiled, /USER DIRECTION \(SHORT PRIORITY\)/);
-assert.match(shortCommerceCompiled, /mini-drama hook/);
+assert.match(shortCommerceCompiled, /internally compare three materially different hooks/);
+assert.match(shortCommerceCompiled, /near-miss reveal/);
+assert.match(shortCommerceCompiled, /clearly staged surreal adult fall/);
+assert.match(shortCommerceCompiled, /remain region-neutral/);
+assert.doesNotMatch(shortCommerceCompiled, /Indonesian social-commerce|Bahasa Indonesia|Jakarta/);
 
-const shortProductOnlyCompiled = buildReferenceVideoPrompt("不要人物，只展示商品并上下跳动", 2, 2, "10", "auto", "r2v");
+const explicitMelbourneCompiled = buildReferenceVideoPrompt("生成一条面向澳大利亚墨尔本的 Instagram Reels 带货广告，价格使用澳元", 2, 2, "10", "auto", "r2v");
+assert.match(explicitMelbourneCompiled, /explicitly names a country, city, language, currency, platform/);
+assert.match(explicitMelbourneCompiled, /澳大利亚墨尔本/);
+assert.match(explicitMelbourneCompiled, /Instagram Reels/);
+
+const mediumCommerceCompiled = buildReferenceVideoPrompt("请制作一条商品带货短片，先用我指定的快速推镜开场，再展示包装正面和一次真实操作，最后停在商品特写。".repeat(5), 2, 2, "10", "auto", "r2v");
+assert.match(mediumCommerceCompiled, /USER DIRECTION \(MEDIUM PRIORITY\)/);
+assert.match(mediumCommerceCompiled, /preserve the user's existing hook/);
+assert.doesNotMatch(mediumCommerceCompiled, /internally compare three materially different hooks/);
+
+const shortProductOnlyCompiled = buildReferenceVideoPrompt("不要人物，生成一个带货广告，只展示商品并上下跳动", 2, 2, "10", "auto", "r2v");
 assert.match(shortProductOnlyCompiled, /Product-only route/);
-assert.doesNotMatch(shortProductOnlyCompiled, /mini-drama hook|visible natural lip-sync|one consistent presenter|presenter-matched voice/i);
+assert.match(shortProductOnlyCompiled, /burst-to-reveal, scale contrast, spatial mismatch/);
+assert.doesNotMatch(shortProductOnlyCompiled, /surreal adult fall|visible natural lip-sync|one consistent presenter|presenter-matched voice/i);
 
 console.log("Video prompt routing regression checks passed");

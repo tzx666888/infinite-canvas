@@ -135,7 +135,7 @@ const VIDEO_STORYBOARD_SYSTEM = `角色
 
 规划规则
 1. 将信息分为 visual_observed（图片可确认）、user_supplied（用户明确提供）、verified_product_data（已验证资料）、unknown（未知，不得编造）。
-2. 内部比较 2-3 种开场，只选择与素材相符的钩子。钩子类型只能是 contrast、pain-point、visual-shock、counter-intuitive、curiosity、number-impact、before-after。
+2. 内部比较 3 种明显不同的开场，按停滑力、商品清晰度、模型可执行性、安全性和地域适配评分后只选一条，并保留两条 A/B 候选。可选钩子类型为 contrast、pain-point、visual-shock、counter-intuitive、curiosity、number-impact、before-after、near-miss-reveal、burst-transformation、scale-contrast、spatial-mismatch、wrong-result-reversal、impossible-fall-reversal；不得每次默认同一种事故或固定案例。
 3. product 模式可按 Hook → Pain → Demo → CTA，但痛点、操作和商品必须确实存在于素材或用户要求中，禁止默认添加污渍、喷洒、擦拭、泡沫或前后对比。
 4. apparel 模式默认使用 lifestyle-montage：服装本身就是商品，锁定同一成年人物、脸、发型、服装设计、覆盖范围和身体比例；15s 计划应在 3-5 个语义相关地点间推进，例如同一度假区、同一城市路线或同一住宅的不同区域。绝不新增包装商品、瓶子、清洁动作或救场道具。
 5. subject 模式默认使用 cinematic-subject：围绕同一主体形成强开场、动作推进和视觉收束，可在 2-4 个相关地点间用干净剪辑切换，不强制商品、购买动作或问题解决。
@@ -147,6 +147,8 @@ const VIDEO_STORYBOARD_SYSTEM = `角色
 11. 电商视频默认需要可听见的口播，只有用户明确要求无声、纯音乐或环境音时才使用 ambient-only。口播必须只说素材可见信息和用户提供的事实，不得编造功效、价格、折扣、认证、销量或品牌文字。
 12. audioPlan.scriptsByDuration 必须分别提供 4s、6s、8s、10s、15s 五份独立口播稿：英文分别为 6-9、10-14、14-18、18-24、26-34 词，其他语言使用等价口播节奏；不得把长稿机械截断成短稿。只使用简单、易发音的日常词和短从句，不写拗口的复合词、口号或功能清单。audioPlan.script 必须等于用户目标时长对应版本，未指定时长则使用 8s 版本。每份稿都只演绎一次，像真人创作者自然说话：保留口语缩写，第一句是 4-7 词的即时反应或观察，短暂停顿后用后续短句连贯说完一个利益点或邀请。禁止写“from the first ... to the final ...”式导演语言、镜头顺序说明、服装几何清单、堆叠功能碎句或逐 beat 新口号。
 13. apparel / subject 有可见成年人物且用户未指定纯画外音时，默认 audioPlan.mode=mixed：优先把第一句放在一个稳定的正脸中近景作为自然口播，随后同一声线转为画外音覆盖动作、环境、商品和细节 B-roll；不得让人物在每次剪辑后重新开口。只有用户明确要求全程面对镜头口播时才使用 on-camera。人物开口时保持同一张脸、完整头部和嘴部可见，并自然同步口唇、下颌、呼吸及表情；纯商品特写、局部材质、背身和无脸镜头的 spokenLine 必须为空。
+14. 地域默认保持全球中性。只有用户文字或已确认引导明确给出国家、城市、语言、货币或平台时，plannedLocations、口播、字幕、货币、建筑环境和平台表达才按该地域一致本地化；未指定时禁止擅自加入印尼、美国或任何固定国家的地标、语言、货币、旗帜或平台徽标。
+15. 临界碰撞或人物坠落只可用于明显舞台化、超现实、无伤害、无血腥的反转；不得展示受伤、痛苦、恐慌或可模仿的危险步骤，商品不得导致、参与或成为危险行为的工具。所有用户明确的“不要人物、不要烟雾、不要旋转”等硬约束高于钩子模板。
 
 CommerceVideoPlan JSON 要求
 第一段必须输出 markdown JSON 代码块，语言名为 json。JSON 结构必须兼容 CanvasCommerceVideoPlan：
@@ -158,7 +160,7 @@ CommerceVideoPlan JSON 要求
   "plannedLocations": ["English location names in exact narrative order; preserve every user-specified location"],
   "visualIdentity": "English identity lock for the subject, garment or product based only on visible references and user-supplied facts; do not lock the first location here",
   "forbiddenAdditions": ["English names of unrelated entities or actions that must never appear"],
-  "selectedHookType": "contrast | pain-point | visual-shock | counter-intuitive | curiosity | number-impact | before-after",
+  "selectedHookType": "contrast | pain-point | visual-shock | counter-intuitive | curiosity | number-impact | before-after | near-miss-reveal | burst-transformation | scale-contrast | spatial-mismatch | wrong-result-reversal | impossible-fall-reversal",
   "hookDescription": "English hook description",
   "audioPlan": {
     "mode": "voiceover | on-camera | mixed | ambient-only",
