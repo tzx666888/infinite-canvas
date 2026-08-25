@@ -182,7 +182,7 @@ async function createFlowVideoTask(config: AiConfig, model: string, prompt: stri
     }
 }
 
-function buildReferenceVideoPrompt(
+export function buildReferenceVideoPrompt(
     prompt: string,
     originalReferenceCount: number,
     requestReferenceCount: number,
@@ -196,20 +196,43 @@ function buildReferenceVideoPrompt(
     if (!requestReferenceCount) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
     const direction = canonicalizeVideoReferencePrompt(rawPrompt);
     const duration = normalizeDurationNumber(seconds);
+    const promptRoute = classifyVideoPromptDetail(direction);
+    const hardConstraints = buildVideoHardConstraintGuidance(direction);
+    const productOnly = forbidsPeople(direction);
+    const directionLimit = promptRoute === "detailed" ? 2600 : promptRoute === "medium" ? 1700 : 700;
+    const userDirection = `USER DIRECTION (${promptRoute.toUpperCase()} PRIORITY): ${limitInlinePrompt(direction || "Animate the references naturally while preserving visual identity and scene continuity.", directionLimit)}`;
     const marketGuidance = buildLocalMarketVideoGuidance(direction);
-    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration);
+    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration, productOnly);
+    if (promptRoute === "detailed") {
+        return [
+            `Create a ${duration}-second video using all ${requestReferenceCount} attached images as ordered references.`,
+            buildReferenceLabelMap(requestReferenceCount),
+            hardConstraints,
+            userDirection,
+            "The user supplied a complete production brief. Follow its timeline, framing, motion, text, exclusions, and reference roles exactly. Do not add a generic presenter, reaction shot, hand demonstration, dialogue, smoke, rotation, or story beat that the user did not request.",
+            hardConstraints ? "FINAL CHECK: every HARD USER CONSTRAINT above must remain true in every frame." : "Do not replace or rewrite the user's complete production brief.",
+        ]
+            .filter(Boolean)
+            .join("\n");
+    }
     if (referenceMode === "i2v") {
         return [
             `Create a ${duration}-second video by animating the attached source image as the exact opening frame.`,
+            hardConstraints,
+            userDirection,
             "Preserve the same subject or product identity, package geometry, colors, label placement, object count, environment, composition, and camera orientation.",
             "Add only physically plausible local motion. Keep faces, bodies, hands, labels, rigid objects, and background geometry stable; no morphing, redesign, rebranding, or invented label text.",
             "If the source image is a product/object, keep it as a rigid unchanged product. Do not elongate it, add or remove parts, alter its surface pattern, or redesign its component count while creating motion around it.",
             explicitProductScalePrompt,
             marketGuidance,
             dramaGuidance,
-            "If audio is generated, use one consistent voice matching the visible presenter and the user's requested language. A visible female presenter requires a female voice; never change speaker or voice gender.",
-            "Visible speech rule: when a visible presenter is speaking, keep the face clearly visible for the complete line and animate natural synchronized lips, jaw, cheeks, breath, and facial micro-expressions. Never add spoken dialogue over a frozen mouth, static smile, back view, or product-only close-up. Put silent detail shots between spoken lines instead.",
-            `Direction: ${limitInlinePrompt(direction || "Animate the source naturally while preserving visual identity.", 2200)}`,
+            !productOnly && promptRoute === "short"
+                ? "If audio is generated, use one consistent voice matching the visible presenter and the user's requested language. A visible female presenter requires a female voice; never change speaker or voice gender."
+                : "",
+            !productOnly && promptRoute === "short"
+                ? "Visible speech rule: when a visible presenter is speaking, keep the face clearly visible for the complete line and animate natural synchronized lips, jaw, cheeks, breath, and facial micro-expressions. Never add spoken dialogue over a frozen mouth, static smile, back view, or product-only close-up. Put silent detail shots between spoken lines instead."
+                : "",
+            hardConstraints ? "FINAL CHECK: every HARD USER CONSTRAINT above must remain true in every frame." : "",
         ]
             .filter(Boolean)
             .join("\n");
@@ -223,16 +246,22 @@ function buildReferenceVideoPrompt(
         `Create a ${duration}-second ecommerce video using all attached images as distinct ordered references.`,
         referenceCountLine,
         buildReferenceLabelMap(requestReferenceCount),
-        roleGuidance,
+        hardConstraints,
+        userDirection,
+        productOnly ? "Product-only route: use every attached product/scene reference without inventing a presenter, model, customer, body part, hand demonstration, dialogue, or reaction shot." : roleGuidance,
         explicitProductScalePrompt,
         marketGuidance,
         dramaGuidance,
         "Use each reference at the right story moment instead of forcing all references into every frame. Preserve exact product identity, package silhouette, label blocks, colors, object count, people, and scene logic. Never rename, translate, recolor, rebrand, or replace the product.",
-        "Use clean edited cuts and stable local motion. Keep normal adult proportions and one consistent presenter. No stretched torso, warped face, melted hand, extra finger, product/person hybrid, or morph between shots.",
-        "If audio is generated, use one consistent presenter-matched voice. A visible female presenter requires a natural female voice; never switch to male narration or change language unexpectedly.",
-        "Visible speech rule: when a visible presenter is speaking, animate natural synchronized lips, jaw, cheeks, and facial micro-expressions. Never add spoken dialogue over a frozen mouth or static smile. If using off-screen voiceover, keep the presenter looking/listening naturally instead of pretending to speak.",
+        !productOnly && promptRoute === "short"
+            ? "Use clean edited cuts and stable local motion. Keep normal adult proportions and one consistent presenter. No stretched torso, warped face, melted hand, extra finger, product/person hybrid, or morph between shots."
+            : "Use clean edited cuts and stable local motion. Do not add subjects, actions, props, camera moves, or effects that conflict with the user direction.",
+        !productOnly && promptRoute === "short" ? "If audio is generated, use one consistent presenter-matched voice. A visible female presenter requires a natural female voice; never switch to male narration or change language unexpectedly." : "",
+        !productOnly && promptRoute === "short"
+            ? "Visible speech rule: when a visible presenter is speaking, animate natural synchronized lips, jaw, cheeks, and facial micro-expressions. Never add spoken dialogue over a frozen mouth or static smile. If using off-screen voiceover, keep the presenter looking/listening naturally instead of pretending to speak."
+            : "",
         "No storyboard artifacts: remove panel numbers, grid borders, badges, captions, arrows, labels, and sheet layout.",
-        `Direction: ${limitInlinePrompt(direction || "Animate the references naturally while preserving visual identity and scene continuity.", 2200)}`,
+        hardConstraints ? "FINAL CHECK: every HARD USER CONSTRAINT above must remain true in every frame." : "",
     ]
         .filter(Boolean)
         .join("\n");
@@ -254,6 +283,33 @@ function canonicalizeVideoReferencePrompt(prompt: string) {
         .replace(/@\s*(<IMAGE_\d+>)/g, "$1")
         .replace(/\s+/g, " ")
         .trim();
+}
+
+export type VideoPromptDetail = "short" | "medium" | "detailed";
+
+export function classifyVideoPromptDetail(prompt: string): VideoPromptDetail {
+    const normalized = prompt.replace(/\s+/g, " ").trim();
+    const length = [...normalized].length;
+    const timelineCount = normalized.match(/(?:^|\s)\d{1,2}\s*[-–—]\s*\d{1,2}\s*(?:s|sec(?:ond)?s?|秒)\s*[:：]?/gi)?.length || 0;
+    const structuredBrief = timelineCount >= 2 || (/(?:total|duration|总时长|时长)\s*[:：]?\s*\d{1,2}\s*(?:s|sec(?:ond)?s?|秒)/i.test(normalized) && /(?:front[- ]only|no rotation|do not|absolutely no|严禁|不要|不得)/i.test(normalized));
+    if (length > 600 || structuredBrief) return "detailed";
+    if (length > 200) return "medium";
+    return "short";
+}
+
+function forbidsPeople(direction: string) {
+    return /(?:不要|禁止|不得|无|不出现)[^\n。；;]{0,12}(?:人物|人像|人类|主播|模特|真人|手|嘴)|(?:no|without|exclude|avoid|do not (?:show|include|generate))\s+(?:any\s+)?(?:human(?: beings?)?|people|person|presenter|model|hands?|mouth)/i.test(direction);
+}
+
+function buildVideoHardConstraintGuidance(direction: string) {
+    const constraints: string[] = [];
+    if (forbidsPeople(direction)) constraints.push("NO people, humans, presenters, models, faces, bodies, hands, mouths, or human silhouettes.");
+    if (/(?:不要|禁止|不得|无|不出现)[^\n。；;]{0,12}(?:烟|雾|蒸汽|水蒸气)|(?:no|without|exclude|avoid|do not (?:show|include|generate))\s+(?:any\s+)?(?:smoke|vapou?r|mist|fog)/i.test(direction))
+        constraints.push("NO smoke, vapor, vapour, mist, fog, steam, haze, or smoke-like effects.");
+    if (/(?:front[- ]only|front face only|仅正面|只展示正面|保持正面)/i.test(direction)) constraints.push("Keep the product FRONT-ONLY and facing the camera in every product shot; never reveal its back or side.");
+    if (/(?:no rotation|no spinning|no turning|do not (?:rotate|spin|turn)|不旋转|禁止旋转|不转身)/i.test(direction)) constraints.push("NO product rotation, spinning, turning around, orbiting, or back-side reveal.");
+    if (/(?:no dialogue|no voice|no speech|silent|music only|不要口播|无台词|无对白|静音|只要音乐)/i.test(direction)) constraints.push("NO presenter dialogue, spoken lines, lip-sync, or invented voiceover.");
+    return constraints.length ? `HARD USER CONSTRAINTS — higher priority than every built-in template:\n- ${constraints.join("\n- ")}` : "";
 }
 
 function buildReferenceLabelMap(requestReferenceCount: number) {
@@ -311,13 +367,22 @@ function buildLocalMarketVideoGuidance(direction: string) {
     return lines.join("\n");
 }
 
-function buildCommerceDramaVideoGuidance(direction: string, duration: number) {
+function buildCommerceDramaVideoGuidance(direction: string, duration: number, productOnly = false) {
     const wantsDrama = /(微剧|短剧|剧情|反转|drama|story|storyline|scenario|skit)/i.test(direction);
     const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
     if (!wantsDrama && !wantsCommerce) return "";
     const revealAt = Math.max(1, Math.min(3, Math.floor(duration * 0.25)));
     const demoAt = Math.max(revealAt + 1, Math.min(duration - 2, Math.floor(duration * 0.55)));
     const heroAt = Math.max(demoAt + 1, Math.max(1, duration - 2));
+    if (productOnly) {
+        return [
+            `Product-only shot rhythm for a ${duration}s short commerce video:`,
+            `- 0-${revealAt}s: visual hook using only product, typography, lighting, graphic motion, or environment requested by the user.`,
+            `- ${revealAt}-${demoAt}s: clear product reveal at plausible scale while preserving exact identity and orientation.`,
+            `- ${demoAt}-${heroAt}s: product benefit/detail shots using only user-approved motion and effects.`,
+            `- ${heroAt}-${duration}s: final product hero and user-requested call-to-action with no person or hand.`,
+        ].join("\n");
+    }
     return [
         `Shot rhythm for a ${duration}s short commerce video:`,
         `- 0-${revealAt}s: mini-drama hook from the primary scene/person reference; show a relatable reaction, curiosity moment, or short presenter line with visible natural lip-sync, not a static product pose.`,
