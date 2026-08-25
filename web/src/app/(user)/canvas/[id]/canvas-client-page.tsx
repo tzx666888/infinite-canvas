@@ -34,8 +34,8 @@ import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { IMAGE_TASK_CONCURRENCY_LIMIT } from "@/lib/image-request-concurrency";
 import { isContentPolicyErrorMessage } from "@/lib/content-policy-error";
 import { buildSceneAwareImageEditPrompt } from "@/lib/fusion-plan-prompt";
-import { resolveFusionReferenceRoles } from "@/lib/fusion-reference-roles";
-import { buildIdentityPreservingImageEditPrompt, buildIndependentImageStyleVariantPrompt } from "@/lib/image-reference-prompt";
+import { isLikelyFusionPrompt, resolveFusionReferenceRoles } from "@/lib/fusion-reference-roles";
+import { buildAllProductSceneImageEditPrompt, buildIdentityPreservingImageEditPrompt, buildIndependentImageStyleVariantPrompt } from "@/lib/image-reference-prompt";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { isGoogleVideoModel, normalizeModelVideoSeconds, selectVideoReferenceImagesWithPriority, videoAspectRatioForSize } from "@/lib/video-model-settings";
@@ -3994,16 +3994,22 @@ function InfiniteCanvasPage() {
                               explicitSceneImageId: sourceReference[0]?.id,
                               force: sourceReference.length > 0 && referenceImages.length > sourceReference.length,
                           });
+                    const allProductComposite = !hasDirectorBlueprintReference && !fusionReferenceRoles && sourceReference.length === 0 && referenceImages.length > 1 && isLikelyFusionPrompt(effectivePrompt);
                     const requestReferenceImages = fusionReferenceRoles?.orderedImages || referenceImages;
                     const persistedImagePrompt = fusionReferenceRoles?.prompt || effectivePrompt;
                     let requestPrompt = isPanoramaNode
                         ? buildPanoramaPrompt(effectivePrompt, requestReferenceImages.length > 0)
                         : hasDirectorBlueprintReference
                           ? buildDirectorBlueprintImageEditPrompt(effectivePrompt)
-                          : buildIdentityPreservingImageEditPrompt(effectivePrompt, sourceReference.length > 0, requestReferenceImages);
+                          : allProductComposite
+                            ? buildAllProductSceneImageEditPrompt(effectivePrompt, requestReferenceImages)
+                            : buildIdentityPreservingImageEditPrompt(effectivePrompt, sourceReference.length > 0, requestReferenceImages);
                     let fusionPlacementPlan: CanvasFusionPlacementPlan | undefined;
                     const generationType = requestReferenceImages.length ? ("edit" as const) : ("generation" as const);
-                    const generationMetadata = buildImageGenerationMetadata(generationType, generationConfig, count, requestReferenceImages);
+                    const generationMetadata = {
+                        ...buildImageGenerationMetadata(generationType, generationConfig, count, requestReferenceImages),
+                        referenceRoleMode: allProductComposite ? ("all-products" as const) : fusionReferenceRoles ? ("scene-products" as const) : undefined,
+                    };
                     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isPanoramaNode ? CanvasNodeType.Panorama : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
                     const imageConfig = isPanoramaNode ? PANORAMA_NODE_SIZE : NODE_DEFAULT_SIZE[CanvasNodeType.Image];
                     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
@@ -4870,11 +4876,14 @@ function InfiniteCanvasPage() {
                 }
                 generationConfig = resolveReferenceImageVideoConfig(retryOriginalGenerationConfig, retryDirectProductLock ? 1 : retryVideoImages.length);
             }
+            const retryAllProductComposite = savedImageMetadata?.referenceRoleMode === "all-products" || (!savedImageMetadata?.fusionPlacementPlanV1 && retrySourceImages.length === 0 && retryImages.length > 1 && isLikelyFusionPrompt(prompt));
             const retryPrompt = savedImageMetadata?.productDetailShot
                 ? prompt
                 : savedImageMetadata?.fusionPlacementPlanV1
                   ? buildSceneAwareImageEditPrompt(savedImageMetadata.fusionPlacementPlanV1, prompt)
-                  : buildIdentityPreservingImageEditPrompt(prompt, retrySourceImages.length > 0 || Boolean(hasSavedImageMetadata && retryImages.length), retryImages);
+                  : retryAllProductComposite
+                    ? buildAllProductSceneImageEditPrompt(prompt, retryImages)
+                    : buildIdentityPreservingImageEditPrompt(prompt, retrySourceImages.length > 0 || Boolean(hasSavedImageMetadata && retryImages.length), retryImages);
             const retryMask = savedImageMetadata?.editMask ? await resolveMetadataEditMask(savedImageMetadata.editMask) : undefined;
             if (savedImageMetadata?.editMask && !retryMask) {
                 message.error("局部修改蒙版已丢失，无法继续重试");

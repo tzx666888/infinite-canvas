@@ -72,6 +72,29 @@ export function buildImageReferencePromptText(prompt: string, references: Refere
     return [`参考图片按上传顺序固定编号为：${labels.join("、")}。`, "必须严格按编号理解图片角色，不得交换、合并或混淆不同图片中的主体。", "", text].join("\n");
 }
 
+export function buildAllProductSceneImageEditPrompt(prompt: string, references: ReferenceImage[]) {
+    const text = prompt.trim();
+    if (!references.length) return text;
+    const productMappings = references.map((_, index) => `- Image ${index + 1} is Product Reference ${index + 1}. Preserve every distinct product or SKU visible in it.`);
+
+    return [
+        text,
+        "",
+        "STRICT ALL-PRODUCT SCENE GENERATION:",
+        "- None of the reference images is a base scene or background image. Every reference image is a product source.",
+        ...productMappings,
+        `- Include all ${references.length} connected product references in the final image. Never reinterpret, omit, replace, or use any reference as the background.`,
+        "- If a product reference contains multiple visible product variants or package pieces, preserve all of them unless the user explicitly requests a subset.",
+        "- Create one new coherent background or scene from the user's written request, then place every referenced product naturally into that new scene.",
+        "- Keep each product visually separate and clearly recognizable. Preserve its contour, proportions, colors, materials, component count, label layout, and visible brand graphics.",
+        "- Never fuse, average, hybridize, duplicate, or transfer parts, colors, labels, or textures between products.",
+        "- Keep every product fully inside the frame with believable scale, contact shadows, reflections, perspective, lighting, and spacing.",
+        "- Before returning the image, verify that every connected product reference is visibly represented in the final scene.",
+        ...imageEditOutputLayoutRules(text),
+        "- Return only the finished image.",
+    ].join("\n");
+}
+
 export function buildIdentityPreservingImageEditPrompt(prompt: string, hasTargetImage: boolean, references: ReferenceImage[]) {
     const text = prompt.trim();
     if (!hasTargetImage || !references.length) return text;

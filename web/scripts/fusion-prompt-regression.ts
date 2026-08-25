@@ -5,7 +5,7 @@ import path from "node:path";
 import type { CanvasFusionPlacementPlan } from "../src/app/(user)/canvas/types";
 import { buildFusionPlannerMessages, buildSceneAwareImageEditPrompt } from "../src/lib/fusion-plan-prompt";
 import { MAX_FUSION_PRODUCT_REFERENCES, resolveFusionReferenceRoles } from "../src/lib/fusion-reference-roles";
-import { buildIdentityPreservingImageEditPrompt } from "../src/lib/image-reference-prompt";
+import { buildAllProductSceneImageEditPrompt, buildIdentityPreservingImageEditPrompt } from "../src/lib/image-reference-prompt";
 import type { ReferenceImage } from "../src/types/image";
 
 const scene = reference("scene", "scene.png");
@@ -40,6 +40,18 @@ const genericMultiReference = resolveFusionReferenceRoles({
 });
 assert.equal(genericMultiReference, null, "generic multi-reference generation must not be forced through product fusion planning");
 
+const allProductsWithoutScene = resolveFusionReferenceRoles({
+    prompt: "把三个产品融入到一起，背景要澳大利亚风情",
+    references: [reference("pink", "pink.png"), reference("red", "red.png"), reference("blue", "blue.png")],
+});
+assert.equal(allProductsWithoutScene, null, "an unnumbered background request must not consume the first product reference as the scene");
+const allProductPrompt = buildAllProductSceneImageEditPrompt("把三个产品融入到一起，背景要澳大利亚风情", [reference("pink", "pink.png"), reference("red", "red.png"), reference("blue", "blue.png")]);
+assert.match(allProductPrompt, /None of the reference images is a base scene or background image/i);
+assert.match(allProductPrompt, /Image 1 is Product Reference 1/i);
+assert.match(allProductPrompt, /Image 2 is Product Reference 2/i);
+assert.match(allProductPrompt, /Image 3 is Product Reference 3/i);
+assert.match(allProductPrompt, /Include all 3 connected product references/i);
+
 const explicitScene = resolveFusionReferenceRoles({
     prompt: "自然合成",
     references: [product, scene],
@@ -50,7 +62,7 @@ assert.ok(explicitScene);
 assert.equal(explicitScene.sceneImage.id, "scene");
 
 const tooManyProducts = [scene, ...Array.from({ length: MAX_FUSION_PRODUCT_REFERENCES + 1 }, (_, index) => reference(`product-${index}`, `product-${index}.png`))];
-assert.throws(() => resolveFusionReferenceRoles({ prompt: "把所有产品融入场景", references: tooManyProducts }), new RegExp(`一次最多融合 ${MAX_FUSION_PRODUCT_REFERENCES} 张产品图`));
+assert.throws(() => resolveFusionReferenceRoles({ prompt: "把所有产品融入场景", references: tooManyProducts, explicitSceneImageId: "scene" }), new RegExp(`一次最多融合 ${MAX_FUSION_PRODUCT_REFERENCES} 张产品图`));
 
 const directEditPrompt = buildIdentityPreservingImageEditPrompt("把产品放到台面上", true, [scene, product]);
 assert.match(directEditPrompt, /smallest camera-consistent rotation/i);

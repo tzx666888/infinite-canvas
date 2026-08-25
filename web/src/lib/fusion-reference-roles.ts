@@ -24,7 +24,8 @@ export function resolveFusionReferenceRoles({ prompt, references, explicitSceneI
     if (!force && explicitSceneIndex < 0 && !isLikelyFusionPrompt(prompt)) return null;
 
     const inferredSceneIndex = explicitSceneIndex >= 0 ? explicitSceneIndex : inferSceneReferenceIndex(prompt, references.length);
-    const originalSceneIndex = inferredSceneIndex ?? 0;
+    if (inferredSceneIndex === null) return null;
+    const originalSceneIndex = inferredSceneIndex;
     const productImages = references.filter((_, index) => index !== originalSceneIndex);
     if (productImages.length > MAX_FUSION_PRODUCT_REFERENCES) {
         throw new Error(`一次最多融合 ${MAX_FUSION_PRODUCT_REFERENCES} 张产品图，请减少连接后重试`);

@@ -234,6 +234,7 @@ export type CanvasNodeMetadata = {
     sceneExpansionPlan?: CanvasSceneExpansionPlan;
     productIdentityV1?: CanvasProductIdentity;
     fusionPlacementPlanV1?: CanvasFusionPlacementPlan;
+    referenceRoleMode?: "all-products" | "scene-products";
     commerceVideoPlan?: CanvasCommerceVideoPlan;
     directorLastSnapshot?: string;
     directorLastSnapshotStorageKey?: string;
