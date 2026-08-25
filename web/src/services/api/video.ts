@@ -193,7 +193,6 @@ export function buildReferenceVideoPrompt(
     const rawPrompt = prompt.trim();
     if (isCompiledVideoPrompt(rawPrompt)) return [rawPrompt, buildCompactVideoProductScalePrompt(productScaleMode)].filter(Boolean).join("\n");
     const explicitProductScalePrompt = productScaleMode !== "auto" ? buildVideoProductScalePrompt(productScaleMode) : "";
-    if (!requestReferenceCount) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
     const direction = canonicalizeVideoReferencePrompt(rawPrompt);
     const duration = normalizeDurationNumber(seconds);
     const promptRoute = classifyVideoPromptDetail(direction);
@@ -203,6 +202,25 @@ export function buildReferenceVideoPrompt(
     const userDirection = `USER DIRECTION (${promptRoute.toUpperCase()} PRIORITY): ${limitInlinePrompt(direction || "Animate the references naturally while preserving visual identity and scene continuity.", directionLimit)}`;
     const marketGuidance = buildLocalMarketVideoGuidance(direction);
     const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration, productOnly, promptRoute);
+    if (!requestReferenceCount) {
+        if (promptRoute === "detailed" || !dramaGuidance) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
+        return [
+            `Create a ${duration}-second text-to-video commercial from the user direction below.`,
+            hardConstraints,
+            userDirection,
+            "No reference images are attached. Establish one clear product hero from the user's stated product, then keep its silhouette, parts, colors, logo treatment, label layout, quantity, and scale consistent across every shot. Do not silently replace it with another product.",
+            explicitProductScalePrompt,
+            marketGuidance,
+            dramaGuidance,
+            productOnly
+                ? "Keep the entire video product-only. Do not invent a presenter, customer, body part, hand demonstration, dialogue, or reaction shot."
+                : "Use one consistent adult presenter only when it materially helps demonstrate the product; never let the presenter replace or obscure the product hero.",
+            "Use clean edited cuts, stable product geometry, physically readable motion, and one final hero frame. Do not generate storyboard panels, production notes, prompt text, reference labels, or multiple competing CTAs inside the video.",
+            hardConstraints ? "FINAL CHECK: every HARD USER CONSTRAINT above must remain true in every frame." : "",
+        ]
+            .filter(Boolean)
+            .join("\n");
+    }
     if (promptRoute === "detailed") {
         return [
             `Create a ${duration}-second video using all ${requestReferenceCount} attached images as ordered references.`,

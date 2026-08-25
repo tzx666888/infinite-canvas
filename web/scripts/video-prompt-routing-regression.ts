@@ -38,6 +38,18 @@ assert.match(shortCommerceCompiled, /clearly staged surreal adult fall/);
 assert.match(shortCommerceCompiled, /remain region-neutral/);
 assert.doesNotMatch(shortCommerceCompiled, /Indonesian social-commerce|Bahasa Indonesia|Jakarta/);
 
+const shortTextOnlyCommerceCompiled = buildReferenceVideoPrompt("帮我生成一条便携榨汁杯的10秒竖屏带货视频，要强Hook，商品全程清晰，结尾有一个明确的下单CTA。", 0, 0, "10", "auto", "t2v");
+assert.match(shortTextOnlyCommerceCompiled, /text-to-video commercial/);
+assert.match(shortTextOnlyCommerceCompiled, /USER DIRECTION \(SHORT PRIORITY\)/);
+assert.match(shortTextOnlyCommerceCompiled, /No reference images are attached/);
+assert.match(shortTextOnlyCommerceCompiled, /internally compare three materially different hooks/);
+assert.match(shortTextOnlyCommerceCompiled, /remain region-neutral/);
+assert.ok(shortTextOnlyCommerceCompiled.length > 50, "text-only short commerce prompt must be expanded before the upstream request");
+
+const plainTextOnlyPrompt = "一朵云从山谷上方缓慢飘过";
+assert.equal(buildReferenceVideoPrompt(plainTextOnlyPrompt, 0, 0, "10", "auto", "t2v"), plainTextOnlyPrompt, "ordinary text-to-video prompts must not receive commerce routing");
+assert.equal(buildReferenceVideoPrompt(detailedProductPrompt, 0, 0, "10", "auto", "t2v"), detailedProductPrompt, "detailed text-only production briefs must remain unchanged");
+
 const explicitMelbourneCompiled = buildReferenceVideoPrompt("生成一条面向澳大利亚墨尔本的 Instagram Reels 带货广告，价格使用澳元", 2, 2, "10", "auto", "r2v");
 assert.match(explicitMelbourneCompiled, /explicitly names a country, city, language, currency, platform/);
 assert.match(explicitMelbourneCompiled, /澳大利亚墨尔本/);
