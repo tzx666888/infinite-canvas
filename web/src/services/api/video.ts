@@ -238,9 +238,11 @@ export function buildReferenceVideoPrompt(
             `Create a ${duration}-second video by animating the attached source image as the exact opening frame.`,
             hardConstraints,
             userDirection,
-            "Preserve the same subject or product identity, package geometry, colors, label placement, object count, environment, composition, and camera orientation.",
-            "Add only physically plausible local motion. Keep faces, bodies, hands, labels, rigid objects, and background geometry stable; no morphing, redesign, rebranding, or invented label text.",
-            "If the source image is a product/object, keep it as a rigid unchanged product. Do not elongate it, add or remove parts, alter its surface pattern, or redesign its component count while creating motion around it.",
+            promptRoute === "short"
+                ? "Preserve the source product/subject identity, package geometry, colors, labels, quantity, scale, and orientation. Keep rigid objects unchanged; use plausible motion with no morphing, redesign, rebranding, invented text, or added/removed parts."
+                : "Preserve the same subject or product identity, package geometry, colors, label placement, object count, environment, composition, and camera orientation.",
+            promptRoute === "short" ? "" : "Add only physically plausible local motion. Keep faces, bodies, hands, labels, rigid objects, and background geometry stable; no morphing, redesign, rebranding, or invented label text.",
+            promptRoute === "short" ? "" : "If the source image is a product/object, keep it as a rigid unchanged product. Do not elongate it, add or remove parts, alter its surface pattern, or redesign its component count while creating motion around it.",
             explicitProductScalePrompt,
             marketGuidance,
             dramaGuidance,
@@ -379,11 +381,11 @@ function buildLocalMarketVideoGuidance(direction: string) {
     if (!wantsCommerce) return "";
     const explicitlyRequestsIndonesia = /(印尼|印度尼西亚|indonesia|indonesian)/i.test(direction);
     return [
-        "Market routing: localize consistently only when USER DIRECTION explicitly names a country, city, language, currency, platform, or cultural setting; otherwise remain region-neutral with none of those assumptions.",
+        "Market routing: localize only when USER DIRECTION names a country, city, language, currency, platform, or culture; otherwise stay region-neutral.",
         explicitlyRequestsIndonesia
-            ? "The user explicitly requested Indonesia: use a plausible Indonesian social-commerce setting and natural Bahasa Indonesia for narration and on-screen CTA unless the user requests another language. Keep the specific product and reference visuals unchanged."
+            ? "The user explicitly requested Indonesia: use natural everyday Bahasa Indonesia with native short-video rhythm and stress, not translated Chinese phrasing or slow delivery. Keep the product unchanged."
             : "No country is selected by default. Do not silently turn a globally neutral request into an Indonesian, American, Chinese, or other country-specific advertisement.",
-        "Never translate product branding or invent claims, prices, discounts, ratings, urgency, landmarks, flags, or platform badges.",
+        "Never translate branding or invent claims, prices, discounts, ratings, urgency, landmarks, flags, or platform badges.",
     ].join("\n");
 }
 
@@ -393,9 +395,9 @@ function buildCommerceSpeechDensityGuidance(direction: string, duration: number,
         ? "Use one continuous off-screen narrator only; do not create a visible speaker, presenter, mouth, hand, or body."
         : "Use one consistent voice. Prefer off-screen narration during the expectation-breaking visual hook so the action remains dominant. If a presenter speaks after the product reveal, require natural lip-sync; continue as the same off-screen voice over product detail cuts.";
     const localSpeechRouting =
-        "LOCAL SPEECH ROUTING: when the user names a country, region, or language, use that market's natural everyday commercial language, native accent, idiom, sentence length, stress, and short-video speaking pace. An explicitly requested language overrides the country default. If no market is named, stay region-neutral and speak in the user's prompt language. Word targets are semantic word-equivalents, not a literal translated word count: preserve the required information density while keeping locally natural pronunciation and breath.";
+        "LOCAL SPEECH ROUTING: use the named market's natural everyday commercial language, native accent, idiom, sentence length, emphasis, pauses, and short-video speed; never translate Chinese phrasing word-for-word. An explicit language overrides the country default. With no named market, use the prompt language neutrally. Word targets are semantic equivalents adjusted to natural local pronunciation and breath.";
     const claimLock =
-        "CLAIM LOCK: script only facts visibly readable in the attached reference or explicitly supplied by the user. Never invent efficacy, safety, price, discount, rating, guarantee, limited stock, scarcity, urgency, or medical/sexual-performance claims.";
+        "FACTUAL SCRIPT LOCK — MANDATORY: narration may use only the visible hook, readable product name/category, visibly provable size/color/package/portability/shown operation, and a neutral view-details CTA. Never invent efficacy, results, safety, price, discount, rating, guarantee, limited stock, scarcity, urgency, or medical/sexual-performance claims. Ban unsupplied phrases such as 'stok terbatas', 'rasakan khasiat/hasilnya', 'aman', 'efektif', and equivalents.";
     if (duration >= 15) {
         return [
             "SPOKEN DELIVERY LOCK — MANDATORY: write and audibly deliver 38-47 natural target-language word equivalents across the finished 15-second video.",
@@ -409,11 +411,11 @@ function buildCommerceSpeechDensityGuidance(direction: string, duration: number,
     }
     if (duration >= 8) {
         return [
-            `SPOKEN DELIVERY LOCK — MANDATORY: write and audibly deliver 24-32 natural target-language word equivalents across the finished ${duration}-second video.`,
+            `SPOKEN DELIVERY LOCK — MANDATORY: write exactly four short sentences totaling 22-28 natural target-language word equivalents. Start sentence 1 by 0.15s during the visual hook; never wait for product reveal.`,
             claimLock,
             localSpeechRouting,
-            `Speech timing: start by 0.2s; 0-2s spoken hook 5-7 words, 2-5s problem/product setup 7-9 words, 5-${Math.max(6, duration - 2)}s benefit or evidence 7-9 words, ${Math.max(6, duration - 2)}-${duration}s CTA 5-7 words.`,
-            `Cover at least ${Math.max(6.5, duration - 1.5)} seconds with intelligible speech. No silent gap may exceed 0.45s; never slow-stretch, repeat, or replace required words with music, sound effects, captions, or planning notes.`,
+            `Timing: 0-2s hook reaction 4-6 words; 2-5s product identity 6-8; 5-${Math.max(6, duration - 2)}s visible detail 6-8; ${Math.max(6, duration - 2)}-${duration}s neutral CTA 4-6.`,
+            `Keep intelligible speech active across at least ${Math.max(6.5, duration - 1.5)} seconds. No silent gap may exceed 0.35s; never slow-stretch, rush, repeat, or replace required words with music, sound effects, captions, or planning notes.`,
             voiceMode,
             "The spoken hook must react to the visible expectation-breaking event; talking while normally holding the product is not a hook.",
         ].join("\n");
@@ -447,6 +449,8 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
     if (productOnly) {
         return [
             `Product-only shot rhythm for a ${duration}s short commerce video:`,
+            lightTouch ? "" : "SHORT-COMMERCE ACCEPTANCE LOCK: the opening fails unless BOTH the expectation-breaking visual hook and the locally natural factual narration are present on time. Never sacrifice one to satisfy the other.",
+            lightTouch ? "" : "NARRATION START LOCK: begin locally natural factual narration by 0.15s inside the visual hook; never delay speech until the reveal.",
             lightTouch
                 ? `- 0-${hookEnd}s: preserve the user's hook and add only a compact product-safe visual accent when needed.`
                 : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one product-safe structure: burst-to-reveal, scale contrast, spatial mismatch, wrong-result reversal, counter-intuitive motion, or an environmental near-miss. Ordinary product holding, a logo close-up, a slow pan or push-in, simple placement, gentle floating, or a standard demonstration DO NOT count as a hook. Reject and rewrite any opening that could be mistaken for an ordinary product demo.`,
@@ -462,6 +466,8 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
     }
     return [
         `Shot rhythm for a ${duration}s short commerce video:`,
+        lightTouch ? "" : "SHORT-COMMERCE ACCEPTANCE LOCK: the opening fails unless BOTH the expectation-breaking visual hook and the locally natural factual narration are present on time. Never sacrifice one to satisfy the other.",
+        lightTouch ? "" : "NARRATION START LOCK: begin locally natural factual narration by 0.15s inside the visual hook; never delay speech until the reveal.",
         lightTouch
             ? `- 0-${hookEnd}s: preserve the user's existing hook and add only the minimum visual clarification needed.`
             : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one: a safe staged adult stumble or surreal fall with a soft unharmed landing, near-miss reveal, burst transformation, scale contrast, spatial mismatch, wrong-result reversal, or counter-intuitive motion. Ordinary presenter holding the product, normal walking, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook. Reject and rewrite any plan whose opening could be mistaken for an ordinary product demonstration.`,
