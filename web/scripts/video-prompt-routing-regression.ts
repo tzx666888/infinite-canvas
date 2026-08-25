@@ -49,6 +49,13 @@ assert.match(shortIndonesiaTenSecondCompiled, /0-0\.7s trigger the expectation b
 assert.match(shortIndonesiaTenSecondCompiled, /Never finish the hook early and hold a static frame before 2s/);
 assert.match(shortIndonesiaTenSecondCompiled, /The user explicitly requested Indonesia/);
 assert.match(shortIndonesiaTenSecondCompiled, /Bahasa Indonesia/);
+assert.match(shortIndonesiaTenSecondCompiled, /SPOKEN DELIVERY LOCK — MANDATORY/);
+assert.match(shortIndonesiaTenSecondCompiled, /LOCAL SPEECH ROUTING/);
+assert.match(shortIndonesiaTenSecondCompiled, /native accent, idiom, sentence length, stress, and short-video speaking pace/);
+assert.match(shortIndonesiaTenSecondCompiled, /explicitly requested language overrides the country default/);
+assert.match(shortIndonesiaTenSecondCompiled, /24-32 natural target-language word equivalents/);
+assert.match(shortIndonesiaTenSecondCompiled, /0-2s spoken hook 5-7 words/);
+assert.match(shortIndonesiaTenSecondCompiled, /No silent gap may exceed 0\.45s/);
 assert.match(shortIndonesiaTenSecondCompiled, /2-8s/);
 assert.match(shortIndonesiaTenSecondCompiled, /8-10s/);
 
@@ -61,6 +68,9 @@ assert.match(shortIndonesiaFifteenSecondCompiled, /Never finish the hook early a
 assert.match(shortIndonesiaFifteenSecondCompiled, /3-12s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /12-15s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /Bahasa Indonesia/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /38-47 natural target-language word equivalents/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /0-3s spoken hook 8-10 words/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /No silent gap may exceed 0\.6s/);
 
 const shortTextOnlyCommerceCompiled = buildReferenceVideoPrompt("帮我生成一条便携榨汁杯的10秒竖屏带货视频，要强Hook，商品全程清晰，结尾有一个明确的下单CTA。", 0, 0, "10", "auto", "t2v");
 assert.match(shortTextOnlyCommerceCompiled, /text-to-video commercial/);
@@ -68,6 +78,7 @@ assert.match(shortTextOnlyCommerceCompiled, /USER DIRECTION \(SHORT PRIORITY\)/)
 assert.match(shortTextOnlyCommerceCompiled, /No reference images are attached/);
 assert.match(shortTextOnlyCommerceCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
 assert.match(shortTextOnlyCommerceCompiled, /remain region-neutral/);
+assert.match(shortTextOnlyCommerceCompiled, /If no market is named, stay region-neutral and speak in the user's prompt language/);
 assert.ok(shortTextOnlyCommerceCompiled.length > 50, "text-only short commerce prompt must be expanded before the upstream request");
 
 const plainTextOnlyPrompt = "一朵云从山谷上方缓慢飘过";
@@ -88,6 +99,14 @@ const shortProductOnlyCompiled = buildReferenceVideoPrompt("不要人物，生�
 assert.match(shortProductOnlyCompiled, /Product-only route/);
 assert.match(shortProductOnlyCompiled, /burst-to-reveal, scale contrast, spatial mismatch/);
 assert.match(shortProductOnlyCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
+assert.match(shortProductOnlyCompiled, /Use one continuous off-screen narrator only/);
 assert.doesNotMatch(shortProductOnlyCompiled, /surreal adult fall|visible natural lip-sync|one consistent presenter|presenter-matched voice/i);
+
+const shortSilentCommerceCompiled = buildReferenceVideoPrompt("生成一个带货广告，不要口播，只要音乐", 1, 1, "10", "auto", "i2v");
+assert.match(shortSilentCommerceCompiled, /NO presenter dialogue/);
+assert.doesNotMatch(shortSilentCommerceCompiled, /SPOKEN DELIVERY LOCK/);
+
+assert.doesNotMatch(mediumCommerceCompiled, /SPOKEN DELIVERY LOCK/, "medium briefs must not receive mandatory speech density");
+assert.doesNotMatch(detailedCompiled, /SPOKEN DELIVERY LOCK/, "detailed briefs must remain user-controlled");
 
 console.log("Video prompt routing regression checks passed");

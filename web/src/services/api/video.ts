@@ -213,7 +213,7 @@ export function buildReferenceVideoPrompt(
             marketGuidance,
             dramaGuidance,
             productOnly
-                ? "Keep the entire video product-only. Do not invent a presenter, customer, body part, hand demonstration, dialogue, or reaction shot."
+                ? "Keep the entire video product-only. Do not invent a visible presenter, customer, body part, hand demonstration, or reaction shot. Use off-screen narration when the spoken-delivery lock is active unless the user explicitly forbids speech."
                 : "Use one consistent adult presenter only when it materially helps demonstrate the product; never let the presenter replace or obscure the product hero.",
             "Use clean edited cuts, stable product geometry, physically readable motion, and one final hero frame. Do not generate storyboard panels, production notes, prompt text, reference labels, or multiple competing CTAs inside the video.",
             hardConstraints ? "FINAL CHECK: every HARD USER CONSTRAINT above must remain true in every frame." : "",
@@ -266,7 +266,9 @@ export function buildReferenceVideoPrompt(
         buildReferenceLabelMap(requestReferenceCount),
         hardConstraints,
         userDirection,
-        productOnly ? "Product-only route: use every attached product/scene reference without inventing a presenter, model, customer, body part, hand demonstration, dialogue, or reaction shot." : roleGuidance,
+        productOnly
+            ? "Product-only route: use every attached product/scene reference without inventing a visible presenter, model, customer, body part, hand demonstration, or reaction shot. Use off-screen narration when the spoken-delivery lock is active unless the user explicitly forbids speech."
+            : roleGuidance,
         explicitProductScalePrompt,
         marketGuidance,
         dramaGuidance,
@@ -276,7 +278,7 @@ export function buildReferenceVideoPrompt(
             : "Use clean edited cuts and stable local motion. Do not add subjects, actions, props, camera moves, or effects that conflict with the user direction.",
         !productOnly && promptRoute === "short" ? "If audio is generated, use one consistent presenter-matched voice. A visible female presenter requires a natural female voice; never switch to male narration or change language unexpectedly." : "",
         !productOnly && promptRoute === "short"
-            ? "Visible speech rule: when a visible presenter is speaking, animate natural synchronized lips, jaw, cheeks, and facial micro-expressions. Never add spoken dialogue over a frozen mouth or static smile. If using off-screen voiceover, keep the presenter looking/listening naturally instead of pretending to speak."
+            ? "Visible speech rule: when a visible presenter is speaking, animate natural synchronized lips, jaw, cheeks, and facial micro-expressions. Never add spoken dialogue over a frozen mouth or static smile. Continue with presenter-matched off-screen narration during product detail shots so the spoken-delivery lock remains continuous."
             : "",
         "No storyboard artifacts: remove panel numbers, grid borders, badges, captions, arrows, labels, and sheet layout.",
         hardConstraints ? "FINAL CHECK: every HARD USER CONSTRAINT above must remain true in every frame." : "",
@@ -319,6 +321,10 @@ function forbidsPeople(direction: string) {
     return /(?:不要|禁止|不得|无|不出现)[^\n。；;]{0,12}(?:人物|人像|人类|主播|模特|真人|手|嘴)|(?:no|without|exclude|avoid|do not (?:show|include|generate))\s+(?:any\s+)?(?:human(?: beings?)?|people|person|presenter|model|hands?|mouth)/i.test(direction);
 }
 
+function forbidsSpeech(direction: string) {
+    return /(?:no dialogue|no voice|no speech|silent|music only|without (?:dialogue|voice|speech)|do not (?:add|include|generate) (?:dialogue|voice|speech)|不要口播|无台词|无对白|无口播|静音|只要音乐)/i.test(direction);
+}
+
 function buildVideoHardConstraintGuidance(direction: string) {
     const constraints: string[] = [];
     if (forbidsPeople(direction)) constraints.push("NO people, humans, presenters, models, faces, bodies, hands, mouths, or human silhouettes.");
@@ -326,7 +332,7 @@ function buildVideoHardConstraintGuidance(direction: string) {
         constraints.push("NO smoke, vapor, vapour, mist, fog, steam, haze, or smoke-like effects.");
     if (/(?:front[- ]only|front face only|仅正面|只展示正面|保持正面)/i.test(direction)) constraints.push("Keep the product FRONT-ONLY and facing the camera in every product shot; never reveal its back or side.");
     if (/(?:no rotation|no spinning|no turning|do not (?:rotate|spin|turn)|不旋转|禁止旋转|不转身)/i.test(direction)) constraints.push("NO product rotation, spinning, turning around, orbiting, or back-side reveal.");
-    if (/(?:no dialogue|no voice|no speech|silent|music only|不要口播|无台词|无对白|静音|只要音乐)/i.test(direction)) constraints.push("NO presenter dialogue, spoken lines, lip-sync, or invented voiceover.");
+    if (forbidsSpeech(direction)) constraints.push("NO presenter dialogue, spoken lines, lip-sync, or invented voiceover.");
     return constraints.length ? `HARD USER CONSTRAINTS — higher priority than every built-in template:\n- ${constraints.join("\n- ")}` : "";
 }
 
@@ -381,6 +387,42 @@ function buildLocalMarketVideoGuidance(direction: string) {
     ].join("\n");
 }
 
+function buildCommerceSpeechDensityGuidance(direction: string, duration: number, productOnly: boolean, promptRoute: VideoPromptDetail) {
+    if (promptRoute !== "short" || forbidsSpeech(direction)) return "";
+    const voiceMode = productOnly
+        ? "Use one continuous off-screen narrator only; do not create a visible speaker, presenter, mouth, hand, or body."
+        : "Use one consistent presenter-matched voice. Visible lines require natural lip-sync; continue as the same off-screen voice over product detail cuts.";
+    const localSpeechRouting =
+        "LOCAL SPEECH ROUTING: when the user names a country, region, or language, use that market's natural everyday commercial language, native accent, idiom, sentence length, stress, and short-video speaking pace. An explicitly requested language overrides the country default. If no market is named, stay region-neutral and speak in the user's prompt language. Word targets are semantic word-equivalents, not a literal translated word count: preserve the required information density while keeping locally natural pronunciation and breath.";
+    if (duration >= 15) {
+        return [
+            "SPOKEN DELIVERY LOCK — MANDATORY: write and audibly deliver 38-47 natural target-language word equivalents across the finished 15-second video.",
+            localSpeechRouting,
+            "Speech timing: start by 0.2s; 0-3s spoken hook 8-10 words, 3-7s problem/product setup 10-12 words, 7-12s benefit or evidence 12-15 words, 12-15s CTA 8-10 words.",
+            "Cover at least 13 seconds with intelligible speech. No silent gap may exceed 0.6s; never slow-stretch, repeat, or replace required words with music, sound effects, captions, or planning notes.",
+            voiceMode,
+            "State only visible or user-supplied facts. Do not invent efficacy, price, discount, rating, scarcity, or guarantee.",
+        ].join("\n");
+    }
+    if (duration >= 8) {
+        return [
+            `SPOKEN DELIVERY LOCK — MANDATORY: write and audibly deliver 24-32 natural target-language word equivalents across the finished ${duration}-second video.`,
+            localSpeechRouting,
+            `Speech timing: start by 0.2s; 0-2s spoken hook 5-7 words, 2-5s problem/product setup 7-9 words, 5-${Math.max(6, duration - 2)}s benefit or evidence 7-9 words, ${Math.max(6, duration - 2)}-${duration}s CTA 5-7 words.`,
+            `Cover at least ${Math.max(6.5, duration - 1.5)} seconds with intelligible speech. No silent gap may exceed 0.45s; never slow-stretch, repeat, or replace required words with music, sound effects, captions, or planning notes.`,
+            voiceMode,
+            "State only visible or user-supplied facts. Do not invent efficacy, price, discount, rating, scarcity, or guarantee.",
+        ].join("\n");
+    }
+    return [
+        `SPOKEN DELIVERY LOCK — MANDATORY: start speaking by 0.2s and audibly deliver ${Math.max(8, Math.round(duration * 2.4))}-${Math.max(11, Math.round(duration * 3.1))} natural target-language word equivalents across this ${duration}-second commercial.`,
+        localSpeechRouting,
+        "Keep the hook, selling point, and CTA verbally distinct with no silent gap over 0.45s; never stretch a few words or replace speech with music.",
+        voiceMode,
+        "State only visible or user-supplied facts.",
+    ].join("\n");
+}
+
 function buildCommerceDramaVideoGuidance(direction: string, duration: number, productOnly = false, promptRoute: VideoPromptDetail = "short") {
     const wantsDrama = /(微剧|短剧|剧情|反转|drama|story|storyline|scenario|skit)/i.test(direction);
     const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
@@ -396,9 +438,11 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
               ? "Hook timing lock: 0-0.7s trigger the expectation break, 0.7-1.4s escalate it, and 1.4-2s deliver the payoff plus a readable product reveal. Never finish the hook early and hold a static frame before 2s."
               : "Hook timing lock: trigger, escalate, and pay off the expectation break inside the first second with no static hold.";
     const lightTouch = promptRoute === "medium";
+    const speechDensityGuidance = buildCommerceSpeechDensityGuidance(direction, duration, productOnly, promptRoute);
     if (productOnly) {
         return [
             `Product-only shot rhythm for a ${duration}s short commerce video:`,
+            speechDensityGuidance,
             lightTouch
                 ? `- 0-${hookEnd}s: preserve the user's hook and add only a compact product-safe visual accent when needed.`
                 : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one product-safe structure: burst-to-reveal, scale contrast, spatial mismatch, wrong-result reversal, counter-intuitive motion, or an environmental near-miss. Ordinary product holding, a logo close-up, a slow pan or push-in, simple placement, gentle floating, or a standard demonstration DO NOT count as a hook. Reject and rewrite any opening that could be mistaken for an ordinary product demo.`,
@@ -413,6 +457,7 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
     }
     return [
         `Shot rhythm for a ${duration}s short commerce video:`,
+        speechDensityGuidance,
         lightTouch
             ? `- 0-${hookEnd}s: preserve the user's existing hook and add only the minimum visual clarification needed.`
             : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one: a safe staged adult stumble or surreal fall with a soft unharmed landing, near-miss reveal, burst transformation, scale contrast, spatial mismatch, wrong-result reversal, or counter-intuitive motion. Ordinary presenter holding the product, normal walking, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook. Reject and rewrite any plan whose opening could be mistaken for an ordinary product demonstration.`,
