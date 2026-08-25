@@ -45,6 +45,8 @@ assert.doesNotMatch(shortCommerceCompiled, /Indonesian social-commerce|Bahasa In
 const shortIndonesiaTenSecondCompiled = buildReferenceVideoPrompt("生成一段印尼带货视频", 1, 1, "10", "auto", "i2v");
 assert.match(shortIndonesiaTenSecondCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
 assert.match(shortIndonesiaTenSecondCompiled, /first 0\.3s/);
+assert.match(shortIndonesiaTenSecondCompiled, /0-0\.7s trigger the expectation break/);
+assert.match(shortIndonesiaTenSecondCompiled, /Never finish the hook early and hold a static frame before 2s/);
 assert.match(shortIndonesiaTenSecondCompiled, /The user explicitly requested Indonesia/);
 assert.match(shortIndonesiaTenSecondCompiled, /Bahasa Indonesia/);
 assert.match(shortIndonesiaTenSecondCompiled, /2-8s/);
@@ -52,6 +54,10 @@ assert.match(shortIndonesiaTenSecondCompiled, /8-10s/);
 
 const shortIndonesiaFifteenSecondCompiled = buildReferenceVideoPrompt("生成一段印尼带货视频", 1, 1, "15", "auto", "i2v");
 assert.match(shortIndonesiaFifteenSecondCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-3s/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /0-1s trigger the expectation break/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /1-2s escalate it/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /2-3s deliver the payoff/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /Never finish the hook early and hold a static frame before 3s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /3-12s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /12-15s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /Bahasa Indonesia/);

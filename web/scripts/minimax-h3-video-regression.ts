@@ -49,6 +49,8 @@ assert.match(proxySource, /minimaxh3-2k/);
 assert.match(serviceSource, /createMiniMaxH3Task/);
 assert.match(serviceSource, /buildTokaxisMiniMaxH3Payload/);
 assert.match(serviceSource, /const duration = String\(normalizeMiniMaxH3Duration\(config\.videoSeconds\)\)/);
+assert.match(serviceSource, /references\.length \? "r2v" : "t2v"/);
+assert.doesNotMatch(serviceSource, /references\.length > 1 \? "r2v" : references\.length === 1 \? "i2v" : "t2v"/);
 assert.match(serviceSource, /const promptText = limitVideoPrompt\(buildReferenceVideoPrompt\(prompt, references\.length, references\.length, duration/);
 assert.match(serviceSource, /prompt: promptText/);
 assert.match(settingsSource, /isTokaxisMiniMaxH3VideoModel/);

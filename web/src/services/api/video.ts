@@ -389,6 +389,12 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
     const heroDuration = duration >= 15 ? 3 : duration >= 8 ? 2 : 1;
     const heroAt = Math.max(hookEnd + 1, duration - heroDuration);
     const demoAt = Math.max(hookEnd + 1, Math.min(heroAt - 1, Math.floor((hookEnd + heroAt) / 2)));
+    const hookBeatPlan =
+        hookEnd >= 3
+            ? "Hook timing lock: 0-1s trigger the expectation break, 1-2s escalate it, and 2-3s deliver the payoff plus a readable product reveal. Never finish the hook early and hold a static frame before 3s."
+            : hookEnd === 2
+              ? "Hook timing lock: 0-0.7s trigger the expectation break, 0.7-1.4s escalate it, and 1.4-2s deliver the payoff plus a readable product reveal. Never finish the hook early and hold a static frame before 2s."
+              : "Hook timing lock: trigger, escalate, and pay off the expectation break inside the first second with no static hold.";
     const lightTouch = promptRoute === "medium";
     if (productOnly) {
         return [
@@ -396,6 +402,7 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
             lightTouch
                 ? `- 0-${hookEnd}s: preserve the user's hook and add only a compact product-safe visual accent when needed.`
                 : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one product-safe structure: burst-to-reveal, scale contrast, spatial mismatch, wrong-result reversal, counter-intuitive motion, or an environmental near-miss. Ordinary product holding, a logo close-up, a slow pan or push-in, simple placement, gentle floating, or a standard demonstration DO NOT count as a hook. Reject and rewrite any opening that could be mistaken for an ordinary product demo.`,
+            lightTouch ? "" : hookBeatPlan,
             `- By ${hookEnd}s: make the unchanged product unmistakably readable, then cut immediately into its benefit or demonstration.`,
             `- ${hookEnd}-${demoAt}s: clear product reveal at plausible scale while preserving exact identity and orientation.`,
             `- ${demoAt}-${heroAt}s: product benefit/detail shots using only user-approved motion and effects.`,
@@ -409,6 +416,7 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
         lightTouch
             ? `- 0-${hookEnd}s: preserve the user's existing hook and add only the minimum visual clarification needed.`
             : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one: a safe staged adult stumble or surreal fall with a soft unharmed landing, near-miss reveal, burst transformation, scale contrast, spatial mismatch, wrong-result reversal, or counter-intuitive motion. Ordinary presenter holding the product, normal walking, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook. Reject and rewrite any plan whose opening could be mistaken for an ordinary product demonstration.`,
+        lightTouch ? "" : hookBeatPlan,
         `- By ${hookEnd}s: reveal the separate unchanged product clearly and cut immediately into the selling point.`,
         `- ${hookEnd}-${heroAt}s: show one real benefit or demonstration with rapid readable cuts; every beat must change the story or reveal useful product information.`,
         `- ${heroAt}-${duration}s: finish on the unchanged product hero and one soft call-to-action.`,
@@ -503,7 +511,12 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
     if (audioReferences.length > MINIMAX_H3_REFERENCE_LIMITS.audios) throw new Error(`MiniMax H3 最多支持 ${MINIMAX_H3_REFERENCE_LIMITS.audios} 个参考音频`);
     if (audioReferences.length && !references.length) throw new Error("MiniMax H3 参考音频需要同时提供参考图");
     const duration = String(normalizeMiniMaxH3Duration(config.videoSeconds));
-    const referenceMode: ReturnType<typeof googleVideoReferenceMode> = references.length > 1 ? "r2v" : references.length === 1 ? "i2v" : "t2v";
+    // MiniMax H3 receives `images` as identity/reference media through the
+    // platform adaptor. They are not guaranteed to be literal opening frames,
+    // even when there is only one image. Route every image-backed H3 request
+    // through the reference-to-video prompt so the commerce hook may establish
+    // a new scene instead of being constrained to a static source frame.
+    const referenceMode: ReturnType<typeof googleVideoReferenceMode> = references.length ? "r2v" : "t2v";
     const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, references.length, duration, config.videoProductScaleMode, referenceMode).trim());
     const [images, audios] = await Promise.all([Promise.all(references.map((image) => resolveSeedanceImageUrl(config, image))), Promise.all(audioReferences.map(resolveSeedanceAudioUrl))]);
     const payload = buildTokaxisMiniMaxH3Payload({
