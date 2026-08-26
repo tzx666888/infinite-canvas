@@ -202,11 +202,13 @@ export function buildReferenceVideoPrompt(
     const userDirection = `USER DIRECTION (${promptRoute.toUpperCase()} PRIORITY): ${limitInlinePrompt(direction || "Animate the references naturally while preserving visual identity and scene continuity.", directionLimit)}`;
     const marketGuidance = buildLocalMarketVideoGuidance(direction);
     const exactLocalizedNarration = buildExactLocalizedCommerceNarration(direction, duration, promptRoute);
-    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration, productOnly, promptRoute);
+    const exactVisualHook = buildExactCommerceVisualHook(direction, duration, productOnly, promptRoute);
+    const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration, productOnly, promptRoute, Boolean(exactVisualHook));
     if (!requestReferenceCount) {
         if (promptRoute === "detailed" || !dramaGuidance) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
         return [
             `Create a ${duration}-second text-to-video commercial from the user direction below.`,
+            exactVisualHook,
             exactLocalizedNarration,
             hardConstraints,
             userDirection,
@@ -237,7 +239,10 @@ export function buildReferenceVideoPrompt(
     }
     if (referenceMode === "i2v") {
         return [
-            `Create a ${duration}-second video by animating the attached source image as the exact opening frame.`,
+            exactVisualHook
+                ? `Create a ${duration}-second video using the attached source image as an exact product/subject identity reference, not as a mandatory literal opening frame. Establish the new hook scene below while preserving the reference identity exactly.`
+                : `Create a ${duration}-second video by animating the attached source image as the exact opening frame.`,
+            exactVisualHook,
             exactLocalizedNarration,
             hardConstraints,
             userDirection,
@@ -267,6 +272,7 @@ export function buildReferenceVideoPrompt(
     const roleGuidance = buildReferenceRoleGuidance(direction, requestReferenceCount);
     return [
         `Create a ${duration}-second ecommerce video using all attached images as distinct ordered references.`,
+        exactVisualHook,
         exactLocalizedNarration,
         referenceCountLine,
         buildReferenceLabelMap(requestReferenceCount),
@@ -409,6 +415,42 @@ function buildExactLocalizedCommerceNarration(direction: string, duration: numbe
     ].join("\n");
 }
 
+function hasConcreteUserOpening(direction: string) {
+    return /(?:0\s*[-–—]\s*\d|前\s*[一二三四五六七八九十0-9]+\s*秒|开头[^。；;]{0,48}(?:摔|跌|坠|撞|砸|爆|弹|倒|冻结|倒放|逆向|黑屏|掉落|冲入)|(?:hook|勾子)[^。；;]{0,48}(?:摔|跌|坠|撞|砸|爆|弹|倒|冻结|倒放|逆向|黑屏|掉落|冲入)|(?:stumble|fall|drop|crash|burst|freeze|reverse|black screen)[^.;]{0,48}(?:hook|opening))/i.test(direction);
+}
+
+function buildExactCommerceVisualHook(direction: string, duration: number, productOnly: boolean, promptRoute: VideoPromptDetail) {
+    if (promptRoute !== "short") return "";
+    const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
+    if (!wantsCommerce || hasConcreteUserOpening(direction)) return "";
+
+    const hookEnd = duration >= 15 ? 3 : duration >= 8 ? 2 : 1;
+    const firstBeatEnd = hookEnd >= 3 ? "0.70" : hookEnd === 2 ? "0.35" : "0.20";
+    const secondBeatEnd = hookEnd >= 3 ? "2.00" : hookEnd === 2 ? "1.25" : "0.65";
+    const hookEndLabel = hookEnd.toFixed(2);
+    const hookIndex = ([...direction].reduce((total, character) => total + (character.codePointAt(0) || 0), 0) + duration) % 4;
+    const humanHooks = [
+        `0.00-${firstBeatEnd}s: begin mid-incident as a tall stack of empty lightweight shipping cartons topples toward an adult and freezes centimeters away while the adult ducks. ${firstBeatEnd}-${secondBeatEnd}s: the cartons snap backward in reverse and collapse into one sealed parcel. ${secondBeatEnd}-${hookEndLabel}s: the parcel bursts open with paper streamers and the separate unchanged product lands upright in a clean readable hero position.`,
+        `0.00-${firstBeatEnd}s: a sealed parcel slams onto a theatrical breakaway cardboard display with a sharp impact; the adult is already recoiling in frame, never walking in or greeting. ${firstBeatEnd}-${secondBeatEnd}s: the parcel rebounds upward against gravity and the adult catches it in surprise. ${secondBeatEnd}-${hookEndLabel}s: the lid snaps open and reveals the separate unchanged product upright at natural scale.`,
+        `0.00-${firstBeatEnd}s: begin with an adult already dropping from just above the top edge in a safe studio gravity gag, landing immediately on an oversized soft crash mat beside a sealed parcel; no stairs, height, injury, or imitable danger. ${firstBeatEnd}-${secondBeatEnd}s: the landing launches the parcel harmlessly upward and the adult catches it with a genuine shocked reaction. ${secondBeatEnd}-${hookEndLabel}s: the parcel opens and the separate unchanged product snaps upright into a clean readable hero reveal.`,
+        `0.00-${firstBeatEnd}s: an enormous parcel shadow races across the room while an impossibly tiny sealed box drops into the adult's open hands. ${firstBeatEnd}-${secondBeatEnd}s: the tiny box expands rapidly to normal size as the adult reacts and pulls one release tab. ${secondBeatEnd}-${hookEndLabel}s: the box unfolds into a clean platform holding the separate unchanged product upright and fully readable.`,
+    ];
+    const productOnlyHooks = [
+        `0.00-${firstBeatEnd}s: a tall stack of empty lightweight cartons topples toward the camera and freezes centimeters from the lens. ${firstBeatEnd}-${secondBeatEnd}s: every carton snaps backward in reverse and compresses into one sealed parcel. ${secondBeatEnd}-${hookEndLabel}s: the parcel bursts open with paper streamers and the separate unchanged product lands upright in a clean readable hero position.`,
+        `0.00-${firstBeatEnd}s: a sealed parcel slams onto a theatrical breakaway cardboard display with a sharp impact. ${firstBeatEnd}-${secondBeatEnd}s: the parcel rebounds upward against gravity while the broken cardboard rebuilds itself in reverse. ${secondBeatEnd}-${hookEndLabel}s: the lid snaps open and reveals the separate unchanged product upright at natural scale.`,
+        `0.00-${firstBeatEnd}s: an enormous parcel shadow sweeps over an empty set while an impossibly tiny sealed box drops into frame. ${firstBeatEnd}-${secondBeatEnd}s: the tiny box bounces once and expands rapidly to normal size. ${secondBeatEnd}-${hookEndLabel}s: the box unfolds into a clean platform holding the separate unchanged product upright and fully readable.`,
+        `0.00-${firstBeatEnd}s: a fast domino chain of harmless empty props races toward a covered product pedestal and stops one millimeter before impact. ${firstBeatEnd}-${secondBeatEnd}s: the chain reverses at double speed and pulls the cover upward. ${secondBeatEnd}-${hookEndLabel}s: reveal the separate unchanged product upright on the untouched pedestal with one sharp light accent.`,
+    ];
+    const exactTimeline = (productOnly ? productOnlyHooks : humanHooks)[hookIndex];
+    return [
+        `EXACT VISUAL HOOK OVERRIDE — HIGHEST VISUAL PRIORITY, MANDATORY 0-${hookEnd}s: the simple user request contains no concrete opening, so execute the following timeline exactly. It overrides every later generic hook menu but never overrides HARD USER CONSTRAINTS.`,
+        `FIRST-FRAME LOCK: the expectation-breaking incident must already be visibly happening at 0.00s. Do not spend even one frame on an establishing shot, room view, presenter entrance, normal walking, waving, smiling, pointing, greeting, lip-sync, or ordinary product holding.`,
+        `EXACT HOOK TIMELINE: ${exactTimeline}`,
+        `REJECTION LOCK: a presenter merely entering frame or saying “wait/look” is a failed hook even if narration starts on time. Use off-screen narration during the complete 0-${hookEnd}s hook so the visual incident remains dominant.`,
+        `PRODUCT AND SAFETY LOCK: the incident may affect only harmless props and the environment. Keep the referenced product separate, rigid, unchanged, undamaged, correctly labeled, and at plausible scale. Any fall or impact is an obvious studio gag with immediate safe landing, no blood, pain, injury, stairs, traffic, weapons, fire, or imitable hazard.`,
+    ].join("\n");
+}
+
 function buildCommerceSpeechDensityGuidance(direction: string, duration: number, productOnly: boolean, promptRoute: VideoPromptDetail) {
     if (promptRoute !== "short" || forbidsSpeech(direction)) return "";
     const voiceMode = productOnly
@@ -450,7 +492,7 @@ function buildCommerceSpeechDensityGuidance(direction: string, duration: number,
     ].join("\n");
 }
 
-function buildCommerceDramaVideoGuidance(direction: string, duration: number, productOnly = false, promptRoute: VideoPromptDetail = "short") {
+function buildCommerceDramaVideoGuidance(direction: string, duration: number, productOnly = false, promptRoute: VideoPromptDetail = "short", hasExactVisualHook = false) {
     const wantsDrama = /(微剧|短剧|剧情|反转|drama|story|storyline|scenario|skit)/i.test(direction);
     const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
     if (!wantsDrama && !wantsCommerce) return "";
@@ -473,7 +515,9 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
             lightTouch ? "" : "NARRATION START LOCK: begin locally natural factual narration by 0.15s inside the visual hook; never delay speech until the reveal.",
             lightTouch
                 ? `- 0-${hookEnd}s: preserve the user's hook and add only a compact product-safe visual accent when needed.`
-                : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one product-safe structure: burst-to-reveal, scale contrast, spatial mismatch, wrong-result reversal, counter-intuitive motion, or an environmental near-miss. Ordinary product holding, a logo close-up, a slow pan or push-in, simple placement, gentle floating, or a standard demonstration DO NOT count as a hook. Reject and rewrite any opening that could be mistaken for an ordinary product demo.`,
+                : hasExactVisualHook
+                  ? `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: follow the earlier EXACT VISUAL HOOK OVERRIDE without substituting another idea. Ordinary product holding, a logo close-up, a slow pan or push-in, simple placement, gentle floating, or a standard demonstration DO NOT count as a hook.`
+                  : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one product-safe structure: burst-to-reveal, scale contrast, spatial mismatch, wrong-result reversal, counter-intuitive motion, or an environmental near-miss. Ordinary product holding, a logo close-up, a slow pan or push-in, simple placement, gentle floating, or a standard demonstration DO NOT count as a hook. Reject and rewrite any opening that could be mistaken for an ordinary product demo.`,
             lightTouch ? "" : hookBeatPlan,
             speechDensityGuidance,
             `- By ${hookEnd}s: make the unchanged product unmistakably readable, then cut immediately into its benefit or demonstration.`,
@@ -490,7 +534,9 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
         lightTouch ? "" : "NARRATION START LOCK: begin locally natural factual narration by 0.15s inside the visual hook; never delay speech until the reveal.",
         lightTouch
             ? `- 0-${hookEnd}s: preserve the user's existing hook and add only the minimum visual clarification needed.`
-            : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one: a safe staged adult stumble or surreal fall with a soft unharmed landing, near-miss reveal, burst transformation, scale contrast, spatial mismatch, wrong-result reversal, or counter-intuitive motion. Ordinary presenter holding the product, normal walking, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook. Reject and rewrite any plan whose opening could be mistaken for an ordinary product demonstration.`,
+            : hasExactVisualHook
+              ? `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: follow the earlier EXACT VISUAL HOOK OVERRIDE without substituting another idea. Ordinary presenter holding the product, normal walking, waving, smiling, lip-sync, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook.`
+              : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one: a safe staged adult stumble or surreal fall with a soft unharmed landing, near-miss reveal, burst transformation, scale contrast, spatial mismatch, wrong-result reversal, or counter-intuitive motion. Ordinary presenter holding the product, normal walking, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook. Reject and rewrite any plan whose opening could be mistaken for an ordinary product demonstration.`,
         lightTouch ? "" : hookBeatPlan,
         speechDensityGuidance,
         `- By ${hookEnd}s: reveal the separate unchanged product clearly and cut immediately into the selling point.`,

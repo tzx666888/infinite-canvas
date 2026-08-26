@@ -32,9 +32,12 @@ assert.doesNotMatch(detailedCompiled, /mini-drama hook|visible natural lip-sync|
 
 const shortCommerceCompiled = buildReferenceVideoPrompt("生成一个带货广告", 2, 2, "10", "auto", "r2v");
 assert.match(shortCommerceCompiled, /USER DIRECTION \(SHORT PRIORITY\)/);
+assert.match(shortCommerceCompiled, /EXACT VISUAL HOOK OVERRIDE — HIGHEST VISUAL PRIORITY/);
+assert.match(shortCommerceCompiled, /FIRST-FRAME LOCK/);
+assert.match(shortCommerceCompiled, /presenter merely entering frame or saying/);
+assert.ok(shortCommerceCompiled.indexOf("EXACT VISUAL HOOK OVERRIDE") < shortCommerceCompiled.indexOf("USER DIRECTION"), "the executable visual hook must precede the generic short direction");
 assert.match(shortCommerceCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
-assert.match(shortCommerceCompiled, /near-miss reveal/);
-assert.match(shortCommerceCompiled, /safe staged adult stumble or surreal fall/);
+assert.match(shortCommerceCompiled, /follow the earlier EXACT VISUAL HOOK OVERRIDE/);
 assert.match(shortCommerceCompiled, /normal walking/);
 assert.match(shortCommerceCompiled, /DO NOT count as a hook/);
 assert.match(shortCommerceCompiled, /2-8s/);
@@ -43,8 +46,16 @@ assert.match(shortCommerceCompiled, /stay region-neutral/);
 assert.doesNotMatch(shortCommerceCompiled, /Indonesian social-commerce|Bahasa Indonesia|Jakarta/);
 
 const shortIndonesiaTenSecondCompiled = buildReferenceVideoPrompt("生成一段印尼带货视频", 1, 1, "10", "auto", "i2v");
+assert.match(shortIndonesiaTenSecondCompiled, /EXACT VISUAL HOOK OVERRIDE — HIGHEST VISUAL PRIORITY/);
+assert.match(shortIndonesiaTenSecondCompiled, /adult already dropping from just above the top edge/);
+assert.match(shortIndonesiaTenSecondCompiled, /0\.00-0\.35s/);
+assert.match(shortIndonesiaTenSecondCompiled, /0\.35-1\.25s/);
+assert.match(shortIndonesiaTenSecondCompiled, /1\.25-2\.00s/);
+assert.match(shortIndonesiaTenSecondCompiled, /not as a mandatory literal opening frame/);
+assert.match(shortIndonesiaTenSecondCompiled, /Do not spend even one frame on an establishing shot, room view, presenter entrance, normal walking, waving, smiling/);
+assert.ok(shortIndonesiaTenSecondCompiled.indexOf("EXACT VISUAL HOOK OVERRIDE") < shortIndonesiaTenSecondCompiled.indexOf("EXACT NARRATION OVERRIDE"), "visual and speech locks must both be front-loaded, with the failing visual hook first");
 assert.match(shortIndonesiaTenSecondCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
-assert.match(shortIndonesiaTenSecondCompiled, /first 0\.3s/);
+assert.match(shortIndonesiaTenSecondCompiled, /incident must already be visibly happening at 0\.00s/);
 assert.match(shortIndonesiaTenSecondCompiled, /0-0\.7s trigger the expectation break/);
 assert.match(shortIndonesiaTenSecondCompiled, /Never finish the hook early and hold a static frame before 2s/);
 assert.match(shortIndonesiaTenSecondCompiled, /The user explicitly requested Indonesia/);
@@ -75,6 +86,9 @@ assert.match(shortIndonesiaTenSecondCompiled, /2-8s/);
 assert.match(shortIndonesiaTenSecondCompiled, /8-10s/);
 
 const shortIndonesiaFifteenSecondCompiled = buildReferenceVideoPrompt("生成一段印尼带货视频", 1, 1, "15", "auto", "i2v");
+assert.match(shortIndonesiaFifteenSecondCompiled, /0\.00-0\.70s/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /0\.70-2\.00s/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /2\.00-3\.00s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-3s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /0-1s trigger the expectation break/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /1-2s escalate it/);
@@ -125,10 +139,15 @@ assert.doesNotMatch(mediumCommerceCompiled, /HOOK ACCEPTANCE GATE/);
 
 const shortProductOnlyCompiled = buildReferenceVideoPrompt("不要人物，生成一个带货广告，只展示商品并上下跳动", 2, 2, "10", "auto", "r2v");
 assert.match(shortProductOnlyCompiled, /Product-only route/);
-assert.match(shortProductOnlyCompiled, /burst-to-reveal, scale contrast, spatial mismatch/);
+assert.match(shortProductOnlyCompiled, /EXACT VISUAL HOOK OVERRIDE/);
+assert.match(shortProductOnlyCompiled, /Product-only shot rhythm/);
 assert.match(shortProductOnlyCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
 assert.match(shortProductOnlyCompiled, /Use one continuous off-screen narrator only/);
 assert.doesNotMatch(shortProductOnlyCompiled, /surreal adult fall|visible natural lip-sync|one consistent presenter|presenter-matched voice/i);
+
+const shortExplicitHookCompiled = buildReferenceVideoPrompt("生成一个带货广告，开头让纸箱从高处掉落并在落地前冻结", 1, 1, "10", "auto", "i2v");
+assert.doesNotMatch(shortExplicitHookCompiled, /EXACT VISUAL HOOK OVERRIDE/, "a concrete user-supplied opening must not be replaced by the built-in hook");
+assert.match(shortExplicitHookCompiled, /纸箱从高处掉落并在落地前冻结/);
 
 const shortSilentCommerceCompiled = buildReferenceVideoPrompt("生成一个带货广告，不要口播，只要音乐", 1, 1, "10", "auto", "i2v");
 assert.match(shortSilentCommerceCompiled, /NO presenter dialogue/);
