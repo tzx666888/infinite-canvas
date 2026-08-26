@@ -201,11 +201,13 @@ export function buildReferenceVideoPrompt(
     const directionLimit = promptRoute === "detailed" ? 2600 : promptRoute === "medium" ? 1700 : 700;
     const userDirection = `USER DIRECTION (${promptRoute.toUpperCase()} PRIORITY): ${limitInlinePrompt(direction || "Animate the references naturally while preserving visual identity and scene continuity.", directionLimit)}`;
     const marketGuidance = buildLocalMarketVideoGuidance(direction);
+    const exactLocalizedNarration = buildExactLocalizedCommerceNarration(direction, duration, promptRoute);
     const dramaGuidance = buildCommerceDramaVideoGuidance(direction, duration, productOnly, promptRoute);
     if (!requestReferenceCount) {
         if (promptRoute === "detailed" || !dramaGuidance) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
         return [
             `Create a ${duration}-second text-to-video commercial from the user direction below.`,
+            exactLocalizedNarration,
             hardConstraints,
             userDirection,
             "No reference images are attached. Establish one clear product hero from the user's stated product, then keep its silhouette, parts, colors, logo treatment, label layout, quantity, and scale consistent across every shot. Do not silently replace it with another product.",
@@ -236,6 +238,7 @@ export function buildReferenceVideoPrompt(
     if (referenceMode === "i2v") {
         return [
             `Create a ${duration}-second video by animating the attached source image as the exact opening frame.`,
+            exactLocalizedNarration,
             hardConstraints,
             userDirection,
             promptRoute === "short"
@@ -264,6 +267,7 @@ export function buildReferenceVideoPrompt(
     const roleGuidance = buildReferenceRoleGuidance(direction, requestReferenceCount);
     return [
         `Create a ${duration}-second ecommerce video using all attached images as distinct ordered references.`,
+        exactLocalizedNarration,
         referenceCountLine,
         buildReferenceLabelMap(requestReferenceCount),
         hardConstraints,
@@ -386,6 +390,22 @@ function buildLocalMarketVideoGuidance(direction: string) {
             ? "The user explicitly requested Indonesia: use natural everyday Bahasa Indonesia with native short-video rhythm and stress, not translated Chinese phrasing or slow delivery. Keep the product unchanged."
             : "No country is selected by default. Do not silently turn a globally neutral request into an Indonesian, American, Chinese, or other country-specific advertisement.",
         "Never translate branding or invent claims, prices, discounts, ratings, urgency, landmarks, flags, or platform badges.",
+    ].join("\n");
+}
+
+function buildExactLocalizedCommerceNarration(direction: string, duration: number, promptRoute: VideoPromptDetail) {
+    if (promptRoute !== "short" || forbidsSpeech(direction)) return "";
+    const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
+    if (!wantsCommerce || !/(印尼|印度尼西亚|indonesia|indonesian)/i.test(direction)) return "";
+    const script =
+        duration >= 15
+            ? "Eh, tunggu dulu, lihat yang satu ini. Botol kecil ini tampil ringkas dan gampang dibawa ke mana saja. Bentuk, warna, dan detail kemasannya terlihat jelas dari dekat. Lihat cara pemakaiannya di video. Cek informasi produknya, lalu pilih sesuai kebutuhanmu."
+            : "Eh, tunggu dulu, lihat yang satu ini. Botolnya ringkas dan gampang dibawa ke mana saja. Detail kemasannya terlihat jelas. Cek produknya, lalu pilih sesuai kebutuhanmu.";
+    return [
+        "EXACT NARRATION OVERRIDE — HIGHEST PRIORITY: speak the following Bahasa Indonesia script verbatim. Do not shorten, paraphrase, translate, reorder, replace, or add any words.",
+        `EXACT SCRIPT: “${script}”`,
+        `Start the first audible syllable between 0.0s and 0.15s. Use a natural native Indonesian short-video pace and continuous conversational delivery across at least ${duration >= 15 ? "13.0" : "8.5"} seconds; do not wait for the product reveal.`,
+        "Use the exact script as off-screen narration during the opening visual hook. Keep every sentence intelligible. No extra efficacy, durability, safety, price, scarcity, urgency, medical, or sexual-performance claims before, during, or after the exact script.",
     ].join("\n");
 }
 

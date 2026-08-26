@@ -49,6 +49,12 @@ assert.match(shortIndonesiaTenSecondCompiled, /0-0\.7s trigger the expectation b
 assert.match(shortIndonesiaTenSecondCompiled, /Never finish the hook early and hold a static frame before 2s/);
 assert.match(shortIndonesiaTenSecondCompiled, /The user explicitly requested Indonesia/);
 assert.match(shortIndonesiaTenSecondCompiled, /Bahasa Indonesia/);
+assert.match(shortIndonesiaTenSecondCompiled, /EXACT NARRATION OVERRIDE — HIGHEST PRIORITY/);
+assert.match(shortIndonesiaTenSecondCompiled, /Eh, tunggu dulu, lihat yang satu ini\./);
+assert.match(shortIndonesiaTenSecondCompiled, /Do not shorten, paraphrase, translate, reorder, replace, or add any words/);
+assert.match(shortIndonesiaTenSecondCompiled, /first audible syllable between 0\.0s and 0\.15s/);
+assert.match(shortIndonesiaTenSecondCompiled, /No extra efficacy, durability, safety, price, scarcity, urgency, medical, or sexual-performance claims/);
+assert.ok(shortIndonesiaTenSecondCompiled.indexOf("EXACT NARRATION OVERRIDE") < shortIndonesiaTenSecondCompiled.indexOf("USER DIRECTION"), "exact local narration must precede the short user direction and all generic routing");
 assert.match(shortIndonesiaTenSecondCompiled, /SPOKEN DELIVERY LOCK — MANDATORY/);
 assert.match(shortIndonesiaTenSecondCompiled, /LOCAL SPEECH ROUTING/);
 assert.match(shortIndonesiaTenSecondCompiled, /native accent, idiom, sentence length, emphasis, pauses, and short-video speed/);
@@ -77,6 +83,8 @@ assert.match(shortIndonesiaFifteenSecondCompiled, /Never finish the hook early a
 assert.match(shortIndonesiaFifteenSecondCompiled, /3-12s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /12-15s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /Bahasa Indonesia/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /Botol kecil ini tampil ringkas/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /across at least 13\.0 seconds/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /38-47 natural target-language word equivalents/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /0-3s spoken hook 8-10 words/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /No silent gap may exceed 0\.6s/);
@@ -90,6 +98,7 @@ assert.match(shortJapanCompiled, /named market's natural everyday commercial lan
 assert.match(shortJapanCompiled, /native accent, idiom, sentence length, emphasis, pauses, and short-video speed/);
 assert.match(shortJapanCompiled, /never translate Chinese phrasing word-for-word/);
 assert.doesNotMatch(shortJapanCompiled, /Bahasa Indonesia/);
+assert.doesNotMatch(shortJapanCompiled, /EXACT NARRATION OVERRIDE/);
 
 const shortTextOnlyCommerceCompiled = buildReferenceVideoPrompt("帮我生成一条便携榨汁杯的10秒竖屏带货视频，要强Hook，商品全程清晰，结尾有一个明确的下单CTA。", 0, 0, "10", "auto", "t2v");
 assert.match(shortTextOnlyCommerceCompiled, /text-to-video commercial/);
