@@ -51,6 +51,13 @@ assert.match(shortIndonesiaTenSecondCompiled, /adult already dropping from just 
 assert.match(shortIndonesiaTenSecondCompiled, /0\.00-0\.35s/);
 assert.match(shortIndonesiaTenSecondCompiled, /0\.35-1\.25s/);
 assert.match(shortIndonesiaTenSecondCompiled, /1\.25-2\.00s/);
+assert.match(shortIndonesiaTenSecondCompiled, /HARD EDITORIAL CUT with zero in-between transformation frames/);
+assert.match(shortIndonesiaTenSecondCompiled, /persistent visible background gap between their silhouettes/);
+assert.match(shortIndonesiaTenSecondCompiled, /RIGID-BODY SEPARATION LOCK — MANDATORY/);
+assert.match(shortIndonesiaTenSecondCompiled, /distinct rigid bodies with independent closed contours/);
+assert.match(shortIndonesiaTenSecondCompiled, /No product emerges from, grows out of, pops from, or transforms from any package/);
+assert.ok(shortIndonesiaTenSecondCompiled.indexOf("RIGID-BODY SEPARATION LOCK") < shortIndonesiaTenSecondCompiled.indexOf("USER DIRECTION"), "product/package separation must be front-loaded before the user direction");
+assert.doesNotMatch(shortIndonesiaTenSecondCompiled, /parcel opens and .*product snaps upright|lid snaps open and reveals|box unfolds into .*product|product lands upright/i);
 assert.match(shortIndonesiaTenSecondCompiled, /not as a mandatory literal opening frame/);
 assert.match(shortIndonesiaTenSecondCompiled, /Do not spend even one frame on an establishing shot, room view, presenter entrance, normal walking, waving, smiling/);
 assert.ok(shortIndonesiaTenSecondCompiled.indexOf("EXACT VISUAL HOOK OVERRIDE") < shortIndonesiaTenSecondCompiled.indexOf("EXACT NARRATION OVERRIDE"), "visual and speech locks must both be front-loaded, with the failing visual hook first");
@@ -143,6 +150,9 @@ assert.match(shortProductOnlyCompiled, /EXACT VISUAL HOOK OVERRIDE/);
 assert.match(shortProductOnlyCompiled, /Product-only shot rhythm/);
 assert.match(shortProductOnlyCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
 assert.match(shortProductOnlyCompiled, /Use one continuous off-screen narrator only/);
+assert.match(shortProductOnlyCompiled, /HARD EDITORIAL CUT/);
+assert.match(shortProductOnlyCompiled, /RIGID-BODY SEPARATION LOCK/);
+assert.doesNotMatch(shortProductOnlyCompiled, /parcel bursts open|lid snaps open and reveals|box unfolds into/i);
 assert.doesNotMatch(shortProductOnlyCompiled, /surreal adult fall|visible natural lip-sync|one consistent presenter|presenter-matched voice/i);
 
 const shortExplicitHookCompiled = buildReferenceVideoPrompt("生成一个带货广告，开头让纸箱从高处掉落并在落地前冻结", 1, 1, "10", "auto", "i2v");
