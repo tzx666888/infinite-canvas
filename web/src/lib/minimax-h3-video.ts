@@ -1,4 +1,5 @@
 import type { AiConfig } from "@/stores/use-config-store";
+import { facebookVideoSourceSize } from "./facebook-media.ts";
 
 export const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID = "MiniMaxH3-720p";
 export const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS = [TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID, "MiniMaxH3-2k"] as const;
@@ -36,7 +37,7 @@ export function normalizeMiniMaxH3Duration(value: string | number) {
 }
 
 export function normalizeMiniMaxH3AspectRatio(value: string) {
-    const normalized = value.trim().toLowerCase();
+    const normalized = facebookVideoSourceSize(value).trim().toLowerCase();
     if (normalized === "9:16" || normalized === "720x1280" || normalized === "1080x1920" || normalized === "1440x2560") return "9:16";
     return "16:9";
 }

@@ -29,6 +29,7 @@ import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { createGoogleFlowVideoTaskRequest, pollGoogleFlowVideoTaskRequest } from "@/services/api/video/google-flow-adapter";
 import { createSeedanceVideoTaskRequest, pollSeedanceVideoTaskRequest } from "@/services/api/video/seedance-adapter";
 import type { VideoGenerationResult, VideoGenerationTask, VideoGenerationTaskState, VideoRequestOptions } from "@/services/api/video/provider-contract";
+import { facebookMediaPreset, facebookVideoSourceSize } from "@/lib/facebook-media";
 
 export type { VideoGenerationResult, VideoGenerationTask, VideoGenerationTaskState } from "@/services/api/video/provider-contract";
 
@@ -121,7 +122,25 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
 
-export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
+export async function storeGeneratedVideo(result: VideoGenerationResult, requestedSize = ""): Promise<UploadedFile> {
+    const preset = facebookMediaPreset(requestedSize);
+    if (preset) {
+        const body = new FormData();
+        body.set("preset", preset.id);
+        if (result.blob) body.set("video", result.blob, "generated.mp4");
+        else if (result.url) {
+            const source = await fetch(result.url);
+            if (!source.ok) throw new Error(`Facebook 视频尺寸转换前下载失败（${source.status}）`);
+            body.set("video", await source.blob(), "generated.mp4");
+        }
+        else throw new Error("视频接口没有返回可播放的视频");
+        const response = await fetch("/api/media/facebook-video", { method: "POST", body });
+        if (!response.ok) {
+            const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+            throw new Error(payload?.error?.message || `Facebook 视频尺寸转换失败（${response.status}）`);
+        }
+        return uploadMediaFile(await response.blob(), "video");
+    }
     if (result.blob) return uploadMediaFile(result.blob, "video");
     if (result.url) return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
     throw new Error("视频接口没有返回可播放的视频");
@@ -761,6 +780,7 @@ function assertVideoConfig(config: AiConfig, model: string) {
 }
 
 function normalizeFlowVideoSize(value: string, model: string) {
+    value = facebookVideoSourceSize(value);
     const normalizedModel = modelOptionName(model).toLowerCase();
     if (normalizedModel.includes("portrait")) return "720x1280";
     if (normalizedModel.includes("landscape") || normalizedModel === "omni") return "1280x720";

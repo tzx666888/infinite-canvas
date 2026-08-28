@@ -24,6 +24,7 @@ import { normalizeVideoProductScaleMode, videoProductScaleOptions } from "@/lib/
 import { fixedVideoDurationOptions, fixedVideoResolution, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 import { isTokaxisMiniMaxH3VideoModel } from "@/lib/minimax-h3-video";
+import { FACEBOOK_MEDIA_PRESETS, facebookMediaPreset, facebookMediaTargetSize, facebookVideoSourceSize } from "@/lib/facebook-media";
 
 const baseResolutionOptions = [
     { value: "720", label: "720p" },
@@ -35,6 +36,7 @@ export const sizeOptions = [
     { value: "1024x1024", label: "方形", width: 1024, height: 1024 },
     { value: "1792x1024", label: "宽屏", width: 1792, height: 1024 },
     { value: "1024x1792", label: "长图", width: 1024, height: 1792 },
+    ...FACEBOOK_MEDIA_PRESETS.map((preset) => ({ value: preset.id, label: preset.id, width: preset.width, height: preset.height })),
     { value: "auto", label: "auto", width: 0, height: 0 },
 ];
 
@@ -59,9 +61,10 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const fixedSecondOptions = fixedVideoDurationOptions(model);
     const secondOptions = fixedSecondOptions || (miniMaxH3 ? [5, 10, 15] : defaultSecondOptions);
     const seconds = normalizeModelVideoSeconds(config.videoSeconds || "6", model);
-    const size = googleVideo && ["", "auto", "1:1"].includes(config.size) ? (model.toLowerCase().includes("portrait") ? "720x1280" : "1280x720") : normalizeVideoSizeValue(config.size);
+    const selectedFacebookPreset = facebookMediaPreset(config.size);
+    const size = selectedFacebookPreset?.id || (googleVideo && ["", "auto", "1:1"].includes(config.size) ? (model.toLowerCase().includes("portrait") ? "720x1280" : "1280x720") : normalizeVideoSizeValue(config.size));
     const dimensions = readSizeDimensions(size);
-    const availableSizeOptions = googleVideo || miniMaxH3 ? sizeOptions.filter((item) => item.value === "1280x720" || item.value === "720x1280") : sizeOptions;
+    const availableSizeOptions = googleVideo || miniMaxH3 ? sizeOptions.filter((item) => item.value === "1280x720" || item.value === "720x1280" || facebookMediaPreset(item.value)) : sizeOptions;
     const fixedResolution = fixedVideoResolution(model, seconds);
     const resolutionOptions = fixedResolution ? [{ value: fixedResolution, label: `${fixedResolution}p` }] : baseResolutionOptions;
     const resolution = normalizeVideoResolutionValue(config.vquality, model, seconds);
@@ -94,7 +97,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             <DimensionInput prefix="H" value={dimensions.height} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("height", value)} />
                         </div>
                     )}
-                    <div className={`grid gap-2.5 ${googleVideo || miniMaxH3 ? "grid-cols-2" : "grid-cols-3"}`}>
+                    <div className="grid grid-cols-3 gap-2.5">
                         {availableSizeOptions.map((item) => (
                             <button
                                 key={item.value}
@@ -106,7 +109,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             >
                                 <SizePreview width={item.width} height={item.height} color={theme.node.text} />
                                 <span>{item.label}</span>
-                                {item.value === "auto" ? null : <span className="text-[11px] leading-none opacity-55">{item.value}</span>}
+                                {item.value === "auto" ? null : <span className="text-[11px] leading-none opacity-55">{facebookMediaTargetSize(item.value)}</span>}
                             </button>
                         ))}
                     </div>
@@ -138,11 +141,11 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
 function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
     const model = modelOptionName(config.videoModel || config.model);
     const resolution = normalizeSeedanceResolution(config.vquality, model);
-    const ratio = normalizeSeedanceRatio(config.size, model);
+    const ratio = facebookMediaPreset(config.size)?.id || normalizeSeedanceRatio(config.size, model);
     const duration = normalizeSeedanceDuration(config.videoSeconds, model);
     const durationOptions = seedanceDurationOptionsForModel(model);
     const resolutionOptions = seedanceResolutionOptionsForModel(model);
-    const ratioOptions = seedanceRatioOptionsForModel(model);
+    const ratioOptions = [...seedanceRatioOptionsForModel(model), ...FACEBOOK_MEDIA_PRESETS.map((preset) => ({ value: preset.id, label: preset.id }))];
     const supportsGeneratedAudio = seedanceSupportsGeneratedAudio(model);
     const generateAudio = supportsGeneratedAudio && boolConfig(config.videoGenerateAudio, true);
     const watermark = boolConfig(config.videoWatermark, false);
@@ -174,7 +177,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                             >
                                 <SizePreview width={ratioPreview(item.value).width} height={ratioPreview(item.value).height} color={theme.node.text} />
                                 <span>{item.label}</span>
-                                <span className="text-[10px] leading-none opacity-55">{item.value === "adaptive" ? "adaptive" : seedancePixelLabel(resolution, item.value, model)}</span>
+                                <span className="text-[10px] leading-none opacity-55">{facebookMediaPreset(item.value) ? facebookMediaTargetSize(item.value) : item.value === "adaptive" ? "adaptive" : seedancePixelLabel(resolution, item.value, model)}</span>
                             </button>
                         ))}
                     </div>
@@ -209,6 +212,8 @@ export function videoResolutionLabel(value: string, model = "", duration?: strin
 }
 
 export function videoSizeLabel(value: string) {
+    const preset = facebookMediaPreset(value);
+    if (preset) return preset.id;
     const ratio = normalizeSeedanceRatio(value);
     if (value === "adaptive" || value === "auto") return "自适应";
     if (ratio === value) return seedanceRatioOptions.find((item) => item.value === ratio)?.label || ratio;
@@ -226,6 +231,7 @@ function googleVideoDurationOptionLabel(value: number, model: string) {
 }
 
 export function normalizeVideoSizeValue(value: string) {
+    value = facebookVideoSourceSize(value);
     if (value === "auto") return "auto";
     if (/^\d+x\d+$/.test(value || "")) return value;
     return ["9:16", "2:3", "3:4"].includes(value) ? "720x1280" : "1280x720";
@@ -327,6 +333,8 @@ function SizePreview({ width, height, color }: { width: number; height: number; 
 }
 
 function ratioPreview(ratio: string) {
+    const preset = facebookMediaPreset(ratio);
+    if (preset) return { width: preset.width, height: preset.height };
     if (ratio === "9:16") return { width: 9, height: 16 };
     if (ratio === "1:1") return { width: 1, height: 1 };
     if (ratio === "4:3") return { width: 4, height: 3 };
@@ -351,6 +359,8 @@ function SwitchRow({ label, checked, theme, onChange }: { label: string; checked
 
 function readSizeDimensions(size: string) {
     if (size === "auto") return { width: 0, height: 0 };
+    const preset = facebookMediaPreset(size);
+    if (preset) return { width: preset.width, height: preset.height };
     const match = size.match(/^(\d+)x(\d+)$/);
     return { width: Number(match?.[1]) || 1280, height: Number(match?.[2]) || 720 };
 }

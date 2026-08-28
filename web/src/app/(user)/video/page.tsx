@@ -399,7 +399,7 @@ export default function VideoPage() {
             for (let attempt = 0; attempt < 120; attempt += 1) {
                 const state = await pollVideoGenerationTask(configOverride || taskConfig, log.task);
                 if (state.status === "completed") {
-                    const stored = await storeGeneratedVideo(state.result);
+                    const stored = await storeGeneratedVideo(state.result, taskConfig.size);
                     const nextVideo: GeneratedVideo = {
                         id: nanoid(),
                         url: stored.url,

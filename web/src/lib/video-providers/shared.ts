@@ -1,8 +1,10 @@
+import { facebookVideoSourceSize } from "../facebook-media.ts";
+
 export type VideoAspectRatio = "9:16" | "16:9" | "1:1";
 export type VideoReferenceMode = "t2v" | "i2v" | "r2v";
 
 export function videoAspectRatioForSize(value: string): VideoAspectRatio {
-    const normalized = value.trim().toLowerCase();
+    const normalized = facebookVideoSourceSize(value).trim().toLowerCase();
     if (normalized === "1:1" || normalized === "square") return "1:1";
     if (["16:9", "4:3", "landscape"].includes(normalized)) return "16:9";
     if (["9:16", "2:3", "3:4", "portrait", "auto", ""].includes(normalized)) return "9:16";

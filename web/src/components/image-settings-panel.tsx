@@ -15,6 +15,7 @@ import {
     type TokaxisGoogleImageSize,
 } from "@/lib/tokaxis-google-image";
 import type { AiConfig } from "@/stores/use-config-store";
+import { FACEBOOK_MEDIA_PRESETS, facebookMediaPreset } from "@/lib/facebook-media";
 
 const qualityOptions = [
     { value: "auto", label: "自动" },
@@ -29,7 +30,7 @@ const resolutionOptions = [
 ] as const;
 type Resolution = (typeof resolutionOptions)[number]["value"];
 type NativeSizes = Record<Resolution, string>;
-type AspectOption = { value: string; label: string; size?: string; width: number; height: number; icon: string; nativeOnly?: boolean; nativeSizes?: NativeSizes };
+type AspectOption = { value: string; label: string; size?: string; width: number; height: number; icon: string; fixed?: boolean; nativeOnly?: boolean; nativeSizes?: NativeSizes };
 const DIMENSION_STEP = 16;
 
 const aspectOptions: AspectOption[] = [
@@ -48,6 +49,7 @@ const aspectOptions: AspectOption[] = [
     nativeAspect("9:16", "portrait"),
     nativeAspect("16:9", "landscape"),
     nativeAspect("21:9", "landscape", true),
+    ...FACEBOOK_MEDIA_PRESETS.map((preset): AspectOption => ({ value: preset.id, label: preset.id, size: `${preset.width}x${preset.height}`, width: preset.width, height: preset.height, icon: preset.width > preset.height ? "landscape" : "portrait", fixed: true })),
     { value: "auto", label: "auto", width: 0, height: 0, icon: "auto" },
 ];
 
@@ -288,7 +290,8 @@ function SettingTitle({ children, color }: { children: string; color: string }) 
 }
 
 function readSizeDimensions(size: string, fallback: { width: number; height: number }) {
-    const match = size?.match(/^(\d+)x(\d+)$/);
+    const preset = facebookMediaPreset(size);
+    const match = (preset ? `${preset.width}x${preset.height}` : size)?.match(/^(\d+)x(\d+)$/);
     return {
         width: match ? Number(match[1]) : fallback.width,
         height: match ? Number(match[2]) : fallback.height,
@@ -333,6 +336,7 @@ function readResolution(size: string, maxPixels = GENERIC_IMAGE_MAX_PIXELS): Res
 
 function sizeForAspect(option: AspectOption, resolution: Resolution, usesNativeGoogleSizes = false, maxPixels = GENERIC_IMAGE_MAX_PIXELS) {
     if (option.value === "auto") return "auto";
+    if (option.fixed) return option.value;
     if (usesNativeGoogleSizes && option.nativeSizes) return option.nativeSizes[resolution];
     if (resolution === "1k") return option.size || `${option.width}x${option.height}`;
     return resizeDimensionsForResolution(option.width, option.height, resolution, maxPixels);

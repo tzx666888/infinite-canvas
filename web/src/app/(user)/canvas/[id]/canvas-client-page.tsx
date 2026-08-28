@@ -911,7 +911,7 @@ function InfiniteCanvasPage() {
             const recoveryConfig = { ...buildGenerationConfig(effectiveConfig, pendingNode, "video"), model: task.model, videoModel: task.model };
             void (async () => {
                 try {
-                    const video = await storeGeneratedVideo(await resumeVideoGenerationTask(recoveryConfig, task, { signal: controller.signal }));
+                    const video = await storeGeneratedVideo(await resumeVideoGenerationTask(recoveryConfig, task, { signal: controller.signal }), recoveryConfig.size);
                     const videoSize = fitNodeSize(video.width || pendingNode.width, video.height || pendingNode.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
                         prev.map((node) =>
@@ -3810,6 +3810,7 @@ function InfiniteCanvasPage() {
                     try {
                         const video = await storeGeneratedVideo(
                             await requestVideoGeneration({ ...clipGenerationConfig, model: videoModel, videoModel, videoSeconds }, entry.clipPrompt, referenceImages, [], [], beginVideoRequest(videoId, controller.signal)),
+                            clipGenerationConfig.size,
                         );
                         const videoSize = fitNodeSize(video.width || videoSpec.width, video.height || videoSpec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                         setNodes((prev) =>
@@ -4483,6 +4484,7 @@ function InfiniteCanvasPage() {
                         updateVideoGenerationStage("视频任务提交/生成中...");
                         const video = await storeGeneratedVideo(
                             await requestVideoGeneration(videoGenerationConfig, requestVideoPrompt, requestVideoReferenceImages, videoReferenceVideos, videoReferenceAudios, beginVideoRequest(videoId, controller.signal)),
+                            videoGenerationConfig.size,
                         );
                         const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                         setNodes((prev) =>
@@ -5064,7 +5066,7 @@ function InfiniteCanvasPage() {
                         );
                     }
                     updateRetryVideoGenerationStage("视频任务提交/生成中...");
-                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryVideoImages, retryReferenceVideos, retryReferenceAudios, beginVideoRequest(node.id, controller.signal)));
+                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, videoPrompt, retryVideoImages, retryReferenceVideos, retryReferenceAudios, beginVideoRequest(node.id, controller.signal)), generationConfig.size);
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
                         prev.map((item) =>

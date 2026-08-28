@@ -1,3 +1,5 @@
+import { facebookMediaTargetSize } from "./facebook-media.ts";
+
 export const TOKAXIS_GOOGLE_IMAGE_BASE_MODEL = "gemini-3.1-flash-image";
 
 export const TOKAXIS_GOOGLE_IMAGE_SIZES = ["4K"] as const;
@@ -80,7 +82,7 @@ export function tokaxisGoogleImageSizeFromDimensions(value?: string): TokaxisGoo
 }
 
 export function normalizeImageSizeForSelectedModel(model: string, size?: string) {
-    const value = size?.trim() || "auto";
+    const value = facebookMediaTargetSize(size?.trim() || "auto");
     if (isTokaxisGoogleImageModel(model) || value.toLowerCase() === "auto") return value;
 
     const ratio = parseRatio(value);
