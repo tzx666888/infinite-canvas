@@ -21,6 +21,7 @@ import {
 } from "@/lib/tokaxis-google-image";
 import { imageToDataUrl } from "@/services/image-storage";
 import type { ReferenceImage } from "@/types/image";
+import { facebookMediaPreset } from "@/lib/facebook-media";
 
 export type AiTextMessage = {
     role: "system" | "user" | "assistant";
@@ -1138,14 +1139,14 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const requestSize = tokaxisGoogleImage ? resolveTokaxisGoogleRequestSize(normalizedSize) : resolveRequestSize(quality, normalizedSize);
     if (requestConfig.apiFormat === "gemini") {
         try {
-            return await requestGeminiImages(requestConfig, prompt, [], n, options);
+            return await formatFacebookImageResults(await requestGeminiImages(requestConfig, prompt, [], n, options), config.size, options?.signal);
         } catch (error) {
             throw new Error(readAxiosError(error, "请求失败"));
         }
     }
     if (tokaxisGoogleImage) {
         try {
-            return await requestTokaxisGoogleChatImages(requestConfig, prompt, [], n, requestSize, quality, options);
+            return await formatFacebookImageResults(await requestTokaxisGoogleChatImages(requestConfig, prompt, [], n, requestSize, quality, options), config.size, options?.signal);
         } catch (error) {
             if (error instanceof CanvasImageJobError) throw error;
             throw new Error(readAxiosError(error, "请求失败"));
@@ -1162,7 +1163,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
         output_format: IMAGE_OUTPUT_FORMAT,
     };
     if (options?.jobId && supportsResumableImageJobs(requestConfig)) {
-        return requestCanvasImageJob(requestConfig, "generations", () => body, options);
+        return formatFacebookImageResults(await requestCanvasImageJob(requestConfig, "generations", () => body, options), config.size, options.signal);
     }
     try {
         return await runImageSubmission(options?.signal, async () => {
@@ -1172,7 +1173,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 responseType: "text",
                 transformResponse: [(responseBody) => responseBody],
             });
-            return validateDecodedImageResults(parseImagePayload(parseImageResponseBody(response.data)));
+            return formatFacebookImageResults(await validateDecodedImageResults(parseImagePayload(parseImageResponseBody(response.data))), config.size, options?.signal);
         });
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
@@ -1190,7 +1191,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     if (requestConfig.apiFormat === "gemini") {
         if (mask) throw new Error("Gemini 调用格式暂不支持蒙版编辑");
         try {
-            return await requestGeminiImages(requestConfig, requestPrompt, references, n, options);
+            return await formatFacebookImageResults(await requestGeminiImages(requestConfig, requestPrompt, references, n, options), config.size, options?.signal);
         } catch (error) {
             throw new Error(readAxiosError(error, "请求失败"));
         }
@@ -1198,7 +1199,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     if (tokaxisGoogleImage) {
         if (mask) throw new Error("Google 生图模型暂不支持蒙版编辑");
         try {
-            return await requestTokaxisGoogleChatImages(requestConfig, requestPrompt, references, n, requestSize, quality, options);
+            return await formatFacebookImageResults(await requestTokaxisGoogleChatImages(requestConfig, requestPrompt, references, n, requestSize, quality, options), config.size, options?.signal);
         } catch (error) {
             if (error instanceof CanvasImageJobError) throw error;
             throw new Error(readAxiosError(error, "请求失败"));
@@ -1230,7 +1231,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     };
 
     if (options?.jobId && supportsResumableImageJobs(requestConfig)) {
-        return requestCanvasImageJob(requestConfig, "edits", buildFormData, options);
+        return formatFacebookImageResults(await requestCanvasImageJob(requestConfig, "edits", buildFormData, options), config.size, options.signal);
     }
     try {
         return await runImageSubmission(options?.signal, async () => {
@@ -1240,11 +1241,31 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
                 responseType: "text",
                 transformResponse: [(body) => body],
             });
-            return validateDecodedImageResults(parseImagePayload(parseImageResponseBody(response.data)));
+            return formatFacebookImageResults(await validateDecodedImageResults(parseImagePayload(parseImageResponseBody(response.data))), config.size, options?.signal);
         });
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }
+}
+
+async function formatFacebookImageResults<T extends { id: string; dataUrl: string }>(results: T[], requestedSize: string, signal?: AbortSignal): Promise<T[]> {
+    const preset = facebookMediaPreset(requestedSize);
+    if (!preset) return results;
+    return Promise.all(
+        results.map(async (result) => {
+            const source = await fetch(result.dataUrl, { cache: "no-store", signal });
+            if (!source.ok) throw new Error(`Facebook 图片读取失败（${source.status}）`);
+            const body = new FormData();
+            body.set("preset", preset.id);
+            body.set("image", await source.blob(), "source-image");
+            const response = await fetch("/api/media/facebook-image", { method: "POST", body, signal });
+            if (!response.ok) {
+                const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+                throw new Error(payload?.error?.message || `Facebook 图片尺寸转换失败（${response.status}）`);
+            }
+            return { ...result, dataUrl: URL.createObjectURL(await response.blob()) };
+        }),
+    );
 }
 
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {

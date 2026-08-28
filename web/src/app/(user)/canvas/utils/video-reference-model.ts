@@ -4,17 +4,19 @@ import { defaultGoogleVideoEntrySettings, fixedGoogleVideoResolution, isGoogleVi
 import { isSeedanceVideoModel, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceSupportsGeneratedAudio } from "@/lib/seedance-video";
 import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
 import { isTokaxisMiniMaxH3VideoModel, normalizeMiniMaxH3Duration } from "@/lib/minimax-h3-video";
+import { facebookMediaPreset } from "@/lib/facebook-media";
 
 export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImageCount: number): AiConfig {
     const model = selectReferenceImageVideoModel(config, referenceImageCount);
     const nextConfig = model && (model !== config.model || model !== config.videoModel) ? { ...config, model, videoModel: model } : config;
     const modelName = model || nextConfig.model;
+    const deliverySize = facebookMediaPreset(nextConfig.size)?.id;
     if (isTokaxisMiniMaxH3VideoModel(modelName)) {
         return {
             ...nextConfig,
             videoSeconds: String(normalizeMiniMaxH3Duration(nextConfig.videoSeconds)),
             vquality: "1440P",
-            size: videoAspectRatioForSize(nextConfig.size) === "9:16" ? "720x1280" : "1280x720",
+            size: deliverySize || (videoAspectRatioForSize(nextConfig.size) === "9:16" ? "720x1280" : "1280x720"),
             videoGenerateAudio: String(nextConfig.videoGenerateAudio !== "false"),
         };
     }
@@ -23,7 +25,7 @@ export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImag
             ...nextConfig,
             videoSeconds: String(normalizeSeedanceDuration(nextConfig.videoSeconds, modelName)),
             vquality: normalizeSeedanceResolution(nextConfig.vquality, modelName),
-            size: normalizeSeedanceRatio(nextConfig.size, modelName),
+            size: deliverySize || normalizeSeedanceRatio(nextConfig.size, modelName),
             videoGenerateAudio: String(seedanceSupportsGeneratedAudio(modelName) && nextConfig.videoGenerateAudio !== "false"),
         };
     }
@@ -73,6 +75,8 @@ export function inferDirectVideoReferencePair(prompt: string, referenceCount: nu
 }
 
 function googleVideoSize(model: string, requestedSize: string) {
+    const deliverySize = facebookMediaPreset(requestedSize)?.id;
+    if (deliverySize) return deliverySize;
     const value = modelOptionName(model).toLowerCase();
     if (value.includes("portrait")) return "720x1280";
     if (value.includes("landscape") || value === "omni") return "1280x720";
