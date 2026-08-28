@@ -5,6 +5,7 @@ import { FACEBOOK_MEDIA_PRESETS, facebookMediaTargetSize, facebookVideoSourceSiz
 import { normalizeMiniMaxH3AspectRatio } from "../src/lib/minimax-h3-video.ts";
 import { normalizeSeedanceRatio } from "../src/lib/seedance-video.ts";
 import { normalizeImageSizeForSelectedModel } from "../src/lib/tokaxis-google-image.ts";
+import { fixedGoogleVideoResolution, googleVideoRouteAspectRatio } from "../src/lib/video-providers/google-video.ts";
 import { videoAspectRatioForSize } from "../src/lib/video-providers/shared.ts";
 
 assert.deepEqual(
@@ -22,13 +23,21 @@ assert.equal(normalizeSeedanceRatio("FB-9:16"), "9:16");
 assert.equal(normalizeSeedanceRatio("FB1.91:1"), "16:9");
 assert.equal(videoAspectRatioForSize("FB-4:5"), "9:16");
 assert.equal(videoAspectRatioForSize("FB1.91:1"), "16:9");
+assert.equal(googleVideoRouteAspectRatio("omni", "FB-4:5"), "9:16");
+assert.equal(googleVideoRouteAspectRatio("omni", "FB1.91:1"), "16:9");
+assert.equal(fixedGoogleVideoResolution("omni"), "720");
+assert.equal(fixedGoogleVideoResolution("tokaxis::omni_portrait"), "720");
 assert.equal(normalizeImageSizeForSelectedModel("gemini-3.1-flash-image-4k", "FB-9:16"), "1080x1920");
 
 const imagePanel = readFileSync(new URL("../src/components/image-settings-panel.tsx", import.meta.url), "utf8");
 const videoPanel = readFileSync(new URL("../src/components/video-settings-panel.tsx", import.meta.url), "utf8");
 const videoService = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
+const videoPage = readFileSync(new URL("../src/app/(user)/video/page.tsx", import.meta.url), "utf8");
 assert.match(imagePanel, /FACEBOOK_MEDIA_PRESETS/);
 assert.match(videoPanel, /FACEBOOK_MEDIA_PRESETS/);
 assert.match(videoService, /\/api\/media\/facebook-video/);
+assert.match(videoPage, /size: config\.size/);
+assert.doesNotMatch(videoPage, /size: seedance \? normalizeSeedanceRatio/);
+assert.match(videoPage, /normalizeVideoResolutionValue\(config\.vquality, model, config\.videoSeconds\)/);
 
 console.log("Facebook image/video preset regression passed");

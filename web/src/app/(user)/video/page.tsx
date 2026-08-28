@@ -10,7 +10,7 @@ import { saveAs } from "file-saver";
 import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/components/asset-picker-modal";
 import { ModelPicker } from "@/components/model-picker";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
-import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeValue, videoSizeLabel } from "@/components/video-settings-panel";
+import { VideoSettingsPanel, normalizeVideoResolutionValue, videoSizeLabel } from "@/components/video-settings-panel";
 import { useSaveAsset } from "@/hooks/use-save-asset";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
@@ -434,6 +434,8 @@ export default function VideoPage() {
     };
 
     const previewGenerationLog = (log: GenerationLog) => {
+        const logModel = log.config.videoModel || log.model;
+        const logSeconds = log.config.videoSeconds || log.seconds;
         setPreviewLog(log);
         setLogsOpen(false);
         setPrompt(log.prompt);
@@ -441,10 +443,10 @@ export default function VideoPage() {
         setVideoReferences(log.videoReferences || []);
         setAudioReferences(log.audioReferences || []);
         setWorkbenchMode(log.workbenchMode || "commerce");
-        if (log.config.videoModel || log.model) updateConfig("videoModel", log.config.videoModel || log.model);
+        if (logModel) updateConfig("videoModel", logModel);
         if (log.config.size) updateConfig("size", log.config.size);
-        if (log.config.vquality) updateConfig("vquality", log.config.vquality);
-        if (log.config.videoSeconds) updateConfig("videoSeconds", log.config.videoSeconds);
+        if (log.config.vquality) updateConfig("vquality", normalizeVideoResolutionValue(log.config.vquality, logModel, logSeconds));
+        if (logSeconds) updateConfig("videoSeconds", logSeconds);
         if (log.config.videoGenerateAudio) updateConfig("videoGenerateAudio", log.config.videoGenerateAudio);
         if (log.config.videoWatermark) updateConfig("videoWatermark", log.config.videoWatermark);
         setResults(log.status === "生成中" ? [{ id: log.id, status: "pending" }] : log.video ? [{ id: log.video.id, status: "success", video: log.video }] : [{ id: log.id, status: "failed", error: log.error || "生成失败" }]);
@@ -599,7 +601,7 @@ export default function VideoPage() {
 
                             <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm dark:border-stone-800 dark:bg-stone-900 sm:hidden">
                                 <span className="truncate text-stone-500 dark:text-stone-400">
-                                    {modelOptionLabel(effectiveConfig, model)} · {normalizeResolution(effectiveConfig.vquality)}p · {videoSizeLabel(effectiveConfig.size)} · {normalizeVideoSeconds(effectiveConfig.videoSeconds)}s
+                                    {modelOptionLabel(effectiveConfig, model)} · {normalizeVideoResolutionValue(effectiveConfig.vquality, model, effectiveConfig.videoSeconds)}p · {videoSizeLabel(effectiveConfig.size)} · {normalizeVideoSeconds(effectiveConfig.videoSeconds)}s
                                 </span>
                                 <Button size="small" type="text" icon={<SlidersHorizontal className="size-4" />} onClick={() => setSettingsOpen(true)}>
                                     调整
@@ -896,7 +898,7 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
         audioReferences,
         durationMs: log.durationMs || 0,
         size: log.size || config.size || "",
-        resolution: normalizeResolution(log.resolution || config.vquality || ""),
+        resolution: normalizeVideoResolutionValue(log.resolution || config.vquality || "", config.videoModel || log.model || "", log.seconds || config.videoSeconds),
         seconds: log.seconds || config.videoSeconds || "",
         status: log.status || "成功",
         task: log.task,
@@ -958,12 +960,14 @@ function ReferenceOrderButtons({ index, total, onMove }: { index: number; total:
 }
 
 function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
+    const videoModel = log.config?.videoModel || log.model || "";
+    const videoSeconds = log.config?.videoSeconds || log.seconds || "";
     return {
         model: log.config?.model || log.model || "",
-        videoModel: log.config?.videoModel || log.model || "",
+        videoModel,
         size: log.config?.size || log.size || "",
-        vquality: normalizeResolution(log.config?.vquality || log.resolution || ""),
-        videoSeconds: log.config?.videoSeconds || log.seconds || "",
+        vquality: normalizeVideoResolutionValue(log.config?.vquality || log.resolution || "", videoModel, videoSeconds),
+        videoSeconds,
         videoProductScaleMode: log.config?.videoProductScaleMode || "auto",
         videoGenerateAudio: log.config?.videoGenerateAudio || "true",
         videoWatermark: log.config?.videoWatermark || "false",
@@ -1003,7 +1007,7 @@ function buildLog({
         model: config.model,
         videoModel: config.videoModel,
         size: config.size,
-        vquality: normalizeResolution(config.vquality),
+        vquality: normalizeVideoResolutionValue(config.vquality, model, config.videoSeconds),
         videoSeconds: config.videoSeconds,
         videoProductScaleMode: config.videoProductScaleMode,
         videoGenerateAudio: config.videoGenerateAudio,
@@ -1039,9 +1043,12 @@ function buildVideoConfig(config: AiConfig, model: string): AiConfig {
         ...config,
         model,
         videoModel: model,
-        size: seedance ? normalizeSeedanceRatio(config.size, model) : normalizeVideoSize(config.size),
+        // Preserve Facebook preset IDs until storage so the completed video
+        // can be cropped to the exact delivery dimensions. Providers normalize
+        // the ID to their native source orientation at request time.
+        size: config.size,
         videoSeconds: seedance ? String(normalizeSeedanceDuration(config.videoSeconds, model)) : normalizeVideoSeconds(config.videoSeconds),
-        vquality: seedance ? normalizeSeedanceResolution(config.vquality, model) : normalizeResolution(config.vquality),
+        vquality: seedance ? normalizeSeedanceResolution(config.vquality, model) : normalizeVideoResolutionValue(config.vquality, model, config.videoSeconds),
         videoGenerateAudio: String(seedance ? seedanceSupportsGeneratedAudio(model) && boolConfig(config.videoGenerateAudio, true) : boolConfig(config.videoGenerateAudio, true)),
         videoWatermark: String(boolConfig(config.videoWatermark, false)),
     };
@@ -1051,14 +1058,6 @@ function normalizeVideoSeconds(value: string) {
     if (String(value).trim() === "-1") return "-1";
     const seconds = Math.floor(Number(value) || 6);
     return String(Math.max(1, Math.min(20, seconds)));
-}
-
-function normalizeVideoSize(value: string) {
-    return normalizeVideoSizeValue(value);
-}
-
-function normalizeResolution(value: string) {
-    return normalizeVideoResolutionValue(value);
 }
 
 async function prepareVideoWorkbenchReferenceImages(references: ReferenceImage[]) {

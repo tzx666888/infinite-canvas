@@ -1,4 +1,5 @@
 import type { AiConfig } from "@/stores/use-config-store";
+import { facebookMediaPreset } from "@/lib/facebook-media";
 
 import {
     fixedGoogleVideoResolution,
@@ -58,7 +59,8 @@ export function summarizeConfiguredGoogleVideoRoute(config: AiConfig, referenceI
         const resolved = resolveConfiguredGoogleVideoModel(config, referenceImageCount);
         const modelId = rawModelName(resolved);
         const route = modelId.startsWith("veo_3_1_t2v") ? "Veo 文生" : modelId.startsWith("veo_3_1_i2v") ? (referenceImageCount >= 2 ? "Veo 首尾帧" : "Veo 首帧") : modelId.startsWith("veo_3_1_r2v") ? "Veo 多参考" : "Omni";
-        const orientation = modelId.includes("portrait") ? "竖屏" : "横屏";
+        const preset = facebookMediaPreset(config.size);
+        const orientation = preset ? `${preset.id}（${preset.width}×${preset.height}）` : modelId.includes("portrait") ? "竖屏" : "横屏";
         const seconds = normalizeGoogleVideoSeconds(config.videoSeconds, modelId);
         const resolution = fixedGoogleVideoResolution(modelId, seconds) || config.vquality || "720";
         return { model: resolved, text: `${route} · ${orientation} · ${resolution}p · ${seconds}秒`, error: false } as const;

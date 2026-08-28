@@ -1,4 +1,5 @@
 import type { VideoAspectRatio, VideoReferenceMode } from "@/lib/video-providers/shared";
+import { facebookVideoSourceSize } from "../facebook-media.ts";
 
 export const GOOGLE_VEO_MODEL_IDS = [
     "veo_3_1_t2v_fast_landscape",
@@ -186,7 +187,7 @@ function normalizeVideoModelId(model: string) {
 }
 
 function googleVideoAspectRatioForSize(value: string): VideoAspectRatio {
-    const normalized = value.trim().toLowerCase();
+    const normalized = facebookVideoSourceSize(value).trim().toLowerCase();
     if (normalized === "1:1" || normalized === "square") return "1:1";
     if (["16:9", "4:3", "landscape"].includes(normalized)) return "16:9";
     if (["9:16", "2:3", "3:4", "portrait", "auto", ""].includes(normalized)) return "9:16";
