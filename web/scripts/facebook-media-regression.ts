@@ -34,6 +34,8 @@ const videoPanel = readFileSync(new URL("../src/components/video-settings-panel.
 const videoService = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
 const imageService = readFileSync(new URL("../src/services/api/image.ts", import.meta.url), "utf8");
 const referenceVideoModel = readFileSync(new URL("../src/app/(user)/canvas/utils/video-reference-model.ts", import.meta.url), "utf8");
+const videoGenerationPreflight = readFileSync(new URL("../src/app/(user)/canvas/utils/video-generation-preflight.ts", import.meta.url), "utf8");
+const canvasNodeSize = readFileSync(new URL("../src/app/(user)/canvas/utils/canvas-node-size.ts", import.meta.url), "utf8");
 const facebookImageRoute = readFileSync(new URL("../src/app/api/media/facebook-image/route.ts", import.meta.url), "utf8");
 const videoPage = readFileSync(new URL("../src/app/(user)/video/page.tsx", import.meta.url), "utf8");
 assert.match(imagePanel, /FACEBOOK_MEDIA_PRESETS/);
@@ -41,6 +43,9 @@ assert.match(videoPanel, /FACEBOOK_MEDIA_PRESETS/);
 assert.match(videoService, /\/api\/media\/facebook-video/);
 assert.match(imageService, /\/api\/media\/facebook-image/);
 assert.match(referenceVideoModel, /deliverySize \|\|/);
+assert.match(videoGenerationPreflight, /const deliverySize = facebookMediaPreset\(config\.size\)\?\.id/);
+assert.equal((videoGenerationPreflight.match(/size: deliverySize \|\|/g) || []).length, 3);
+assert.match(canvasNodeSize, /const preset = facebookMediaPreset\(size\)/);
 assert.match(facebookImageRoute, /scale=\$\{preset\.width\}:\$\{preset\.height\}/);
 assert.match(videoPage, /size: config\.size/);
 assert.doesNotMatch(videoPage, /size: seedance \? normalizeSeedanceRatio/);

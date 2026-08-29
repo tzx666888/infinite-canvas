@@ -1,5 +1,7 @@
 "use client";
 
+import { facebookMediaPreset } from "@/lib/facebook-media";
+
 export function fitNodeSize(width: number, height: number, maxWidth = 640, maxHeight = 640) {
     const w = Math.max(1, width);
     const h = Math.max(1, height);
@@ -8,7 +10,9 @@ export function fitNodeSize(width: number, height: number, maxWidth = 640, maxHe
 }
 
 export function nodeSizeFromRatio(size: string, baseWidth: number, baseHeight: number) {
-    const match = size?.match(/^(\d+)(?:x|:)(\d+)/);
+    const preset = facebookMediaPreset(size);
+    const normalizedSize = preset ? `${preset.width}x${preset.height}` : size;
+    const match = normalizedSize?.match(/^(\d+)(?:x|:)(\d+)/);
     if (!match) return null;
     const width = Number(match[1]);
     const height = Number(match[2]);

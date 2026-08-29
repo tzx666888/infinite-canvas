@@ -1,4 +1,12 @@
-# Infinite Canvas v3.137.0
+# Infinite Canvas v3.154.0
+
+## v3.154.0 本次发布
+
+- 修复画布视频提交前把 Facebook 成品规格退化成普通横竖屏的问题，三种 Facebook ID 会一直保留到成品转换阶段。
+- `FB-4:5` 成片固定交付 1080×1350；Omni 上游仍使用其支持的 720p 竖屏源，不发送不支持的 1080p 参数。
+- 画布节点预览同步识别 `FB-9:16`、`FB-4:5`、`FB1.91:1`，选择后立即按目标比例显示。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.154.0`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.153.0`；上线前备份：`/opt/backups/infinite-canvas/pre-v3.154.0-20260829T061626Z`。
 
 ## v3.137.0 本次发布
 

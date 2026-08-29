@@ -1,4 +1,5 @@
 import { resolveConfiguredGoogleVideoModel } from "@/lib/google-video-routing";
+import { facebookMediaPreset } from "@/lib/facebook-media";
 import {
     boolConfig,
     isSeedanceFixed720pModel,
@@ -56,6 +57,7 @@ export function normalizeVideoGenerationPreflightConfig(config: AiConfig, refere
     const selectedModel = (config.videoModel || config.model).trim();
     if (!selectedModel) return { ...config, model: "", videoModel: "" };
     const selectedConfig = { ...config, model: selectedModel, videoModel: selectedModel };
+    const deliverySize = facebookMediaPreset(config.size)?.id;
 
     if (isGoogleVideoModel(selectedModel)) {
         const resolvedModel = resolveConfiguredGoogleVideoModel(selectedConfig, referenceImageCount);
@@ -67,7 +69,7 @@ export function normalizeVideoGenerationPreflightConfig(config: AiConfig, refere
             model: resolvedModel,
             videoModel: resolvedModel,
             videoSeconds,
-            size: ratio === "9:16" ? "720x1280" : "1280x720",
+            size: deliverySize || (ratio === "9:16" ? "720x1280" : "1280x720"),
             vquality: fixedVideoResolution(modelName, videoSeconds) || config.vquality || "720",
         };
     }
@@ -78,7 +80,7 @@ export function normalizeVideoGenerationPreflightConfig(config: AiConfig, refere
         return {
             ...selectedConfig,
             videoSeconds: String(normalizeMiniMaxH3Duration(config.videoSeconds)),
-            size: ratio === "9:16" ? "720x1280" : "1280x720",
+            size: deliverySize || (ratio === "9:16" ? "720x1280" : "1280x720"),
             vquality: tokaxisMiniMaxH3Resolution(modelName) === "2K" ? "2K" : "720",
             videoGenerateAudio: String(boolConfig(config.videoGenerateAudio, true)),
             videoWatermark: String(boolConfig(config.videoWatermark, false)),
@@ -90,7 +92,7 @@ export function normalizeVideoGenerationPreflightConfig(config: AiConfig, refere
         return {
             ...selectedConfig,
             videoSeconds: String(normalizeSeedanceDuration(config.videoSeconds, modelName)),
-            size: normalizeSeedanceRatio(config.size, modelName),
+            size: deliverySize || normalizeSeedanceRatio(config.size, modelName),
             vquality: normalizeSeedanceResolution(config.vquality, modelName),
             videoGenerateAudio: String(boolConfig(config.videoGenerateAudio, true)),
             videoWatermark: String(boolConfig(config.videoWatermark, false)),
