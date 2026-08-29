@@ -60,6 +60,7 @@ assert.match(globalHookDirectorPrompt.prompt, /0–3 秒 Hook/);
 assert.match(globalHookDirectorPrompt.prompt, /3 个不同 Hook/);
 assert.match(globalHookDirectorPrompt.prompt, /未指定时保持全球中性/);
 assert.match(globalHookDirectorPrompt.prompt, /超现实、无伤害、无血腥/);
+assert.match(globalHookDirectorPrompt.prompt, /安全失衡动作与完整商品\/食物特写按节拍硬切交替/);
 assert.doesNotMatch(globalHookDirectorPrompt.title, /印尼|Indonesia|Bahasa/i);
 
 assert.deepEqual(

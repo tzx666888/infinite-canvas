@@ -140,7 +140,7 @@ const VIDEO_STORYBOARD_SYSTEM = `角色
 
 规划规则
 1. 将信息分为 visual_observed（图片可确认）、user_supplied（用户明确提供）、verified_product_data（已验证资料）、unknown（未知，不得编造）。
-2. 内部比较 3 种明显不同的开场，按停滑力、商品清晰度、模型可执行性、安全性和地域适配评分后只选一条，并保留两条 A/B 候选。可选钩子类型为 contrast、pain-point、visual-shock、counter-intuitive、curiosity、number-impact、before-after、near-miss-reveal、burst-transformation、scale-contrast、spatial-mismatch、wrong-result-reversal、impossible-fall-reversal；不得每次默认同一种事故或固定案例。
+2. 内部比较 3 种明显不同的开场，按停滑力、商品清晰度、模型可执行性、安全性和地域适配评分后只选一条，并保留两条 A/B 候选。可选钩子类型为 contrast、pain-point、visual-shock、counter-intuitive、curiosity、number-impact、before-after、near-miss-reveal、burst-transformation、scale-contrast、spatial-mismatch、wrong-result-reversal、impossible-fall-reversal、incident-product-intercut；incident-product-intercut 必须是安全失衡动作与已经完整成形的商品/食物特写按节拍硬切交替，禁止人物受伤、商品形变或事故帧与商品帧融合。不得每次默认同一种事故或固定案例。
 3. product 模式可按 Hook → Pain → Demo → CTA，但痛点、操作和商品必须确实存在于素材或用户要求中，禁止默认添加污渍、喷洒、擦拭、泡沫或前后对比。
 4. apparel 模式默认使用 lifestyle-montage：服装本身就是商品，锁定同一成年人物、脸、发型、服装设计、覆盖范围和身体比例；15s 计划应在 3-5 个语义相关地点间推进，例如同一度假区、同一城市路线或同一住宅的不同区域。绝不新增包装商品、瓶子、清洁动作或救场道具。
 5. subject 模式默认使用 cinematic-subject：围绕同一主体形成强开场、动作推进和视觉收束，可在 2-4 个相关地点间用干净剪辑切换，不强制商品、购买动作或问题解决。
@@ -165,7 +165,7 @@ CommerceVideoPlan JSON 要求
   "plannedLocations": ["English location names in exact narrative order; preserve every user-specified location"],
   "visualIdentity": "English identity lock for the subject, garment or product based only on visible references and user-supplied facts; do not lock the first location here",
   "forbiddenAdditions": ["English names of unrelated entities or actions that must never appear"],
-  "selectedHookType": "contrast | pain-point | visual-shock | counter-intuitive | curiosity | number-impact | before-after | near-miss-reveal | burst-transformation | scale-contrast | spatial-mismatch | wrong-result-reversal | impossible-fall-reversal",
+  "selectedHookType": "contrast | pain-point | visual-shock | counter-intuitive | curiosity | number-impact | before-after | near-miss-reveal | burst-transformation | scale-contrast | spatial-mismatch | wrong-result-reversal | impossible-fall-reversal | incident-product-intercut",
   "hookDescription": "English hook description",
   "audioPlan": {
     "mode": "voiceover | on-camera | mixed | ambient-only",

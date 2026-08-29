@@ -47,14 +47,15 @@ assert.doesNotMatch(shortCommerceCompiled, /Indonesian social-commerce|Bahasa In
 
 const shortIndonesiaTenSecondCompiled = buildReferenceVideoPrompt("生成一段印尼带货视频", 1, 1, "10", "auto", "i2v");
 assert.match(shortIndonesiaTenSecondCompiled, /EXACT VISUAL HOOK OVERRIDE — HIGHEST VISUAL PRIORITY/);
-assert.match(shortIndonesiaTenSecondCompiled, /adult already dropping from just above the top edge/);
+assert.match(shortIndonesiaTenSecondCompiled, /obviously staged, harmless low slide or stumble/);
 assert.match(shortIndonesiaTenSecondCompiled, /0\.00-0\.45s/);
 assert.match(shortIndonesiaTenSecondCompiled, /0\.45-1\.40s/);
 assert.match(shortIndonesiaTenSecondCompiled, /1\.40-2\.00s/);
-assert.match(shortIndonesiaTenSecondCompiled, /At exactly 2\.00s, after the complete hook payoff/);
-assert.match(shortIndonesiaTenSecondCompiled, /HARD EDITORIAL CUT with zero in-between transformation frames/);
-assert.match(shortIndonesiaTenSecondCompiled, /Only after this cut show the original referenced product unit/);
-assert.match(shortIndonesiaTenSecondCompiled, /persistent visible background gap between their silhouettes/);
+assert.match(shortIndonesiaTenSecondCompiled, /fast beat-synchronized HARD EDITORIAL CUTS/);
+assert.match(shortIndonesiaTenSecondCompiled, /two ultra-short macro flashes/);
+assert.match(shortIndonesiaTenSecondCompiled, /At exactly 2\.00s, hard-cut to a stable readable hero shot/);
+assert.match(shortIndonesiaTenSecondCompiled, /Any product or finished-food hook flash is a separate hard-cut shot/);
+assert.match(shortIndonesiaTenSecondCompiled, /visible background gap between silhouettes/);
 assert.match(shortIndonesiaTenSecondCompiled, /RIGID-BODY SEPARATION LOCK — MANDATORY/);
 assert.match(shortIndonesiaTenSecondCompiled, /distinct rigid bodies with independent closed contours/);
 assert.match(shortIndonesiaTenSecondCompiled, /No product emerges from, grows out of, pops from, or transforms from any package/);
@@ -66,7 +67,8 @@ assert.ok(shortIndonesiaTenSecondCompiled.indexOf("EXACT VISUAL HOOK OVERRIDE") 
 assert.match(shortIndonesiaTenSecondCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-2s/);
 assert.match(shortIndonesiaTenSecondCompiled, /incident must already be visibly happening at 0\.00s/);
 assert.match(shortIndonesiaTenSecondCompiled, /0-0\.7s trigger the expectation break/);
-assert.match(shortIndonesiaTenSecondCompiled, /Never reveal early, finish the hook early, or hold a static frame before 2s/);
+assert.match(shortIndonesiaTenSecondCompiled, /Brief editorial product flashes are allowed before 2s only when the earlier exact visual hook timeline explicitly requires them/);
+assert.match(shortIndonesiaTenSecondCompiled, /never begin the stable product demonstration early, finish the hook early, or hold a static frame before 2s/);
 assert.match(shortIndonesiaTenSecondCompiled, /The user explicitly requested Indonesia/);
 assert.match(shortIndonesiaTenSecondCompiled, /Bahasa Indonesia/);
 assert.match(shortIndonesiaTenSecondCompiled, /EXACT NARRATION OVERRIDE — HIGHEST PRIORITY/);
@@ -98,12 +100,14 @@ const shortIndonesiaFifteenSecondCompiled = buildReferenceVideoPrompt("生成一
 assert.match(shortIndonesiaFifteenSecondCompiled, /0\.00-0\.70s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /0\.70-2\.00s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /2\.00-3\.00s/);
-assert.match(shortIndonesiaFifteenSecondCompiled, /At exactly 3\.00s, after the complete hook payoff/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /At exactly 3\.00s, hard-cut to a stable readable hero shot/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /one final clean product or food macro flash on the strongest beat/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-3s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /0-1s trigger the expectation break/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /1-2s escalate it/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /2-3s deliver the incident payoff/);
-assert.match(shortIndonesiaFifteenSecondCompiled, /Never reveal early, finish the hook early, or hold a static frame before 3s/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /Brief editorial product flashes are allowed before 3s only when the earlier exact visual hook timeline explicitly requires them/);
+assert.match(shortIndonesiaFifteenSecondCompiled, /never begin the stable product demonstration early, finish the hook early, or hold a static frame before 3s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /3-12s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /12-15s/);
 assert.match(shortIndonesiaFifteenSecondCompiled, /Bahasa Indonesia/);
