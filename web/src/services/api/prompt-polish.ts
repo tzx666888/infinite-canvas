@@ -13,6 +13,11 @@ export type PolishReferenceImage = {
     name?: string;
 };
 
+export type VideoReversePromptResult = {
+    breakdown: string;
+    prompt: string;
+};
+
 export type ProductDetailShot = {
     title: string;
     focus: string;
@@ -264,23 +269,35 @@ const VIDEO_WORKBENCH_SYSTEM = `你是电商短视频创作台的智能编导。
 合规：
 - 不编造价格、折扣、认证、医疗效果、销量、用户证言、品牌文字或看不清的标签内容。`;
 
-const VIDEO_REVERSE_SYSTEM_PROMPT = `你是一位专业的视频分析专家。分析提供的视频关键帧图片，反推出一段可以直接用于 AI 视频生成的英文提示词。
+const VIDEO_REVERSE_SYSTEM_PROMPT = `你是专业的视频分镜与镜头语言分析师。你收到的是从原视频抽取并标注时间的 6-10 张关键帧，不是完整逐帧视频，也没有音轨。请先形成可复刻的中文导演拆解，再压缩成可直接交给 AI 视频模型的英文执行提示词。
 
-分析维度：
-1. 主体：人物/产品外观、动作、表情、服装
-2. 场景：室内/室外、背景元素、环境氛围
-3. 镜头：景别（特写/中景/全景）、角度（平视/俯视/仰视）、运动（推/拉/摇/移/固定）
-4. 光线：自然光/人工光、方向、色温、明暗对比
-5. 色调：整体色彩倾向、饱和度、对比度
-6. 节奏：动作快慢、场景切换频率
-7. 产品交互：人与产品的互动方式、产品展示角度
+分析规则：
+1. 按关键帧时间重建镜头顺序、镜头时长、景别、角度、构图、运镜、主体动作、人物表情、产品交互、光线、色调、转场与剪辑节奏。
+2. 补充整体叙事逻辑，指出 Hook、发展、产品证明与结尾 CTA；原画面没有这些结构时写“未观察到”，不得硬编。
+3. 只转录清晰可见的字幕、价格、品牌或标签；模糊文字写“无法确认”，不得编造。
+4. 当前输入不含音轨，所以对白、音效、BGM 一律写“未检测（当前仅分析画面）”。不得把推测的声音冒充原视频内容。
+5. 相邻关键帧无法证明具体运镜时写“疑似”或“无法确认”，不得声称完成逐帧分析。
+6. 商品外形、数量、颜色、包装和人物身份必须服从画面证据；不得补造价格、折扣、认证、功效或不可见细节。
 
-输出要求：
-- 英文，80-150 词，一段连贯的视频生成提示词
-- 镜头运动放最前面
-- 具体动词描述动作（reaches / lifts / rotates / places），不用模糊词
-- 禁止空泛词：beautiful / amazing / epic / stunning / gorgeous / incredible
-- 只输出提示词，不要解释或分析过程`;
+必须严格使用以下两个标签输出，不要添加标签外内容：
+<director_breakdown>
+## 反推分镜拆解
+
+### 整体结构
+- 总时长：根据最后一个时间标记估算
+- 叙事逻辑：按 Hook → 发展 → 证明 → CTA 概括，缺失项明确注明
+- 视觉风格：概括光线、色调、质感和节奏
+
+| 镜号 | 时间范围/时长 | 景别 | 运镜 | 角度与构图 | 画面内容 | 人物动作与表情 | 产品展示 | 可见字幕/文字 | 转场与剪辑节奏 | 声音 |
+|---|---|---|---|---|---|---|---|---|---|---|
+逐镜头填写；声音列只写“未检测（当前仅分析画面）”。
+
+### 复刻要点
+列出 3-6 条决定成片相似度的动作、镜头、节奏和一致性约束。
+</director_breakdown>
+<generation_prompt>
+只写一段 80-150 个英文词的可执行视频提示词。镜头运动放最前面，按时间顺序使用具体动作动词，保留可观察到的主体、产品、场景、光线、转场和节奏。不要写分析说明、Markdown、标题或 Negative prompt，不要加入无法从画面确认的声音、对白、价格、功效或品牌文字。禁止使用 beautiful / amazing / epic / stunning / gorgeous / incredible。
+</generation_prompt>`;
 
 type ChatCompletionResponse = {
     choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
@@ -1034,7 +1051,35 @@ export async function polishPrompt(config: AiConfig, userPrompt: string, mode: P
     return template === "videoprompt" ? normalizeGeneratedVideoPrompt(content) : content;
 }
 
-export async function reverseVideoPrompt(config: AiConfig, frames: Array<{ dataUrl: string; label?: string }>): Promise<string> {
+function taggedVideoReverseSection(content: string, tag: "director_breakdown" | "generation_prompt") {
+    return content.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "i"))?.[1]?.trim() || "";
+}
+
+export function parseVideoReversePromptResponse(content: string): VideoReversePromptResult {
+    const raw = content.trim();
+    const breakdown = taggedVideoReverseSection(raw, "director_breakdown");
+    const prompt = taggedVideoReverseSection(raw, "generation_prompt")
+        .replace(/^```(?:text|markdown)?\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
+    if (breakdown && prompt) return { breakdown, prompt };
+
+    const promptHeading = raw.match(/(?:^|\n)#{1,3}\s*(?:可直接生成提示词|Executable Prompt)\s*\n/i);
+    if (promptHeading?.index !== undefined) {
+        const promptStart = promptHeading.index + promptHeading[0].length;
+        return { breakdown: raw.slice(0, promptHeading.index).trim(), prompt: raw.slice(promptStart).trim() };
+    }
+    return { breakdown: raw, prompt: raw };
+}
+
+function videoReverseFrameContent(frames: Array<{ dataUrl: string; label?: string }>) {
+    return frames.flatMap((frame, index) => [
+        { type: "text" as const, text: `关键帧 ${index + 1} ${frame.label || "（无时间标记）"}` },
+        { type: "image_url" as const, image_url: { url: frame.dataUrl } },
+    ]);
+}
+
+export async function reverseVideoPrompt(config: AiConfig, frames: Array<{ dataUrl: string; label?: string }>): Promise<VideoReversePromptResult> {
     const requestConfig = resolveModelRequestConfig(config, config.textModel || config.model || DEFAULT_POLISH_MODEL);
     const response = await axios.post<ChatCompletionResponse>(
         aiApiUrl(requestConfig, "/chat/completions"),
@@ -1042,13 +1087,22 @@ export async function reverseVideoPrompt(config: AiConfig, frames: Array<{ dataU
             model: requestConfig.model,
             messages: [
                 { role: "system", content: VIDEO_REVERSE_SYSTEM_PROMPT },
-                { role: "user", content: [{ type: "text", text: `以下是从视频中提取的 ${frames.length} 个关键帧，请分析并反推视频生成提示词。` }, ...imageContent(frames)] },
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "text",
+                            text: `以下是从视频中提取的 ${frames.length} 个带时间关键帧。目标视频模型：${config.videoModel || "通用视频模型"}。请输出完整分镜拆解和独立执行提示词。`,
+                        },
+                        ...videoReverseFrameContent(frames),
+                    ],
+                },
             ],
             stream: false,
-            max_tokens: 1000,
-            temperature: 0.3,
+            max_tokens: 2200,
+            temperature: 0.2,
         },
         { headers: aiHeaders(requestConfig) },
     );
-    return readPayloadContent(response.data, "视频反推失败");
+    return parseVideoReversePromptResponse(readPayloadContent(response.data, "视频反推失败"));
 }

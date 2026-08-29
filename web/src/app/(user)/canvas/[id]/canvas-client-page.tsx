@@ -2473,10 +2473,12 @@ function InfiniteCanvasPage() {
                     return;
                 }
                 requested = true;
-                const prompt = await reverseVideoPrompt(
+                const reverseResult = await reverseVideoPrompt(
                     effectiveConfig,
                     frames.map((frame) => ({ dataUrl: frame.dataUrl, label: frame.label })),
                 );
+                const prompt = reverseResult.prompt;
+                const breakdown = `${reverseResult.breakdown}\n\n## 可直接生成提示词\n\n${prompt}`;
                 const gap = 96;
                 const textSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
                 const configSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Config];
@@ -2485,11 +2487,17 @@ function InfiniteCanvasPage() {
                     ...createCanvasNode(
                         CanvasNodeType.Text,
                         { x: node.position.x + node.width + gap + textSpec.width / 2, y: centerY },
-                        { content: prompt, prompt, status: NODE_STATUS_SUCCESS, fontSize: 14, ...completedGenerationMetadata({ sourceKind: "builtin_template", templateId: "video_reverse_prompt" }, prompt, 1, "text") },
+                        {
+                            content: breakdown,
+                            prompt: breakdown,
+                            status: NODE_STATUS_SUCCESS,
+                            fontSize: 14,
+                            ...completedGenerationMetadata({ sourceKind: "builtin_template", templateId: "video_reverse_prompt" }, breakdown, 1, "text"),
+                        },
                     ),
-                    title: "视频反推提示词",
+                    title: "视频反推分镜",
                 };
-                textNode.metadata = { ...textNode.metadata, ...buildSelfPromptResolutionSnapshot(textNode.id, prompt) };
+                textNode.metadata = { ...textNode.metadata, ...buildSelfPromptResolutionSnapshot(textNode.id, breakdown) };
                 const configNode = {
                     ...createCanvasNode(
                         CanvasNodeType.Config,
@@ -2498,10 +2506,11 @@ function InfiniteCanvasPage() {
                             generationMode: "video",
                             model: effectiveConfig.videoModel || defaultConfig.videoModel,
                             prompt,
+                            composerContent: `${prompt}\n\n参考视频：@[node:${node.id}]`,
                             promptSourceKind: "builtin_template",
                             promptTemplateId: "video_reverse_prompt",
                             ...machinePromptDraft(prompt, "builtin_template", "video_reverse_prompt"),
-                            inputOrder: [textNode.id, node.id],
+                            inputOrder: [node.id, textNode.id],
                         },
                     ),
                     title: "视频生成配置",
@@ -2519,7 +2528,7 @@ function InfiniteCanvasPage() {
                 setContextMenu(null);
                 setToolbarNodeId(null);
                 generationOk = true;
-                message.success({ content: `已分析 ${frames.length} 帧并回填视频提示词`, key: "video-reverse" });
+                message.success({ content: `已分析 ${frames.length} 帧，生成分镜拆解并回填执行提示词`, key: "video-reverse" });
             } catch (error) {
                 generationErrorKind = generationTelemetryErrorKind(error);
                 const detail = error instanceof Error ? error.message : "请确认视频可播放且稍后重试";
