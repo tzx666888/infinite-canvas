@@ -369,7 +369,13 @@ function buildVideoHardConstraintGuidance(direction: string) {
 
 function buildReferenceLabelMap(requestReferenceCount: number) {
     const labels = Array.from({ length: requestReferenceCount }, (_, index) => `<IMAGE_${index + 1}> = attached reference image ${index + 1}`);
-    return `Reference label map: ${labels.join("; ")}. User labels such as 图片1, 图1, Image 1, and <IMAGE_1> all refer to the same attached file.`;
+    const orderSteps = Array.from({ length: requestReferenceCount }, (_, index) => `Step ${index + 1}: execute <IMAGE_${index + 1}> first, complete its assigned subject/scene role, then continue to Step ${index + 2}.`).slice(0, -1);
+    return [
+        `Reference label map: ${labels.join("; ")}. User labels such as 图片1, 图1, Image 1, and <IMAGE_1> all refer to the same attached file.`,
+        `REFERENCE EXECUTION ORDER — MANDATORY: process all connected references strictly in numeric order 1 → ${requestReferenceCount}.`,
+        ...orderSteps,
+        "Do not reorder, skip, merge, average, or reinterpret a later reference before the earlier reference role is completed.",
+    ].join("\n");
 }
 
 function buildReferenceRoleGuidance(direction: string, requestReferenceCount: number) {

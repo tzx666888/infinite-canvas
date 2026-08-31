@@ -69,7 +69,15 @@ export function buildImageReferencePromptText(prompt: string, references: Refere
     const text = prompt.trim();
     if (!references.length) return text;
     const labels = references.map((_, index) => imageReferenceLabel(index));
-    return [`参考图片按上传顺序固定编号为：${labels.join("、")}。`, "必须严格按编号理解图片角色，不得交换、合并或混淆不同图片中的主体。", "", text].join("\n");
+    const orderSteps = labels.map((label, index) => `- 第${index + 1}步：先执行${label}，完成该图片指定的主体/场景/构图作用后，才能进入下一步。`);
+    return [
+        `参考图片按上传顺序固定编号为：${labels.join("、")}。`,
+        "参考连线执行顺序是强制性的：严格按 1 → 2 → 3（以实际图片数量为准）推进，不得自行重排。",
+        ...orderSteps,
+        "不得交换、合并、平均、混淆不同图片中的主体，也不得跳过任何已连接图片。",
+        "",
+        text,
+    ].join("\n");
 }
 
 export function buildAllProductSceneImageEditPrompt(prompt: string, references: ReferenceImage[]) {

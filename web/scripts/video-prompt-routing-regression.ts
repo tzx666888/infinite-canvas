@@ -178,12 +178,20 @@ assert.match(shortProductOnlyCompiled, /HOOK ACCEPTANCE GATE — MANDATORY 0-3s/
 assert.match(shortProductOnlyCompiled, /Use one continuous off-screen narrator only/);
 assert.match(shortProductOnlyCompiled, /HARD EDITORIAL CUT/);
 assert.match(shortProductOnlyCompiled, /RIGID-BODY SEPARATION LOCK/);
+assert.match(shortProductOnlyCompiled, /REFERENCE EXECUTION ORDER — MANDATORY/);
+assert.match(shortProductOnlyCompiled, /process all connected references strictly in numeric order/);
 assert.doesNotMatch(shortProductOnlyCompiled, /parcel bursts open|lid snaps open and reveals|box unfolds into/i);
 assert.doesNotMatch(shortProductOnlyCompiled, /surreal adult fall|visible natural lip-sync|one consistent presenter|presenter-matched voice/i);
 
 const shortExplicitHookCompiled = buildReferenceVideoPrompt("生成一个带货广告，开头让纸箱从高处掉落并在落地前冻结", 1, 1, "10", "auto", "i2v");
 assert.doesNotMatch(shortExplicitHookCompiled, /EXACT VISUAL HOOK OVERRIDE/, "a concrete user-supplied opening must not be replaced by the built-in hook");
 assert.match(shortExplicitHookCompiled, /纸箱从高处掉落并在落地前冻结/);
+
+const orderedThreeReferenceCompiled = buildReferenceVideoPrompt("按参考图顺序生成商品展示", 3, 3, "10", "auto", "r2v");
+assert.match(orderedThreeReferenceCompiled, /REFERENCE EXECUTION ORDER — MANDATORY/);
+assert.match(orderedThreeReferenceCompiled, /Step 1: execute <IMAGE_1> first/);
+assert.match(orderedThreeReferenceCompiled, /Step 2: execute <IMAGE_2> first/);
+assert.match(orderedThreeReferenceCompiled, /Do not reorder, skip, merge, average/);
 
 const shortSilentCommerceCompiled = buildReferenceVideoPrompt("生成一个带货广告，不要口播，只要音乐", 1, 1, "10", "auto", "i2v");
 assert.match(shortSilentCommerceCompiled, /NO presenter dialogue/);
