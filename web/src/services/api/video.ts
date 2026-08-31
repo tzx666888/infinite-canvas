@@ -424,12 +424,12 @@ function buildExactLocalizedCommerceNarration(direction: string, duration: numbe
     if (!wantsCommerce || !/(印尼|印度尼西亚|indonesia|indonesian)/i.test(direction)) return "";
     const script =
         duration >= 15
-            ? "Eh, hampir jatuh. Oke, lanjut—lihat yang satu ini. Bentuknya ringkas dan mudah dibawa ke mana saja. Dari dekat, warna, bentuk, dan detail kemasannya terlihat jelas. Lihat cara pemakaiannya, cek informasi produknya, lalu pilih yang paling sesuai untuk kebutuhanmu."
-            : "Eh, hampir jatuh. Oke, lanjut—lihat yang ini. Bentuknya ringkas, detail kemasannya jelas, dan mudah dibawa. Cek produknya, siapa tahu cocok buat kamu.";
+            ? "Wah, bikin kaget. Oke, lanjut—lihat yang satu ini. Bentuknya ringkas dan mudah dibawa ke mana saja. Dari dekat, warna, bentuk, dan detail kemasannya terlihat jelas. Lihat cara pemakaiannya, cek informasi produknya, lalu pilih yang paling sesuai untuk kebutuhanmu."
+            : "Wah, bikin kaget. Oke, lanjut—lihat yang ini. Bentuknya ringkas, detail kemasannya jelas, dan mudah dibawa. Cek produknya, siapa tahu cocok buat kamu.";
     return [
         "EXACT NARRATION OVERRIDE — HIGHEST PRIORITY: speak the following Bahasa Indonesia script verbatim. Do not shorten, paraphrase, translate, reorder, replace, or add any words.",
         `EXACT SCRIPT: “${script}”`,
-        `Start the first audible syllable between 0.0s and 0.15s. Use a natural native Indonesian short-video pace and continuous conversational delivery across at least ${duration >= 15 ? "13.0" : "8.5"} seconds; do not wait for the product reveal.`,
+        `Start the first audible syllable between 0.55s and 0.80s, immediately after the visual trigger begins. Use a natural native Indonesian short-video pace and continuous conversational delivery across at least ${duration >= 15 ? "12.5" : "8.0"} seconds; do not wait for the product reveal.`,
         "Use the exact script as off-screen narration during the opening visual hook. Keep every sentence intelligible. No extra efficacy, durability, safety, price, scarcity, urgency, medical, or sexual-performance claims before, during, or after the exact script.",
     ].join("\n");
 }
@@ -438,24 +438,53 @@ function hasConcreteUserOpening(direction: string) {
     return /(?:0\s*[-–—]\s*\d|前\s*[一二三四五六七八九十0-9]+\s*秒|开头[^。；;]{0,48}(?:摔|跌|坠|撞|砸|爆|弹|倒|冻结|倒放|逆向|黑屏|掉落|冲入)|(?:hook|勾子)[^。；;]{0,48}(?:摔|跌|坠|撞|砸|爆|弹|倒|冻结|倒放|逆向|黑屏|掉落|冲入)|(?:stumble|fall|drop|crash|burst|freeze|reverse|black screen)[^.;]{0,48}(?:hook|opening))/i.test(direction);
 }
 
+let previousHumanCommerceHook = -1;
+let previousProductOnlyCommerceHook = -1;
+let humanCommerceHookBag: number[] = [];
+let productOnlyCommerceHookBag: number[] = [];
+
+function commerceHookRandom() {
+    return globalThis.crypto?.getRandomValues
+        ? globalThis.crypto.getRandomValues(new Uint32Array(1))[0] / 0x1_0000_0000
+        : Math.random();
+}
+
+function selectNonRepeatingHookIndex(length: number, productOnly: boolean) {
+    if (length <= 1) return 0;
+    let bag = productOnly ? productOnlyCommerceHookBag : humanCommerceHookBag;
+    const previous = productOnly ? previousProductOnlyCommerceHook : previousHumanCommerceHook;
+    if (!bag.length) {
+        bag = Array.from({ length }, (_, index) => index);
+        for (let index = bag.length - 1; index > 0; index -= 1) {
+            const swapIndex = Math.floor(commerceHookRandom() * (index + 1));
+            [bag[index], bag[swapIndex]] = [bag[swapIndex], bag[index]];
+        }
+        if (bag[bag.length - 1] === previous) [bag[0], bag[bag.length - 1]] = [bag[bag.length - 1], bag[0]];
+        if (productOnly) productOnlyCommerceHookBag = bag;
+        else humanCommerceHookBag = bag;
+    }
+    const index = bag.pop() ?? 0;
+    if (productOnly) previousProductOnlyCommerceHook = index;
+    else previousHumanCommerceHook = index;
+    return index;
+}
+
 function buildExactCommerceVisualHook(direction: string, duration: number, productOnly: boolean, promptRoute: VideoPromptDetail) {
     if (promptRoute !== "short") return "";
     const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
     if (!wantsCommerce || hasConcreteUserOpening(direction)) return "";
 
-    const hookEnd = duration >= 15 ? 3 : duration >= 8 ? 2 : 1;
-    const firstBeatEnd = hookEnd >= 3 ? "0.70" : hookEnd === 2 ? "0.45" : "0.20";
-    const secondBeatEnd = hookEnd >= 3 ? "2.00" : hookEnd === 2 ? "1.40" : "0.65";
-    const physicalRecoveryEnd = hookEnd >= 3 ? "1.80" : hookEnd === 2 ? "1.20" : "0.55";
+    const hookEnd = duration >= 8 ? 3 : 1;
+    const firstBeatEnd = hookEnd >= 3 ? "0.70" : "0.20";
+    const secondBeatEnd = hookEnd >= 3 ? "2.00" : "0.65";
     const hookEndLabel = hookEnd.toFixed(2);
-    const hookSeed = [...direction].reduce((total, character) => total + (character.codePointAt(0) || 0), 0) + duration;
     const cleanCutReveal = `At exactly ${hookEndLabel}s, after the complete hook payoff, use one HARD EDITORIAL CUT with zero in-between transformation frames. Only after this cut show the original referenced product unit and any referenced retail box already fully formed, upright, and separately placed on a clean hero surface. Keep a persistent visible background gap between their silhouettes; the earlier stunt parcel or prop is absent.`;
     const humanHooks = [
-        `0.00-${firstBeatEnd}s: begin mid-incident as a tall stack of empty lightweight shipping cartons topples toward an adult and freezes centimeters away while the adult ducks. ${firstBeatEnd}-${secondBeatEnd}s: the unchanged empty cartons snap backward in reverse and scatter safely out of frame without becoming another object. ${secondBeatEnd}-${hookEndLabel}s: one final unchanged carton rushes back toward the adult, stops at the last instant, then whips safely past as the reaction peaks; no product is present. ${cleanCutReveal}`,
-        `0.00-${firstBeatEnd}s: a sealed shipping parcel slams onto a theatrical breakaway cardboard display with a sharp impact; the adult is already recoiling in frame, never walking in or greeting. ${firstBeatEnd}-${secondBeatEnd}s: the same sealed rigid parcel rebounds upward against gravity; it never opens or changes shape. ${secondBeatEnd}-${hookEndLabel}s: the parcel narrowly misses the first catch, bounces once more, and is caught as the adult's surprise peaks; it stays sealed and rigid. ${cleanCutReveal}`,
-        `0.00-${firstBeatEnd}s: begin with an adult already dropping from just above the top edge in a safe studio gravity gag, landing immediately on an oversized soft crash mat beside a sealed shipping parcel; no stairs, height, injury, or imitable danger. ${firstBeatEnd}-${secondBeatEnd}s: the landing launches the same sealed rigid parcel harmlessly upward; it stays closed and unchanged. ${secondBeatEnd}-${hookEndLabel}s: the adult scrambles, almost misses, then catches that same parcel at the final instant while remaining safely on the mat; no product is visible. ${cleanCutReveal}`,
-        `0.00-${firstBeatEnd}s: an enormous parcel shadow races across the room while a tiny sealed shipping box drops into the adult's open hands. ${firstBeatEnd}-${secondBeatEnd}s: the same small rigid box bounces once as the adult reacts; it remains sealed, keeps exactly the same size, and never unfolds or transforms. ${secondBeatEnd}-${hookEndLabel}s: the shadow grows impossibly large again while the tiny box performs one final harmless bounce and the adult's reaction peaks; no product is visible. ${cleanCutReveal}`,
-        `0.00-${physicalRecoveryEnd}s: photoreal live-action documentary style, begin mid-incident in one continuous medium-wide shot in the reference-compatible everyday setting. The adult's rear shoe is already sliding about one short step forward on one loose dry paper sheet while the planted foot stays fixed; the hips travel with the sliding foot, the torso tilts naturally in the opposite direction, and one open hand reaches and catches the counter as an involuntary reflex. The handheld camera operator reacts with one small downward dip and physically natural motion blur. Keep both feet visible and keep anatomy, clothing, floor contact, and screen direction continuous; no floating, jumping, kneeling, sitting, teleporting, instant pose reset, cartoon timing, exaggerated acting, or staged smile. ${physicalRecoveryEnd}-${hookEndLabel}s: continue the same uninterrupted shot at normal real-world speed. Friction stops the sliding shoe, body momentum settles through one visible recovery step, the hand releases the counter, and the adult gives one brief involuntary breath and restrained glance toward the off-screen product. The camera follows that glance with one motivated fast whip-pan that fills the frame with directional motion blur; do not cut away and back, do not show the product yet, and do not pose, address the camera, or smile before balance is fully recovered. ${cleanCutReveal}`,
+        `0.00-0.65s: photoreal live-action documentary style, begin inside an ordinary ongoing action in one continuous medium-wide shot: the adult is already walking naturally for two visible steps while carrying a light stack of empty shipping cartons; both feet and the complete carton stack remain visible. 0.65-1.70s: the top empty carton shifts because the stack tilts during the next step; the adult notices it late, reflexively braces the lower cartons with one forearm, and catches the top carton with the other hand. 1.70-${hookEndLabel}s: body momentum settles through one recovery step, the stack becomes stable, and the adult gives one restrained relieved breath before one motivated whip-pan. Preserve real gravity, hand contact, carton continuity, anatomy, and screen direction; no product is visible. ${cleanCutReveal}`,
+        `0.00-0.65s: photoreal live-action documentary style, begin inside an ordinary ongoing action in one continuous medium-wide shot: the adult walks naturally past a counter while a harmless empty paper cup sits near its edge; both feet remain visible. 0.65-1.70s: the adult's loose sleeve lightly brushes the cup, it tips and starts to fall, and the adult reacts a fraction late to catch it just above the floor with one open hand while the other hand steadies on the counter. 1.70-${hookEndLabel}s: the adult rises through one continuous recovery movement, replaces the unchanged empty cup, gives one restrained surprised breath, and the camera follows the glance with one motivated whip-pan; no product is visible. Preserve real gravity, contact, anatomy, and object continuity. ${cleanCutReveal}`,
+        `0.00-0.65s: photoreal live-action documentary style, begin inside an ordinary ongoing action in one continuous medium-wide shot: the adult turns a familiar indoor corner at a normal walking pace while an unattended lightweight empty trolley rolls slowly into the crossing path. 0.65-1.70s: the adult sees it, takes one realistic sidestep, and catches the trolley handle before contact; the trolley wheels decelerate naturally and never hit the body. 1.70-${hookEndLabel}s: momentum settles, the adult straightens the trolley, exhales with a small involuntary reaction, and the camera performs one motivated whip-pan; no product is visible. Keep both feet visible and preserve anatomy, wheel contact, inertia, and screen direction. ${cleanCutReveal}`,
+        `0.00-0.65s: photoreal live-action documentary style, begin inside an ordinary ongoing action in one continuous medium-wide shot: the adult walks naturally while reading one plain paper packing list held at chest level, with the path still visible and both feet in frame. 0.65-1.70s: a mild indoor draft folds the loose paper across the adult's view; the adult startles, pauses one step, and catches the flapping sheet with both hands without colliding with anything. 1.70-${hookEndLabel}s: the paper settles, the adult gives a brief embarrassed breath and restrained glance, then the camera follows that glance with one motivated whip-pan; no product is visible. Preserve real airflow, hand contact, body balance, and continuity. ${cleanCutReveal}`,
+        `0.00-0.65s: photoreal live-action documentary style, begin inside an ordinary ongoing action in one continuous full-body medium-wide shot in the reference-compatible everyday setting. The adult is already walking at a normal pace for two visible steps, eyes naturally forward, arms relaxed, and both feet fully visible; do not begin already crouched, falling, or posing. Let the two footfalls land cleanly on the first two rhythm beats. 0.65-2.20s: the rear shoe visibly contacts one loose dry paper sheet and slides forward; the planted foot loses support, the hips continue with real inertia, both arms react involuntarily, and the adult completes one genuine continuous low-energy fall onto a clearly safe padded floor, landing first through the outside thigh and open palm and then the side of the torso. Show the whole body throughout: no fake squat, kneel, jump, floating body, counter catch, instant pose reset, cutaway, or hidden landing. Synchronize the slide sound to the trigger beat and the visible body-floor contact to the strongest impact beat. 2.20-${hookEndLabel}s: keep the adult safely on the padded floor for one stunned breath and a restrained look toward the off-screen product while the camera settles from one physically motivated dip; do not unrealistically stand up before the cut. Keep anatomy, clothing, paper position, floor contact, and screen direction continuous; no pain, injury, exaggerated acting, staged smile, or product before the hard cut. On the exact next beat, execute the 3.00s reveal cut. ${cleanCutReveal}`,
     ];
     const productOnlyHooks = [
         `0.00-${firstBeatEnd}s: a tall stack of empty lightweight cartons topples toward the camera and freezes centimeters from the lens. ${firstBeatEnd}-${secondBeatEnd}s: every unchanged empty carton snaps backward in reverse and scatters safely out of frame without becoming another object. ${secondBeatEnd}-${hookEndLabel}s: one final unchanged carton rushes forward, stops one millimeter from the lens, then snaps safely away; no product is present. ${cleanCutReveal}`,
@@ -464,15 +493,18 @@ function buildExactCommerceVisualHook(direction: string, duration: number, produ
         `0.00-${firstBeatEnd}s: a fast domino chain of harmless empty props races toward an empty pedestal and stops one millimeter before impact. ${firstBeatEnd}-${secondBeatEnd}s: the unchanged props reverse at double speed and clear the empty pedestal; no product is present during this motion. ${secondBeatEnd}-${hookEndLabel}s: the last prop reverses direction twice in a rapid near-miss and shoots safely off frame, completing the payoff without a static hold. ${cleanCutReveal}`,
     ];
     const selectedHooks = productOnly ? productOnlyHooks : humanHooks;
-    const hookIndex = hookSeed % selectedHooks.length;
+    const hookIndex = selectNonRepeatingHookIndex(selectedHooks.length, productOnly);
     const exactTimeline = selectedHooks[hookIndex];
     return [
         `EXACT VISUAL HOOK OVERRIDE — HIGHEST VISUAL PRIORITY, MANDATORY 0-${hookEnd}s: the simple user request contains no concrete opening, so execute the following timeline exactly. It overrides every later generic hook menu but never overrides HARD USER CONSTRAINTS.`,
-        `FIRST-FRAME LOCK: the expectation-breaking incident must already be visibly happening at 0.00s. Do not spend even one frame on an establishing shot, room view, presenter entrance, normal walking, waving, smiling, pointing, greeting, lip-sync, or ordinary product holding.`,
+        `FIRST-FRAME LOCK: begin inside an already ongoing, ordinary real-world action at 0.00s with no establishing shot or presenter entrance. Show the natural cause before the surprise: normal movement may occupy only 0.00-0.65s, the physical trigger must begin by 0.65s, and the person must not start already crouched, falling, recoiling, or posing. No waving, smiling, pointing, greeting, lip-sync, or ordinary product holding.`,
         `EXACT HOOK TIMELINE: ${exactTimeline}`,
+        `NATURAL CAUSALITY LOCK: use one continuous cause-and-effect chain—ordinary action, visible physical trigger, involuntary reaction, then fully motivated recovery. Real gravity, inertia, contact, anatomy, and object continuity are mandatory. Never jump directly from a neutral pose into a fall, crouch, catch, or recovery pose.`,
+        `BEAT-SYNC LOCK: use four motivated edit-and-sound beats—ordinary action rhythm, physical trigger accent, reaction/payoff accent, and the strongest clean reveal hit exactly at ${hookEndLabel}s. Movement must cause the beat accents; never force body speed, physics, or pose changes merely to chase music.`,
+        `HOOK ROTATION LOCK: this timeline was randomly selected from the natural hook pool for this generation. Do not replace it with the previous generation's hook or combine multiple hook incidents in one video.`,
         `REJECTION LOCK: a presenter merely entering frame or saying “wait/look” is a failed hook even if narration starts on time. Use off-screen narration during the complete 0-${hookEnd}s hook so the visual incident remains dominant.`,
         `RIGID-BODY SEPARATION LOCK — MANDATORY: product unit, bottle, cap, retail box, shipping parcel, platform, and hands are distinct rigid bodies with independent closed contours. Product and retail box must never share a mesh, surface, edge, label, or shadow and must never touch, fuse, bridge, melt, stretch, intersect, penetrate, or grow through one another. No product emerges from, grows out of, pops from, or transforms from any package. Reveal the product only after the hard cut, already complete and separated by visible background.`,
-        `PRODUCT AND SAFETY LOCK: the incident may affect only harmless props and the environment. Keep the referenced product separate, rigid, unchanged, undamaged, correctly labeled, and at plausible scale. Make any slip or impact read as a harmless everyday micro-incident through normal biomechanics and immediate recovery, not through exaggerated acting; no blood, pain, injury, stairs, traffic, weapons, fire, or imitable hazard.`,
+        `PRODUCT AND SAFETY LOCK: the incident may affect only harmless props and the environment. Keep the referenced product separate, rigid, unchanged, undamaged, correctly labeled, and at plausible scale. Make any slip or impact read as a harmless everyday micro-incident through normal biomechanics and an immediate safe aftermath, not through exaggerated acting; no blood, pain, injury, stairs, traffic, weapons, fire, or imitable hazard.`,
     ].join("\n");
 }
 
@@ -490,19 +522,19 @@ function buildCommerceSpeechDensityGuidance(direction: string, duration: number,
             "SPOKEN DELIVERY LOCK — MANDATORY: write and audibly deliver 38-47 natural target-language word equivalents across the finished 15-second video.",
             claimLock,
             localSpeechRouting,
-            "Speech timing: start by 0.2s; 0-3s spoken hook 8-10 words, 3-7s problem/product setup 10-12 words, 7-12s benefit or evidence 12-15 words, 12-15s CTA 8-10 words.",
-            "Cover at least 13 seconds with intelligible speech. No silent gap may exceed 0.6s; never slow-stretch, repeat, or replace required words with music, sound effects, captions, or planning notes.",
+            "Speech timing: let the natural action establish first, start between 0.55s and 0.80s as the physical trigger begins; 0-3s spoken hook 6-9 words, 3-7s problem/product setup 10-12 words, 7-12s benefit or evidence 12-15 words, 12-15s CTA 8-10 words.",
+            "Cover at least 12.5 seconds with intelligible speech. No silent gap may exceed 0.6s; never slow-stretch, repeat, or replace required words with music, sound effects, captions, or planning notes.",
             voiceMode,
             "The spoken hook must react to the visible expectation-breaking event; talking while normally holding the product is not a hook.",
         ].join("\n");
     }
     if (duration >= 8) {
         return [
-            `SPOKEN DELIVERY LOCK — MANDATORY: write exactly four short sentences totaling 22-28 natural target-language word equivalents. Start sentence 1 by 0.15s during the visual hook; never wait for product reveal.`,
+            `SPOKEN DELIVERY LOCK — MANDATORY: write exactly four short sentences totaling 22-28 natural target-language word equivalents. Start sentence 1 between 0.55s and 0.80s as the visual trigger begins; never wait for product reveal.`,
             claimLock,
             localSpeechRouting,
-            `Timing: 0-2s hook reaction 4-6 words; 2-5s product identity 6-8; 5-${Math.max(6, duration - 2)}s visible detail 6-8; ${Math.max(6, duration - 2)}-${duration}s neutral CTA 4-6.`,
-            `Keep intelligible speech active across at least ${Math.max(6.5, duration - 1.5)} seconds. No silent gap may exceed 0.35s; never slow-stretch, rush, repeat, or replace required words with music, sound effects, captions, or planning notes.`,
+            `Timing: 0-3s hook reaction 4-6 words; 3-6s product identity 6-8; 6-${Math.max(7, duration - 2)}s visible detail 6-8; ${Math.max(7, duration - 2)}-${duration}s neutral CTA 4-6.`,
+            `Keep intelligible speech active across at least ${Math.max(6.5, duration - 2)} seconds. No silent gap may exceed 0.35s; never slow-stretch, rush, repeat, or replace required words with music, sound effects, captions, or planning notes.`,
             voiceMode,
             "The spoken hook must react to the visible expectation-breaking event; talking while normally holding the product is not a hook.",
         ].join("\n");
@@ -521,23 +553,21 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
     const wantsDrama = /(微剧|短剧|剧情|反转|drama|story|storyline|scenario|skit)/i.test(direction);
     const wantsCommerce = /(带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction);
     if (!wantsDrama && !wantsCommerce) return "";
-    const hookEnd = duration >= 15 ? 3 : duration >= 8 ? 2 : 1;
+    const hookEnd = duration >= 8 ? 3 : 1;
     const heroDuration = duration >= 15 ? 3 : duration >= 8 ? 2 : 1;
     const heroAt = Math.max(hookEnd + 1, duration - heroDuration);
     const demoAt = Math.max(hookEnd + 1, Math.min(heroAt - 1, Math.floor((hookEnd + heroAt) / 2)));
     const hookBeatPlan =
         hookEnd >= 3
             ? "Hook timing lock: 0-1s trigger the expectation break, 1-2s escalate it, and 2-3s deliver the incident payoff. At exactly 3.00s, hard-cut to the stable readable product reveal. Never show or flash the product before 3s, never cut away and back during the incident, never begin the product demonstration early, finish the hook early, or hold a static frame before 3s."
-            : hookEnd === 2
-              ? "Hook timing lock: 0-0.7s trigger the expectation break, 0.7-1.4s escalate it, and 1.4-2s deliver the incident payoff. At exactly 2.00s, hard-cut to the stable readable product reveal. Never show or flash the product before 2s, never cut away and back during the incident, never begin the product demonstration early, finish the hook early, or hold a static frame before 2s."
-              : "Hook timing lock: trigger, escalate, and pay off the expectation break inside the first second with no static hold.";
+            : "Hook timing lock: trigger, escalate, and pay off the expectation break inside the first second with no static hold.";
     const lightTouch = promptRoute === "medium";
     const speechDensityGuidance = buildCommerceSpeechDensityGuidance(direction, duration, productOnly, promptRoute);
     if (productOnly) {
         return [
             `Product-only shot rhythm for a ${duration}s short commerce video:`,
             lightTouch ? "" : "SHORT-COMMERCE ACCEPTANCE LOCK: the opening fails unless BOTH the expectation-breaking visual hook and the locally natural factual narration are present on time. Never sacrifice one to satisfy the other.",
-            lightTouch ? "" : "NARRATION START LOCK: begin locally natural factual narration by 0.15s inside the visual hook; never delay speech until the reveal.",
+            lightTouch ? "" : "NARRATION START LOCK: begin locally natural factual narration between 0.55s and 0.80s as the visual trigger starts; never delay speech until the reveal.",
             lightTouch
                 ? `- 0-${hookEnd}s: preserve the user's hook and add only a compact product-safe visual accent when needed.`
                 : hasExactVisualHook
@@ -556,12 +586,12 @@ function buildCommerceDramaVideoGuidance(direction: string, duration: number, pr
     return [
         `Shot rhythm for a ${duration}s short commerce video:`,
         lightTouch ? "" : "SHORT-COMMERCE ACCEPTANCE LOCK: the opening fails unless BOTH the expectation-breaking visual hook and the locally natural factual narration are present on time. Never sacrifice one to satisfy the other.",
-        lightTouch ? "" : "NARRATION START LOCK: begin locally natural factual narration by 0.15s inside the visual hook; never delay speech until the reveal.",
+        lightTouch ? "" : "NARRATION START LOCK: begin locally natural factual narration between 0.55s and 0.80s as the visual trigger starts; never delay speech until the reveal.",
         lightTouch
             ? `- 0-${hookEnd}s: preserve the user's existing hook and add only the minimum visual clarification needed.`
             : hasExactVisualHook
-              ? `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: follow the earlier EXACT VISUAL HOOK OVERRIDE without substituting another idea. Ordinary presenter holding the product, normal walking, waving, smiling, lip-sync, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook.`
-              : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: start a visible expectation-breaking event within the first 0.3s and sustain a complete stop-scroll hook through ${hookEnd}s. Select exactly one: a safe staged adult stumble or surreal fall with a soft unharmed landing, near-miss reveal, burst transformation, scale contrast, spatial mismatch, wrong-result reversal, or counter-intuitive motion. Ordinary presenter holding the product, normal walking, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook. Reject and rewrite any plan whose opening could be mistaken for an ordinary product demonstration.`,
+              ? `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: follow the earlier randomly selected EXACT VISUAL HOOK OVERRIDE without substituting another idea. The opening ordinary action is only causal setup: its physical surprise must begin by 0.65s and complete naturally at ${hookEnd}s. Ordinary presenter holding the product, purposeless walking, waving, smiling, lip-sync, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook.`
+              : `HOOK ACCEPTANCE GATE — MANDATORY 0-${hookEnd}s: begin inside one ordinary ongoing real-world action, show its cause clearly, trigger one safe expectation-breaking micro-incident by 0.65s, then sustain realistic reaction and recovery through ${hookEnd}s. Select exactly one natural structure: walking slip with visible floor cause, nearly dropped harmless object, shifting empty carton stack, rolling trolley near-miss, or windblown paper surprise. Never begin already falling or recoiling. Ordinary presenter holding the product, purposeless walking, a slow pan or push-in, tabletop placement, logo close-up, or a standard demonstration DO NOT count as a hook. Reject and rewrite any plan whose opening could be mistaken for an ordinary product demonstration.`,
         lightTouch ? "" : hookBeatPlan,
         speechDensityGuidance,
         `- By ${hookEnd}s: reveal the separate unchanged product clearly and cut immediately into the selling point.`,
