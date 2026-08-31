@@ -39,6 +39,9 @@ import { buildAllProductSceneImageEditPrompt, buildIdentityPreservingImageEditPr
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { isGoogleVideoModel, normalizeModelVideoSeconds, selectVideoReferenceImagesWithPriority, videoAspectRatioForSize } from "@/lib/video-model-settings";
+import { isTokaxisMiniMaxH3VideoModel } from "@/lib/minimax-h3-video";
+import { isSeedanceVideoModel } from "@/lib/seedance-video";
+import { isGrokVideoModel } from "@/lib/video-providers/grok-video";
 import { buildStoryboardVideoConstraintPrompt, GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, STORYBOARD_DIRECTED_VIDEO_MARKER, unwrapStoryboardVideoUserDirection } from "@/lib/storyboard-video-constraints";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { BrandMark } from "@/components/brand/brand-mark";
@@ -6871,7 +6874,7 @@ function limitInlinePrompt(value: string, maxChars: number) {
 }
 
 function buildDirectProductLockVideoContext(prompt: string, referenceImages: ReferenceImage[], storyboardReferenceCount: number, model: string, productScaleMode = "auto") {
-    if (storyboardReferenceCount > 0 || referenceImages.length < 2 || !isGoogleCanvasVideoModel(model)) return null;
+    if (storyboardReferenceCount > 0 || referenceImages.length < 2 || !isProductLockBridgeVideoModel(model)) return null;
     const pair = inferDirectVideoReferencePair(prompt, referenceImages.length);
     if (!pair) return null;
     const baseReference = referenceImages[pair.base - 1];
@@ -6885,7 +6888,7 @@ function buildDirectProductLockVideoContext(prompt: string, referenceImages: Ref
         bridgePrompt: [
             "Create one vertical ecommerce video keyframe that safely combines the references.",
             "Image 1 is the scene/person/mood reference. Preserve its camera feeling, lighting direction, and lifestyle atmosphere, but do not need to copy every detail.",
-            "Image 2 is the exact product/object identity reference. Reproduce this product as a separate physical object with the same silhouette, proportions, transparent/solid material, red/white pattern, part count, and part placement.",
+            "Image 2 is the exact product/object identity reference. Reproduce this product as a separate physical object with the same silhouette, proportions, visible materials, colors, markings, part count, and part placement.",
             "Place the product naturally in the scene as a believable product reveal or product hero moment. If full person-product interaction risks product deformation, prefer a clean tabletop/hand-held product hero keyframe.",
             "Do not stretch, elongate, melt, simplify, duplicate, remove, rotate into a new design, or reimagine any product/object part.",
             productScalePrompt,
@@ -7075,8 +7078,8 @@ function videoBridgeErrorMessage(error: unknown) {
     return message.trim().slice(0, 180) || "首帧生成服务暂时不可用";
 }
 
-function isGoogleCanvasVideoModel(model: string) {
-    return isGoogleVideoModel(model);
+function isProductLockBridgeVideoModel(model: string) {
+    return isGoogleVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model) || isSeedanceVideoModel(model) || isGrokVideoModel(model);
 }
 
 function stripImageMentionRoles(prompt: string) {

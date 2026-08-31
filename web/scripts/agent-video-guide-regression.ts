@@ -276,6 +276,11 @@ const localAssistantSource = fs.readFileSync(new URL("../src/app/(user)/canvas/c
 const chatSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-agent-chat-ui.tsx", import.meta.url), "utf8");
 const guideCardSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-agent-video-guide-card.tsx", import.meta.url), "utf8");
 const imageApiSource = fs.readFileSync(new URL("../src/services/api/image.ts", import.meta.url), "utf8");
+const videoApiSource = fs.readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
+const canvasPageSource = fs.readFileSync(new URL("../src/app/(user)/canvas/[id]/canvas-client-page.tsx", import.meta.url), "utf8");
+assert.match(canvasPageSource, /visible materials, colors, markings, part count, and part placement/, "the product bridge must copy only visible product facts from the attached product image");
+assert.doesNotMatch(canvasPageSource, /red\/white pattern/, "the product bridge must not hard-code an unrelated product color pattern");
+assert.match(videoApiSource, /single attached image is the exact product\/object identity anchor/, "single connected product images must be sent as identity anchors");
 assert.match(imageApiSource, /模型没有返回工具调用/, "an empty tool response must be eligible for the configured Agent model fallback");
 assert.match(imageApiSource, /TOKAXIS_AGENT_TEXT_MODEL_IDS/, "Agent requests must know the GPT-5.6/Doubao fallback pair");
 assert.match(imageApiSource, /isLegacyDeepSeekAgent/, "stale tabs must skip the retired DeepSeek Agent route");

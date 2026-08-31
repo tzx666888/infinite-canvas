@@ -381,6 +381,11 @@ function buildReferenceRoleGuidance(direction: string, requestReferenceCount: nu
             `- <IMAGE_${pair.reference}> is the required product/object identity reference. Feature it as a separate product at natural scale during reveal/demo/hero shots while preserving its geometry, colors, material, details, and object count.`,
             `- Combine <IMAGE_${pair.base}> and <IMAGE_${pair.reference}> across the video sequence, not by welding both references into every single frame.`,
         );
+    } else if (requestReferenceCount === 1 && /product|object|device|package|bottle|apparel|商品|产品|设备|包装|瓶|服装/i.test(direction)) {
+        lines.push(
+            "- The single attached image is the exact product/object identity anchor. Preserve its silhouette, proportions, visible materials, colors, markings, logo/label placement, openings, controls, and object count exactly.",
+            "- Show the same product as a separate physical object throughout; never redesign, rebrand, translate, recolor, simplify, substitute, merge, duplicate, stretch, melt, or turn it into another category.",
+        );
     } else {
         lines.push("- If one reference is a person/scene and another is a product/object, combine them in the same commercial story.", "- Any product/object reference must appear as a recognizable hero element, not as a loose color/style hint.");
     }
