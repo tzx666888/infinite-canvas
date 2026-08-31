@@ -191,6 +191,7 @@ const orderedThreeReferenceCompiled = buildReferenceVideoPrompt("按参考图顺
 assert.match(orderedThreeReferenceCompiled, /REFERENCE EXECUTION ORDER — MANDATORY/);
 assert.match(orderedThreeReferenceCompiled, /Step 1: execute <IMAGE_1> first/);
 assert.match(orderedThreeReferenceCompiled, /Step 2: execute <IMAGE_2> first/);
+assert.match(orderedThreeReferenceCompiled, /Step 3: execute <IMAGE_3> and complete/);
 assert.match(orderedThreeReferenceCompiled, /Do not reorder, skip, merge, average/);
 
 const shortSilentCommerceCompiled = buildReferenceVideoPrompt("生成一个带货广告，不要口播，只要音乐", 1, 1, "10", "auto", "i2v");
