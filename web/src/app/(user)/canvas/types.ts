@@ -1,3 +1,5 @@
+import type { VideoPromptMode } from "@/lib/video-prompt-policy";
+
 export type Position = {
     x: number;
     y: number;
@@ -204,6 +206,7 @@ export type CanvasNodeMetadata = {
     seconds?: string;
     vquality?: string;
     productScaleMode?: string;
+    videoPromptMode?: VideoPromptMode;
     generateAudio?: string;
     watermark?: string;
     audioVoice?: string;

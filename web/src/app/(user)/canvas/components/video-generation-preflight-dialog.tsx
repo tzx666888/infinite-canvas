@@ -42,7 +42,7 @@ export function VideoGenerationPreflightDialog({ open, config, prompt, reference
 
     const result = useMemo(() => prepareVideoGenerationPreflight({ prompt: draftPrompt, config: draftConfig, references }), [draftConfig, draftPrompt, references]);
     const mediaSummary = useMemo(() => summarizeConnectedVideoMedia(references), [references]);
-    const updateConfig = (key: "vquality" | "size" | "videoSeconds" | "videoProductScaleMode" | "videoGenerateAudio" | "videoWatermark", value: string) => {
+    const updateConfig = (key: "vquality" | "size" | "videoSeconds" | "videoProductScaleMode" | "videoPromptMode" | "videoGenerateAudio" | "videoWatermark", value: string) => {
         setDraftConfig((current) => ({ ...current, [key]: value }));
     };
     const updateModel = (model: string) => setDraftConfig((current) => ({ ...current, model, videoModel: model }));

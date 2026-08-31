@@ -3791,6 +3791,7 @@ function InfiniteCanvasPage() {
                         seconds: videoSeconds,
                         vquality: clipGenerationConfig.vquality,
                         productScaleMode: clipGenerationConfig.videoProductScaleMode,
+                        videoPromptMode: clipGenerationConfig.videoPromptMode,
                         generateAudio: clipGenerationConfig.videoGenerateAudio,
                         watermark: clipGenerationConfig.videoWatermark,
                         storyboardPlanId: planId,
@@ -4408,6 +4409,7 @@ function InfiniteCanvasPage() {
                             seconds: videoGenerationConfig.videoSeconds,
                             vquality: videoGenerationConfig.vquality,
                             productScaleMode: videoGenerationConfig.videoProductScaleMode,
+                            videoPromptMode: videoGenerationConfig.videoPromptMode,
                             generateAudio: videoGenerationConfig.videoGenerateAudio,
                             watermark: videoGenerationConfig.videoWatermark,
                             videoSourcePrompt: videoPromptSource,
@@ -4517,6 +4519,7 @@ function InfiniteCanvasPage() {
                                               seconds: videoGenerationConfig.videoSeconds,
                                               vquality: videoGenerationConfig.vquality,
                                               productScaleMode: videoGenerationConfig.videoProductScaleMode,
+                                              videoPromptMode: videoGenerationConfig.videoPromptMode,
                                               generateAudio: videoGenerationConfig.videoGenerateAudio,
                                               watermark: videoGenerationConfig.videoWatermark,
                                               statusMessage: undefined,
@@ -4741,6 +4744,7 @@ function InfiniteCanvasPage() {
                 seconds: result.config.videoSeconds,
                 vquality: result.config.vquality,
                 productScaleMode: result.config.videoProductScaleMode,
+                videoPromptMode: result.config.videoPromptMode,
                 generateAudio: result.config.videoGenerateAudio,
                 watermark: result.config.videoWatermark,
                 ...(promptChanged
@@ -5098,6 +5102,7 @@ function InfiniteCanvasPage() {
                                           seconds: generationConfig.videoSeconds,
                                           vquality: generationConfig.vquality,
                                           productScaleMode: generationConfig.videoProductScaleMode,
+                                          videoPromptMode: generationConfig.videoPromptMode,
                                           generateAudio: generationConfig.videoGenerateAudio,
                                           watermark: generationConfig.videoWatermark,
                                           statusMessage: undefined,
@@ -6329,6 +6334,7 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
             videoSeconds: resolvedVideoSeconds,
             vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
             videoProductScaleMode: node?.metadata?.productScaleMode || config.videoProductScaleMode || defaultConfig.videoProductScaleMode,
+            videoPromptMode: node?.metadata?.videoPromptMode || config.videoPromptMode || defaultConfig.videoPromptMode,
             videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
             videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
             audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,
@@ -6874,6 +6880,9 @@ function limitInlinePrompt(value: string, maxChars: number) {
 }
 
 function buildDirectProductLockVideoContext(prompt: string, referenceImages: ReferenceImage[], storyboardReferenceCount: number, model: string, productScaleMode = "auto") {
+    // Normal canvas lines are provider reference inputs. Never replace them
+    // with a generated bridge unless a specialist workflow opts in explicitly.
+    if (!prompt.includes("[CANVAS_PRODUCT_BRIDGE]")) return null;
     if (storyboardReferenceCount > 0 || referenceImages.length < 2 || !isProductLockBridgeVideoModel(model)) return null;
     const pair = inferDirectVideoReferencePair(prompt, referenceImages.length);
     if (!pair) return null;

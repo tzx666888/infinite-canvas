@@ -11,6 +11,7 @@ import { TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS } from "@/lib/seedance-video";
 import { isTokaxisGoogleImageModel, TOKAXIS_GOOGLE_IMAGE_MODELS } from "@/lib/tokaxis-google-image";
 import { ACTIVE_GOOGLE_VIDEO_MODEL_IDS, DEFAULT_GOOGLE_VIDEO_MODEL, GOOGLE_VEO_MODEL_IDS, GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-providers/google-video";
 import { GROK_DISABLED_VIDEO_MODEL_IDS } from "@/lib/video-providers/grok-video";
+import { normalizeVideoPromptMode, type VideoPromptMode } from "@/lib/video-prompt-policy";
 
 export type ApiCallFormat = "openai" | "gemini";
 
@@ -43,6 +44,7 @@ export type AiConfig = {
     videoSeconds: string;
     vquality: string;
     videoProductScaleMode: string;
+    videoPromptMode?: VideoPromptMode;
     videoGenerateAudio: string;
     videoWatermark: string;
     systemPrompt: string;
@@ -128,6 +130,7 @@ export const defaultConfig: AiConfig = {
     videoSeconds: "10",
     vquality: "720",
     videoProductScaleMode: "auto",
+    videoPromptMode: "auto",
     videoGenerateAudio: "true",
     videoWatermark: "false",
     systemPrompt: "",
@@ -330,6 +333,7 @@ export const useConfigStore = create<ConfigStore>()(
                         videoSeconds: shouldMigrateTokaxisVideo ? defaultConfig.videoSeconds : config.videoSeconds || defaultConfig.videoSeconds,
                         vquality: shouldMigrateTokaxisVideo ? defaultConfig.vquality : config.vquality || defaultConfig.vquality,
                         videoProductScaleMode: config.videoProductScaleMode || defaultConfig.videoProductScaleMode,
+                        videoPromptMode: normalizeVideoPromptMode(config.videoPromptMode),
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
                         canvasImageCount: config.canvasImageCount || "3",

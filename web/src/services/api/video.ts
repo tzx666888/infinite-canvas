@@ -22,6 +22,7 @@ import {
 } from "@/lib/seedance-video";
 import { buildTokaxisMiniMaxH3Payload, isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, normalizeTokaxisMiniMaxH3Model, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
 import { buildCompactVideoProductScalePrompt, buildVideoProductScalePrompt } from "@/lib/video-product-scale";
+import { shouldSubmitRawVideoPrompt } from "@/lib/video-prompt-policy";
 import { VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
 import { buildApiUrl, isTokaxisProxyBaseUrl, modelOptionName, requiresClientApiKey, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
@@ -160,7 +161,7 @@ async function createFlowVideoTask(config: AiConfig, model: string, prompt: stri
     const seconds = normalizeGoogleVideoSeconds(config.videoSeconds, modelName);
     if (!prompt.trim() && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
     const referenceMode = googleVideoReferenceMode(modelName, requestReferences.length);
-    const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode).trim());
+    const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode, config.videoPromptMode).trim());
 
     const files = await Promise.all(
         requestReferences.map(async (image, index) => {
@@ -208,10 +209,12 @@ export function buildReferenceVideoPrompt(
     seconds: string,
     productScaleMode = "auto",
     referenceMode: ReturnType<typeof googleVideoReferenceMode> = requestReferenceCount ? "i2v" : "t2v",
+    promptMode = "auto",
 ) {
     const rawPrompt = prompt.trim();
     if (isCompiledVideoPrompt(rawPrompt)) return [rawPrompt, buildCompactVideoProductScalePrompt(productScaleMode)].filter(Boolean).join("\n");
     const explicitProductScalePrompt = productScaleMode !== "auto" ? buildVideoProductScalePrompt(productScaleMode) : "";
+    if (shouldSubmitRawVideoPrompt(rawPrompt, promptMode)) return [rawPrompt, explicitProductScalePrompt].filter(Boolean).join("\n");
     const direction = canonicalizeVideoReferencePrompt(rawPrompt);
     const duration = normalizeDurationNumber(seconds);
     const promptRoute = classifyVideoPromptDetail(direction);
@@ -709,7 +712,7 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
     // through the reference-to-video prompt so the commerce hook may establish
     // a new scene instead of being constrained to a static source frame.
     const referenceMode: ReturnType<typeof googleVideoReferenceMode> = references.length ? "r2v" : "t2v";
-    const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, references.length, duration, config.videoProductScaleMode, referenceMode).trim());
+    const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, references.length, duration, config.videoProductScaleMode, referenceMode, config.videoPromptMode).trim());
     const [images, audios] = await Promise.all([Promise.all(references.map((image) => resolveSeedanceImageUrl(config, image))), Promise.all(audioReferences.map(resolveSeedanceAudioUrl))]);
     const payload = buildTokaxisMiniMaxH3Payload({
         model: normalizeTokaxisMiniMaxH3Model(model),

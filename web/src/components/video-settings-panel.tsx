@@ -21,6 +21,7 @@ import {
 } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { normalizeVideoProductScaleMode, videoProductScaleOptions } from "@/lib/video-product-scale";
+import { normalizeVideoPromptMode, videoPromptModeOptions } from "@/lib/video-prompt-policy";
 import { fixedVideoDurationOptions, fixedVideoResolution, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 import { isTokaxisMiniMaxH3VideoModel } from "@/lib/minimax-h3-video";
@@ -44,7 +45,7 @@ const defaultSecondOptions = [6, 10, 12, 16, 20];
 
 type VideoSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoProductScaleMode" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
+    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoProductScaleMode" | "videoPromptMode" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -69,6 +70,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const resolutionOptions = fixedResolution ? [{ value: fixedResolution, label: `${fixedResolution}p` }] : baseResolutionOptions;
     const resolution = normalizeVideoResolutionValue(config.vquality, model, seconds);
     const productScaleMode = normalizeVideoProductScaleMode(config.videoProductScaleMode);
+    const promptMode = normalizeVideoPromptMode(config.videoPromptMode);
     const durationGridClass = googleVideo ? (secondOptions.length > 1 ? "grid-cols-2" : "grid-cols-1") : secondOptions.length === 4 ? "grid-cols-4" : "grid-cols-3";
     const updateDimension = (key: "width" | "height", value: number | null) => {
         const next = Math.max(1, Math.floor(value || dimensions[key] || 720));
@@ -121,6 +123,18 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                                 {item.label}
                             </OptionPill>
                         ))}
+                    </div>
+                </SettingGroup>
+                <SettingGroup title="提示方式" color={theme.node.muted}>
+                    <div className="grid grid-cols-3 gap-2.5">
+                        {videoPromptModeOptions.map((item) => (
+                            <OptionPill key={item.value} selected={promptMode === item.value} theme={theme} onClick={() => onConfigChange("videoPromptMode", item.value)}>
+                                {item.label}
+                            </OptionPill>
+                        ))}
+                    </div>
+                    <div className="text-[11px] leading-4 opacity-55">
+                        {promptMode === "auto" ? "简单描述自动增强；明确运镜和限制条件时按原文执行。" : promptMode === "commerce" ? "主动套用 Hook、卖点和收尾结构。" : "提示词原样提交，连线图片仍作为模型参考图。"}
                     </div>
                 </SettingGroup>
                 <SettingGroup title="秒数" color={theme.node.muted}>
