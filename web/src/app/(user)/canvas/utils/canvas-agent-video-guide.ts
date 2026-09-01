@@ -209,7 +209,7 @@ export function agentVideoDraftRequest(brief: CanvasAgentVideoBrief) {
         ? `必须包含且只包含一条能在当前时长内自然说完的 ${brief.language || "当地语言"} 口播，格式严格为 Spoken script: "..."。${brief.withSubtitle ? "字幕必须逐字复用这句口播，不得另写字幕。" : "不要生成画面字幕。"}`
         : "禁止口播、旁白和 Spoken script，不要生成画面字幕。";
     const marketRule = brief.market === "全球通用（不指定地域）" ? "保持全球中性，不添加任何特定国家、城市、货币、地标、旗帜或平台徽标。" : "只按已选市场做一致本地化，不混入其他国家的语言、货币、地标或平台表达。";
-    return `快捷选项已全部完成。不要重复提问，也不要修改已选参数。请直接读取当前模型能力，先输出简洁中文需求摘要，再输出一条 45–85 个英文词的连续创作指令，最后等待我确认。提示词只写一个主要场景、最多三个可见节拍，并明确真实产品交互、镜头、光线和参考图身份。${marketRule}${speechRule} 不得写标题、Markdown、时间表或未确认的功效宣称。已选需求：${JSON.stringify(cleanBrief(brief))}`;
+    return `快捷选项已全部完成。不要重复提问，也不要修改已选参数。请直接读取当前模型能力，先输出简洁中文需求摘要，再输出一条 55–75 个英文词的连续创作指令，最后等待我确认。提示词只写一个主要场景、最多三个可见节拍，并明确真实产品交互、镜头、光线和参考图身份。${marketRule}${speechRule} 不得写标题、Markdown、时间表或未确认的功效宣称。已选需求：${JSON.stringify(cleanBrief(brief))}`;
 }
 
 export function agentVideoConfirmRequest() {
@@ -418,11 +418,11 @@ function compileGuidedVideoPrompt(brief: CanvasAgentVideoBrief & { model: string
         .replace(/^\s*WORKBENCH-DIRECTED VIDEO\.?\s*/i, "")
         .replace(/\s+/g, " ")
         .trim();
-    if (body.length < 80) throw new Error("视频提示词必须包含主体动作、场景、镜头、光线和产品展示方式，并控制为 45–85 个英文词。");
-    if (body.length > 1200) throw new Error("视频提示词过长，请压缩为 45–85 个英文词的一条连续创作指令。");
+    if (body.length < 80) throw new Error("视频提示词必须包含主体动作、场景、镜头、光线和产品展示方式，并控制为 45–150 个英文词。");
+    if (body.length > 1200) throw new Error("视频提示词过长，请压缩为 45–150 个英文词的一条连续创作指令。");
     if (/data:image|base64|blob:/i.test(body)) throw new Error("视频提示词不能包含图片数据或临时链接。");
     const latinWords = countLatinWords(body);
-    if (latinWords < 45 || latinWords > 85) throw new Error("视频提示词必须以英文为主，并控制为 45–85 个英文词；当地语言只放在引号内的口播中。");
+    if (latinWords < 45 || latinWords > 150) throw new Error("视频提示词必须以英文为主，并控制为 45–150 个英文词；当地语言只放在引号内的口播中。");
     if (brief.generateAudio && !hasWorkbenchSpokenScript(body)) throw new Error('开启声音时必须提供一条格式为 Spoken script: "..." 的已确认口播。');
     if (!brief.generateAudio && hasWorkbenchSpokenScript(body)) throw new Error("关闭声音时不得包含 Spoken script。");
     const compactBody = compactAgentVideoDirection(body, 72);
@@ -462,7 +462,7 @@ function countLatinWords(value: string) {
 
 function compactAgentVideoDirection(value: string, maximum: number) {
     if (countLatinWords(value) <= maximum) return value;
-    const scriptMatch = value.match(/Spoken script\s*:\s*["“][^"”]+["”]/i);
+    const scriptMatch = value.match(/Spoken script[^:\n]{0,40}:\s*["“][^"”]+["”]/i);
     if (!scriptMatch || scriptMatch.index === undefined) return limitLatinWords(value, maximum);
     const script = scriptMatch[0];
     const visual = `${value.slice(0, scriptMatch.index)} ${value.slice(scriptMatch.index + script.length)}`.replace(/\s+/g, " ").trim();
@@ -501,7 +501,7 @@ function normalizeAgentVideoDraftPrompt(value: string) {
     ];
     const outerQuotes = quotePairs.find(([open, close]) => text.startsWith(open) && text.endsWith(close));
     if (outerQuotes) text = text.slice(outerQuotes[0].length, -outerQuotes[1].length).trim();
-    text = text.replace(/\s+Subtitle(?:\s*\([^)]*\))?\s*:\s*[\s\S]*$/i, "").replace(/Spoken script(?:\s*\([^)]*\))?\s*:\s*['‘’“”\"]([^'‘’“”\"]+)['‘’“”\"]/i, (_match, script: string) => `Spoken script: "${script.trim()}"`);
+    text = text.replace(/\s+Subtitle(?:\s*\([^)]*\))?\s*:\s*[\s\S]*$/i, "").replace(/Spoken script[^:\n]{0,40}:\s*['‘’“”\"]([^'‘’“”\"]+)['‘’“”\"]/i, (_match, script: string) => `Spoken script: "${script.trim()}"`);
     return text.replace(/\s+/g, " ").trim();
 }
 

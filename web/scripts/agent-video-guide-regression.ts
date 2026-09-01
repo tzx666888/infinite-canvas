@@ -268,7 +268,7 @@ assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed
 assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: { ...creatorPrepared.brief, creatorNodeId: product.id }, prompt: creatorDirection }), /不能是同一张/);
 assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: { ...productPrepared.brief, model: "tokaxis::future-video" }, prompt: productDirection }), /当前不可用/);
 assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: productPrepared.brief, prompt: `${productDirection} data:image/png;base64,AA==` }), /不能包含图片数据/);
-assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: productPrepared.brief, prompt: "Create a clean product video with natural movement." }), /45–85 个英文词/);
+assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: productPrepared.brief, prompt: "Create a clean product video with natural movement." }), /45–150 个英文词/);
 assert.throws(() => prepareCanvasAgentVideo(defaultConfig, snapshot, { confirmed: true, brief: creatorPrepared.brief, prompt: productDirection }), /Spoken script/);
 
 const assistantSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-assistant-panel.tsx", import.meta.url), "utf8");
@@ -297,7 +297,7 @@ assert.match(imageApiSource, /body\.tools\.length === 0 && body\.tool_choice ===
 assert.match(assistantSource, /buildVideoGuideDraftMessages\(currentBrief\)/, "guided prompt drafting must use the minimal dedicated context");
 assert.doesNotMatch(assistantSource, /draftOnly \? buildToolAgentMessages/, "guided prompt drafting must not serialize the full canvas or reference images");
 assert.match(assistantSource, /canvas_prepare_video/);
-assert.match(assistantSource, /45–85 个英文词/);
+assert.match(assistantSource, /55–75 个英文词/);
 assert.match(assistantSource, /Spoken script/);
 assert.match(assistantSource, /shouldRestartAgentVideoGuide/);
 assert.match(localAssistantSource, /shouldRestartAgentVideoGuide/);
