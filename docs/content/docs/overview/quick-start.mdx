@@ -32,7 +32,7 @@ http://localhost:3000
 如果你需要基于当前源码构建镜像：
 
 ```bash
-docker build -t infinite-canvas .
+./scripts/build-docker-image.sh -t infinite-canvas .
 docker run --rm -p 3000:3000 infinite-canvas
 ```
 

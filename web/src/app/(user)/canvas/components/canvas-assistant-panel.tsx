@@ -16,6 +16,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
+import { agentVideoPromptLimits } from "@/lib/video-model-settings";
 import { DiaTextReveal } from "@/components/ui/dia-text-reveal";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { CanvasPromptLibrary } from "./canvas-prompt-library";
@@ -89,7 +90,7 @@ const ONLINE_AGENT_PROMPT = `你是视觉画布的 AI 助手，专门帮助用�
 - 视频引导的类型、人物、市场、平台、语言、比例、模型、时长、声音、字幕和卖点由界面的逐题选择框收集。收到“快捷选项已全部完成”时，禁止重复提问或更改已选参数，直接生成中文摘要和完整英文提示词；只有客户主动补充特殊要求时才继续文字沟通。
 - 引导顺序：先确认视频类型；明确带货默认推荐“达人出镜（选参考模特）”，并要求独立人物参考图；“纯产品展示”必须明确说明不会出现人物。再确认目标市场、平台和语言；达人出镜或买家证言必须确认独立的人物参考图；再确认横竖屏；然后调用 canvas_get_video_capabilities，并只向用户提供当前能力表中的模型和时长。固定时长直接说明“模型固定”，不要制造无效选择；最后确认声音、字幕和一个核心卖点。
 - 视频类型只能从以下八类选择：${AGENT_VIDEO_TYPE_OPTIONS.map((item) => `${item.label}(${item.value})`).join("、")}。
-- 提示词正文写成 55–75 个英文词的一条连续创作指令，由系统补齐模型、参考图角色和身份约束后，最终发给视频模型的完整提示词必须保持 90–170 个英文词：一个清晰主体、一处主要场景、连续动作、镜头与光线、真实产品交互。10 秒内不超过 3 个可见节拍，不塞入多地点长剧情；一般视频不得包含标题、Markdown、复杂时间表、data URL 或 base64，全球商业强 Hook 导演在 15 秒成片方案中可保留 0.0–3.0s / 3.0–10.0s / 10.0–15.0s 三段时间边界。
+- 提示词正文和最终编译词数必须严格采用 canvas_get_video_capabilities 返回的 agentPromptLimits，不得写死范围；正文保持一条连续创作指令，并由系统补齐模型、参考图角色和身份约束：一个清晰主体、一处主要场景、连续动作、镜头与光线、真实产品交互。10 秒内不超过 3 个可见节拍，不塞入多地点长剧情；一般视频不得包含标题、Markdown、复杂时间表、data URL 或 base64，全球商业强 Hook 导演在 15 秒成片方案中可保留 0.0–3.0s / 3.0–10.0s / 10.0–15.0s 三段时间边界。
 - 创意按类型适配：产品展示/品牌广告强调产品立即可见、身份细节和 hero shot；手部/教程/开箱强调一次真实操作及物理接触；达人/证言强调同一成年人物、服装、声音和自然体验；痛点解决只使用客户明确提供的问题，不编造功效、评价或夸张前后对比。商业短片优先“钩子→一次演示→产品特写/柔和 CTA”。
 - 开启声音时，提示词必须包含且只包含一条格式为 Spoken script: "..." 的已确认语言口播；客户未提供台词时，根据已确认卖点生成一条可观察、合规的短台词，并在准备节点前展示给客户确认。一般视频开启字幕时字幕逐字复用口播；全球商业强 Hook 导演可另外输出更短、更易读的同语言字幕并优先后期叠加；关闭声音时禁止口播、旁白和 Spoken script。口播必须能在时长内自然说完：6 秒约 10–14 词，10 秒约 18–24 词，15 秒约 26–34 词。根据能力表的 promptProfile 适配：single-scene 不提参考图；image-anchor 锁单图；multi-reference 按输入顺序绑定角色；first-last-frame 只表达首尾状态且不得用于人物图+产品图的角色绑定；multimodal 只引用真正传入的素材。
 - 在准备节点前，先把中文需求摘要和完整英文提示词展示给用户，明确询问是否确认。只有用户明确确认后，才能调用 canvas_prepare_video，并传 confirmed=true。该工具只创建并选中一个普通视频节点、写入提示词并连接参考图，绝不立即提交生成或扣费；最终由客户在画布视频节点点击生成。
@@ -1970,10 +1971,11 @@ function buildAssistantReferences(nodes: CanvasNodeData[], selectedNodeIds: Set<
 }
 
 function buildVideoGuideDraftMessages(brief?: CanvasAgentVideoBrief): ResponseInputMessage[] {
+    const promptLimits = agentVideoPromptLimits(brief?.model);
     return [
         {
             role: "system",
-            content: `你是电商视频提示词专家。客户已经在界面确认了视频需求，必须直接生成结果，不得提问、不得调用工具、不得改动模型、时长、比例、声音或字幕设置。先用中文写一行需求摘要，再写一段唯一的英文视频提示词（55–75 个英文词）。提示词必须使用已确认的市场、平台、语言、模型与时长；仅描述可观察的产品外观，不得虚构材质、功能、成分、价格、折扣、销量、评价、认证或品牌信息；保持产品身份、颜色、标签、比例和参考图职责一致。开启声音时只保留一条合规且简短的 Spoken script；开启字幕时只提供与口播一致的字幕说明。已确认需求：${JSON.stringify(brief || {})}`,
+            content: `你是电商视频提示词专家。客户已经在界面确认了视频需求，必须直接生成结果，不得提问、不得调用工具、不得改动模型、时长、比例、声音或字幕设置。先用中文写一行需求摘要，再写一段唯一的英文视频提示词（${promptLimits.draftTargetWords[0]}–${promptLimits.draftTargetWords[1]} 个英文词）。提示词必须使用已确认的市场、平台、语言、模型与时长；仅描述可观察的产品外观，不得虚构材质、功能、成分、价格、折扣、销量、评价、认证或品牌信息；保持产品身份、颜色、标签、比例和参考图职责一致。开启声音时只保留一条合规且简短的 Spoken script；开启字幕时只提供与口播一致的字幕说明。已确认需求：${JSON.stringify(brief || {})}`,
         },
         { role: "user", content: "请按以上已确认需求生成模型适配提示词。" },
     ];

@@ -40,6 +40,12 @@ assert.ok(omni, "configured Omni portrait route must be discovered from the cent
 assert.deepEqual(omni.durationOptions, [10]);
 assert.equal(omni.referenceImageLimit >= 2, true);
 assert.equal(omni.generatedAudio, true);
+assert.deepEqual(omni.agentPromptLimits, {
+    draftTargetWords: [55, 75],
+    acceptedDirectionWords: [45, 150],
+    compiledWords: [90, 170],
+    compactDirectionWords: 72,
+});
 assert.ok(minimax, "configured MiniMax H3 route must be discovered from the central capability contract");
 assert.deepEqual(minimax.durationRange, [5, 15]);
 assert.equal(minimax.resolution, "720p");
@@ -146,6 +152,15 @@ assert.match(extractedDraftPrompt, /^Create a 15-second vertical video/);
 assert.match(extractedDraftPrompt, /Spoken script: "Cùng xem sản phẩm này trong cuộc sống hằng ngày nhé\."$/);
 assert.doesNotMatch(extractedDraftPrompt, /需求摘要|同步字幕|英文视频提示词/);
 assert.doesNotMatch(extractedDraftPrompt, /Subtitle:/);
+const qualifiedSpokenDraftPrompt = extractAgentVideoDraftPrompt([
+    { role: "user", text: "选项已完成，请生成适配提示词", detail: { kind: "video-guide-draft-request" } },
+    {
+        role: "assistant",
+        text: 'English video prompt: Create a clean vertical TikTok Shop product video in one bright Indonesian home, keeping the exact product shape, colors, label, scale, and visible details stable through a gentle push-in, one natural demonstration, and a final hero close-up with warm commercial lighting. Spoken script in Bahasa Indonesia: "Lihat produknya lebih dekat dan temukan detail yang cocok untuk keseharianmu."',
+    },
+]);
+assert.match(qualifiedSpokenDraftPrompt, /Spoken script: "Lihat produknya lebih dekat/);
+assert.doesNotMatch(qualifiedSpokenDraftPrompt, /Spoken script in Bahasa Indonesia/);
 
 const onlinePanelSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-assistant-panel.tsx", import.meta.url), "utf8");
 const localPanelSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-local-agent-panel.tsx", import.meta.url), "utf8");
@@ -277,6 +292,7 @@ const chatSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/
 const guideCardSource = fs.readFileSync(new URL("../src/app/(user)/canvas/components/canvas-agent-video-guide-card.tsx", import.meta.url), "utf8");
 const imageApiSource = fs.readFileSync(new URL("../src/services/api/image.ts", import.meta.url), "utf8");
 const videoApiSource = fs.readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
+const videoModelSettingsSource = fs.readFileSync(new URL("../src/lib/video-model-settings.ts", import.meta.url), "utf8");
 const canvasPageSource = fs.readFileSync(new URL("../src/app/(user)/canvas/[id]/canvas-client-page.tsx", import.meta.url), "utf8");
 assert.match(canvasPageSource, /visible materials, colors, markings, part count, and part placement/, "the product bridge must copy only visible product facts from the attached product image");
 assert.doesNotMatch(canvasPageSource, /red\/white pattern/, "the product bridge must not hard-code an unrelated product color pattern");
@@ -297,7 +313,8 @@ assert.match(imageApiSource, /body\.tools\.length === 0 && body\.tool_choice ===
 assert.match(assistantSource, /buildVideoGuideDraftMessages\(currentBrief\)/, "guided prompt drafting must use the minimal dedicated context");
 assert.doesNotMatch(assistantSource, /draftOnly \? buildToolAgentMessages/, "guided prompt drafting must not serialize the full canvas or reference images");
 assert.match(assistantSource, /canvas_prepare_video/);
-assert.match(assistantSource, /55–75 个英文词/);
+assert.match(assistantSource, /agentVideoPromptLimits\(brief\?\.model\)/, "guided drafting must read the selected model's prompt limits");
+assert.match(videoModelSettingsSource, /agentPromptLimits: DEFAULT_AGENT_VIDEO_PROMPT_LIMITS/, "video models must expose Agent prompt limits through the central capability contract");
 assert.match(assistantSource, /Spoken script/);
 assert.match(assistantSource, /shouldRestartAgentVideoGuide/);
 assert.match(localAssistantSource, /shouldRestartAgentVideoGuide/);

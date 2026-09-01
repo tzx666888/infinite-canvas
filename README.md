@@ -54,7 +54,7 @@ bun run dev
 Docker 运行：
 
 ```bash
-docker build -t infinite-canvas .
+./scripts/build-docker-image.sh -t infinite-canvas .
 docker run --rm -p 3000:3000 infinite-canvas
 ```
 

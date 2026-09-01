@@ -60,6 +60,20 @@ export {
 
 export type VideoModelPromptProfile = "single-scene" | "image-anchor" | "multi-reference" | "first-last-frame" | "multimodal";
 
+export type AgentVideoPromptLimits = {
+    draftTargetWords: readonly [number, number];
+    acceptedDirectionWords: readonly [number, number];
+    compiledWords: readonly [number, number];
+    compactDirectionWords: number;
+};
+
+const DEFAULT_AGENT_VIDEO_PROMPT_LIMITS: AgentVideoPromptLimits = {
+    draftTargetWords: [55, 75],
+    acceptedDirectionWords: [45, 150],
+    compiledWords: [90, 170],
+    compactDirectionWords: 72,
+};
+
 export type VideoModelCapabilityContract = {
     routeFamily: string;
     durations: readonly number[];
@@ -69,6 +83,7 @@ export type VideoModelCapabilityContract = {
     referenceImageLimit: number;
     supportsGeneratedAudio: boolean;
     promptProfile: VideoModelPromptProfile;
+    agentPromptLimits: AgentVideoPromptLimits;
 };
 
 /**
@@ -90,6 +105,7 @@ export function videoModelCapabilityContract(model: string): VideoModelCapabilit
         resolution,
         referenceImageLimit,
         supportsGeneratedAudio: isSeedanceVideoModel(model) ? seedanceSupportsGeneratedAudio(model) : isTokaxisMiniMaxH3VideoModel(model) || isGoogleVideoModel(model),
+        agentPromptLimits: DEFAULT_AGENT_VIDEO_PROMPT_LIMITS,
         promptProfile: isSeedanceVideoModel(model)
             ? "multimodal"
             : googleVideoEntryMode(model) === "veo-auto"
@@ -100,6 +116,10 @@ export function videoModelCapabilityContract(model: string): VideoModelCapabilit
                   ? "image-anchor"
                   : "single-scene",
     };
+}
+
+export function agentVideoPromptLimits(model?: string) {
+    return (model ? videoModelCapabilityContract(model)?.agentPromptLimits : null) || DEFAULT_AGENT_VIDEO_PROMPT_LIMITS;
 }
 
 export function fixedVideoDurationOptions(model: string): readonly number[] | null {

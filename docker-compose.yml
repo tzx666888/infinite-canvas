@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/tzx666888/infinite-canvas:v3.137.0
+    image: ${INFINITE_CANVAS_IMAGE:-ghcr.io/tzx666888/infinite-canvas:v3.157.7}
     container_name: infinite-canvas
     network_mode: host
     env_file:

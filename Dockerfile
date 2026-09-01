@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # 构建 Next.js 前端产物。原生数据库驱动必须和最终 Node 22 运行层使用相同 ABI。
 FROM node:22-bookworm-slim AS web-build
 
