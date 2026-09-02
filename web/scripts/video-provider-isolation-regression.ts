@@ -16,7 +16,7 @@ assert.doesNotMatch(grokPolicySource, /veo_3_1_|Seedance/, "Grok policy must not
 
 assert.match(serviceSource, /createGoogleFlowVideoTaskRequest/, "the public video service must delegate Google transport");
 assert.match(serviceSource, /createSeedanceVideoTaskRequest/, "the public video service must delegate Seedance transport");
-assert.doesNotMatch(serviceSource, /new FormData\(\)/, "the public video service must not implement Google multipart transport");
+assert.doesNotMatch(serviceSource, /body\.(?:append|set)\("input_reference"/, "the public video service must not implement Google reference multipart transport");
 assert.match(googleAdapterSource, /new FormData\(\)/, "Google multipart transport must live in its adapter");
 assert.match(googleAdapterSource, /provider: "google-flow"/, "Google tasks must carry an explicit provider identity");
 assert.match(googleAdapterSource, /input_reference/, "Google reference uploads must stay in the Google adapter");

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
-import { buildReferenceVideoPrompt, classifyVideoPromptDetail } from "../src/services/api/video.ts";
+import { classifyVideoPromptDetail } from "../src/lib/video-prompt-policy.ts";
+import { buildReferenceVideoPrompt } from "../src/services/api/video.ts";
 
 const detailedProductPrompt = `不要出现人物，Dual image reference: follow the poster reference for neon-pink Melbourne night-city background, glowing circular platform and commercial ad atmosphere; strictly follow multi-view product sheet for BIMO-ONE Skittle device front-face shape, logo graphic and print details. Keep product facing camera FRONT-ONLY, NO rotation, NO turning around, NO showing back side of device, avoid logo distortion and product deformation.
 
@@ -22,13 +23,13 @@ assert.equal(classifyVideoPromptDetail(detailedProductPrompt), "detailed");
 
 const detailedCompiled = buildReferenceVideoPrompt(detailedProductPrompt, 2, 2, "10", "auto", "r2v");
 assert.ok(detailedCompiled.length <= 3600, `detailed prompt must fit the provider limit, got ${detailedCompiled.length}`);
-assert.match(detailedCompiled, /USER DIRECTION \(DETAILED PRIORITY\)/);
+assert.equal(detailedCompiled, detailedProductPrompt, "complete production briefs must be submitted verbatim in smart mode");
 assert.match(detailedCompiled, /Do NOT generate WhatsApp icon or WhatsApp text inside video\./);
-assert.match(detailedCompiled, /NO people, humans, presenters/);
-assert.match(detailedCompiled, /NO smoke, vapor, vapour, mist, fog/);
-assert.match(detailedCompiled, /Keep the product FRONT-ONLY/);
-assert.match(detailedCompiled, /NO product rotation/);
-assert.doesNotMatch(detailedCompiled, /mini-drama hook|visible natural lip-sync|one consistent presenter|presenter-matched voice/i);
+assert.match(detailedCompiled, /No human beings, no hands/);
+assert.match(detailedCompiled, /Absolutely NO smoke, vapour, mist, fog/);
+assert.match(detailedCompiled, /product facing camera FRONT-ONLY/);
+assert.match(detailedCompiled, /NO rotation/);
+assert.doesNotMatch(detailedCompiled, /EXACT VISUAL HOOK OVERRIDE|mini-drama hook|visible natural lip-sync|one consistent presenter|presenter-matched voice/i);
 
 const shortCommerceCompiled = buildReferenceVideoPrompt("生成一个带货广告", 2, 2, "10", "auto", "r2v");
 assert.match(shortCommerceCompiled, /USER DIRECTION \(SHORT PRIORITY\)/);

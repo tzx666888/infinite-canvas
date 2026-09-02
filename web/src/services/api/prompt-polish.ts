@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { compileVideoWorkbenchPrompt, hasWorkbenchSpokenScript, requestsNoSpeech, workbenchShotCount, workbenchSpeechWordRange, type VideoWorkbenchPromptContext } from "@/lib/video-workbench-prompt";
+import { commerceHookRoutingDirection, compileVideoWorkbenchPrompt, hasWorkbenchSpokenScript, requestsNoSpeech, workbenchShotCount, workbenchSpeechWordRange, type VideoWorkbenchPromptContext } from "@/lib/video-workbench-prompt";
 import { buildApiUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasCommerceVideoPlan } from "@/app/(user)/canvas/types";
 
@@ -257,6 +257,7 @@ const VIDEO_WORKBENCH_SYSTEM = `你是电商短视频创作台的智能编导。
 - 按用户语言或其明确指定的市场语言生成口播，不翻译商品上的品牌文字。
 
 真人带货模式：
+- 自动路由：完整长提示词和用户明确指定的开场必须原样执行；中等提示词只轻量补全；只有简短目标才自动选择与素材匹配的强 Hook。任何禁用项都高于内置结构。
 - 除非用户明确要求无口播，否则必须生成清晰、自然、像真实创作者的口播，不得生成沉默或只有音乐的视频。
 - 口播必须是一个连贯想法，先是 4-7 个词的自然反应/勾子，一次呼吸后给出一个可见的使用价值和轻柔收尾；不念功能清单，不念镜头说明。
 - 必须原样输出这个字段：Spoken script: "可直接说出的完整口播"。引号内只有台词，不得包含动作或镜头指令。
@@ -387,11 +388,12 @@ export async function optimizeVideoWorkbenchPrompt(config: AiConfig, context: Vi
         `Target video model: ${context.model}.`,
         `Target duration: ${context.duration} seconds; aspect ratio: ${context.aspectRatio}; reference mode: ${context.referenceMode}.`,
         `Use exactly ${shotCount} readable story stages joined by clean edits.`,
+        context.mode === "commerce" ? commerceHookRoutingDirection(context.sourcePrompt, context.duration) : "",
         context.mode === "commerce" && !silent
             ? `The Spoken script must fit the duration: ${minimumWords}-${maximumWords} words for a space-delimited language, or an equivalent natural speaking length for Chinese/Japanese/Korean. It must sound spontaneous, warm, and conversational.`
             : "Respect the user's requested audio treatment. Do not force advertising speech in free-creative mode.",
         `There are ${images.length} attached reference images in the same order shown to the user. Analyze them internally, but do not mention references, image numbers, model names, or prompt-writing instructions in the output.`,
-    ].join("\n");
+    ].filter(Boolean).join("\n");
     const response = await fetch(aiApiUrl(requestConfig, "/chat/completions"), {
         method: "POST",
         headers: { ...aiHeaders(requestConfig), Accept: "text/event-stream" },

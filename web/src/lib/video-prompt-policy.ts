@@ -1,4 +1,5 @@
 export type VideoPromptMode = "auto" | "commerce" | "direct";
+export type VideoPromptDetail = "short" | "medium" | "detailed";
 
 export const videoPromptModeOptions: Array<{ value: VideoPromptMode; label: string }> = [
     { value: "auto", label: "智能" },
@@ -28,6 +29,20 @@ export function shouldSubmitRawVideoPrompt(prompt: string, mode: string | undefi
     ].filter((pattern) => pattern.test(direction)).length;
 
     return direction.length > 80 && directionSignals >= 3;
+}
+
+export function classifyVideoPromptDetail(prompt: string): VideoPromptDetail {
+    const normalized = prompt.replace(/\s+/g, " ").trim();
+    const length = [...normalized].length;
+    const timelineCount = normalized.match(/(?:^|\s)\d{1,2}\s*[-–—]\s*\d{1,2}\s*(?:s|sec(?:ond)?s?|秒)\s*[:：]?/gi)?.length || 0;
+    const structuredBrief = timelineCount >= 2 || (/(?:total|duration|总时长|时长)\s*[:：]?\s*\d{1,2}\s*(?:s|sec(?:ond)?s?|秒)/i.test(normalized) && /(?:front[- ]only|no rotation|do not|absolutely no|严禁|不要|不得)/i.test(normalized));
+    if (length > 600 || structuredBrief) return "detailed";
+    if (length > 200) return "medium";
+    return "short";
+}
+
+export function hasConcreteVideoOpening(prompt: string) {
+    return /(?:0\s*[-–—]\s*\d|前\s*[一二三四五六七八九十0-9]+\s*秒|开头[^。；;]{0,48}(?:摔|跌|坠|撞|砸|爆|弹|倒|冻结|倒放|逆向|黑屏|掉落|冲入)|(?:hook|勾子)[^。；;]{0,48}(?:摔|跌|坠|撞|砸|爆|弹|倒|冻结|倒放|逆向|黑屏|掉落|冲入)|(?:stumble|fall|drop|crash|burst|freeze|reverse|black screen)[^.;]{0,48}(?:hook|opening))/i.test(prompt);
 }
 
 function hasExplicitContinuousDirection(prompt: string) {

@@ -105,6 +105,7 @@ import { canvasNodeErrorMessage } from "../utils/node-error-display";
 import { inferDirectVideoReferencePair, resolveReferenceImageVideoConfig } from "../utils/video-reference-model";
 import { imageJobFailureMetadata, isCanvasImageJobResultUrl, isRecoverableCanvasImageNodeType, shouldRecoverCanvasImageJob, stageCanvasImageJobResult } from "../utils/image-job-recovery";
 import { selectRichMediaNodeIds } from "../utils/canvas-media-budget";
+import { buildSourceNodeReferenceImages } from "../utils/reference-image-sources";
 import { lockPreparedAgentVideoConfig, prepareCanvasAgentVideo, type PrepareCanvasAgentVideoInput, type PrepareCanvasAgentVideoResult } from "../utils/canvas-agent-video-guide";
 import type { VideoGenerationPreflightResult } from "../utils/video-generation-preflight";
 import type { CanvasAgentMode } from "../components/canvas-agent-chat-ui";
@@ -6227,6 +6228,10 @@ async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
                         directorLastSnapshot: await resolveImageUrl(node.metadata.directorLastSnapshotStorageKey, node.metadata.directorLastSnapshot),
                     },
                 };
+            if (node.type === CanvasNodeType.Image && node.metadata?.storageKey) {
+                const resolvedContent = await resolveImageUrl(node.metadata.storageKey, content || "");
+                if (resolvedContent) return { ...node, metadata: { ...node.metadata, content: resolvedContent } };
+            }
             if ((node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Panorama) || !content) return node;
             if (node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: undefined } };
             if (!content.startsWith("data:image/")) return node;
@@ -7117,16 +7122,7 @@ function mergeReferenceImages(...groups: ReferenceImage[][]) {
 }
 
 function sourceNodeReferenceImages(node: CanvasNodeData | null) {
-    if (!node || node.type !== CanvasNodeType.Image || !node.metadata?.content) return [];
-    return [
-        {
-            id: node.id,
-            name: `${node.title || node.id}.png`,
-            type: node.metadata.mimeType || "image/png",
-            dataUrl: node.metadata.content,
-            storageKey: node.metadata.storageKey,
-        },
-    ];
+    return buildSourceNodeReferenceImages(node);
 }
 
 function isAudioFile(file: File) {

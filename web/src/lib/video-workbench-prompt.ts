@@ -1,4 +1,5 @@
 import type { VideoAspectRatio, VideoReferenceMode } from "@/lib/video-model-settings";
+import { classifyVideoPromptDetail, hasConcreteVideoOpening } from "./video-prompt-policy.ts";
 
 export type VideoWorkbenchMode = "commerce" | "creative";
 
@@ -18,9 +19,22 @@ export const VIDEO_WORKBENCH_PROMPT_MARKER = "WORKBENCH-DIRECTED VIDEO.";
 
 const MAX_DIRECTION_WORDS = 72;
 
+export function commerceHookRoutingDirection(sourcePrompt: string, duration: number) {
+    const route = classifyVideoPromptDetail(sourcePrompt);
+    if (route === "detailed" || hasConcreteVideoOpening(sourcePrompt)) {
+        return "User-directed route: preserve the user's complete opening, timeline, actions, dialogue, locations, and prohibitions. Do not inject or replace the hook.";
+    }
+    if (route === "medium") {
+        return "Light-touch route: preserve the user's existing idea and opening. Clarify timing only; do not replace it with a generic accident or surprise hook.";
+    }
+    const hookSeconds = duration >= 15 ? 3 : duration >= 10 ? 2 : Math.max(1, Math.round(duration * 0.2));
+    return `Short route: varied hook 0-${hookSeconds}s; then reveal the unchanged product.`;
+}
+
 export function compileVideoWorkbenchPrompt(direction: string, context: VideoWorkbenchPromptContext) {
     const duration = Math.max(1, Math.floor(context.duration || 6));
     const referenceDirection = workbenchReferenceDirection(context.referenceMode, context.referenceCount);
+    const hookDirection = context.mode === "commerce" ? commerceHookRoutingDirection(context.sourcePrompt, duration) : "";
     const audioDirection =
         context.mode === "commerce" && hasWorkbenchSpokenScript(direction)
             ? [
@@ -36,6 +50,7 @@ export function compileVideoWorkbenchPrompt(direction: string, context: VideoWor
         VIDEO_WORKBENCH_PROMPT_MARKER,
         `Create exactly ${duration} seconds of polished ${aspectText(context.aspectRatio)} footage.`,
         referenceDirection,
+        hookDirection,
         compactDirection(direction, context.directionWordLimit),
         audioDirection,
         "Preserve the adult face, hair, wardrobe, body proportions, product geometry, scale, colors, labels, object count, and background.",

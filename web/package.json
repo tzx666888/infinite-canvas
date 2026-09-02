@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-  "version": "3.157.0",
+  "version": "3.157.8",
     "private": true,
     "type": "module",
     "scripts": {
@@ -18,6 +18,7 @@
         "test:video-providers": "node --experimental-strip-types scripts/video-provider-isolation-regression.ts",
         "test:model-isolation": "node --experimental-strip-types scripts/model-parameter-isolation-regression.ts",
         "test:video-workbench": "node --experimental-strip-types scripts/video-workbench-prompt-regression.ts",
+        "test:reference-images": "node --experimental-strip-types scripts/reference-image-sources.test.ts",
         "test:video-prompt-routing": "bun run scripts/video-prompt-routing-regression.ts",
         "test:agent-video-guide": "node --import ./scripts/agent-video-guide-loader.mjs scripts/agent-video-guide-regression.ts",
         "test:google-image": "node --experimental-strip-types scripts/google-image-model-regression.ts",

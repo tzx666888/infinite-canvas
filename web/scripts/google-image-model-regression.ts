@@ -99,8 +99,10 @@ assert.match(imageServiceSource, /supportsGptImageInputFidelity\(requestModel\)/
 assert.match(imageServiceSource, /!\/\^gpt-image-2/, "GPT Image 2 requests must omit the unsupported input_fidelity field");
 assert.doesNotMatch(settingsSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["(?:1K|2K)"\]/, "settings API must not expose retired Google image aliases");
 assert.doesNotMatch(configStoreSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["(?:1K|2K)"\]/, "model sync must not expose retired Google image aliases");
-assert.match(configStoreSource, /TOKAXIS_DEFAULTS_VERSION = 24/, "saved model lists must migrate to the current public model contract");
-assert.match(configStoreSource, /TOKAXIS_DEFAULT_SELECTIONS_VERSION = 24/, "saved model selections must migrate to the current 4K and Agent defaults");
+const defaultsVersion = Number(configStoreSource.match(/TOKAXIS_DEFAULTS_VERSION = (\d+)/)?.[1]);
+const selectionsVersion = Number(configStoreSource.match(/TOKAXIS_DEFAULT_SELECTIONS_VERSION = (\d+)/)?.[1]);
+assert.ok(defaultsVersion >= 24, "saved model lists must migrate to the current public model contract");
+assert.equal(selectionsVersion, defaultsVersion, "saved model selections and public model lists must migrate together");
 assert.match(settingsPanelSource, /usesNativeGoogleSizes \? resolutionOptions\.filter\(\(item\) => item\.value === "4k"\)/, "Google image settings must show only the 4K resolution choice");
 assert.match(canvasClientSource, /VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS = \["gemini-3\.1-flash-image-4k", "gpt-image-2"\]/, "video bridge fallback must never request retired Google image aliases");
 

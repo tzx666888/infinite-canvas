@@ -1,4 +1,12 @@
-# Infinite Canvas v3.157.0
+# Infinite Canvas v3.157.8
+
+## v3.157.8 本次发布
+
+- 修复画布刷新后已保存参考图只有 `storageKey` 时未进入生图、生视频请求的问题。
+- 视频工作台与 Agent 统一长、中、短提示词路由：长提示词和明确开场按用户原文执行，中等提示词轻量补全，简短带货请求自动加入 Hook。
+- 简短请求按成片时长分配 Hook：10 秒占前 2 秒，15 秒占前 3 秒；不覆盖用户明确的时间轴、动作、台词、地域和禁令。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.157.8`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.157.7`；上线前备份：`/opt/infinite-canvas-data/deploy-backups/release-v3.157.8-pre-20260902`。
 
 ## v3.157.0 本次发布
 

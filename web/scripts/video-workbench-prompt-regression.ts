@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { compileVideoWorkbenchPrompt, hasWorkbenchSpokenScript, VIDEO_WORKBENCH_PROMPT_MARKER, workbenchShotCount, workbenchSpeechWordRange } from "../src/lib/video-workbench-prompt.ts";
+import { commerceHookRoutingDirection, compileVideoWorkbenchPrompt, hasWorkbenchSpokenScript, VIDEO_WORKBENCH_PROMPT_MARKER, workbenchShotCount, workbenchSpeechWordRange } from "../src/lib/video-workbench-prompt.ts";
 
 const direction =
     'A steady face-visible medium shot opens on the same adult creator holding the product at chest height. She gives one relaxed reaction, then a clean cut shows the product used at natural scale before a final shared hero shot. Spoken script: "I did not expect this to fit my routine so easily, but now I reach for it every day."';
@@ -106,6 +106,14 @@ assert.deepEqual(workbenchSpeechWordRange(15), [26, 34]);
 assert.equal(workbenchShotCount(6), 2);
 assert.equal(workbenchShotCount(10), 3);
 assert.equal(workbenchShotCount(15), 4);
+
+assert.match(commerceHookRoutingDirection("生成一条带货视频", 10), /0-2s/);
+assert.match(commerceHookRoutingDirection("生成一条带货视频", 15), /0-3s/);
+assert.match(commerceHookRoutingDirection("开头让纸箱从高处掉落并在落地前冻结", 10), /User-directed route/);
+assert.doesNotMatch(commerceHookRoutingDirection("开头让纸箱从高处掉落并在落地前冻结", 10), /Short route/);
+const detailedDirection = `Total duration: 10 seconds. 0-2s: black screen with one title. 2-6s: keep the product front-only. 6-10s: final hero shot. ${"Strictly preserve the supplied product and do not rotate, deform, relabel, duplicate, or add people. ".repeat(8)}`;
+assert.match(commerceHookRoutingDirection(detailedDirection, 10), /User-directed route/);
+assert.doesNotMatch(commerceHookRoutingDirection(detailedDirection, 10), /Short route/);
 
 const videoServiceSource = readFileSync(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
 const workbenchPageSource = readFileSync(new URL("../src/app/(user)/video/page.tsx", import.meta.url), "utf8");
