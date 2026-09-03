@@ -30,7 +30,7 @@ import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { createGoogleFlowVideoTaskRequest, pollGoogleFlowVideoTaskRequest } from "@/services/api/video/google-flow-adapter";
 import { createSeedanceVideoTaskRequest, pollSeedanceVideoTaskRequest } from "@/services/api/video/seedance-adapter";
 import type { VideoGenerationResult, VideoGenerationTask, VideoGenerationTaskState, VideoRequestOptions } from "@/services/api/video/provider-contract";
-import { facebookMediaPreset, facebookVideoSourceSize } from "@/lib/facebook-media";
+import { facebookMediaPreset, facebookVideoSafeFramePrompt, facebookVideoSourceSize } from "@/lib/facebook-media";
 
 export type { VideoGenerationResult, VideoGenerationTask, VideoGenerationTaskState } from "@/services/api/video/provider-contract";
 
@@ -161,7 +161,11 @@ async function createFlowVideoTask(config: AiConfig, model: string, prompt: stri
     const seconds = normalizeGoogleVideoSeconds(config.videoSeconds, modelName);
     if (!prompt.trim() && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
     const referenceMode = googleVideoReferenceMode(modelName, requestReferences.length);
-    const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode, config.videoPromptMode).trim());
+    const promptText = facebookVideoSafeFramePrompt(
+        limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode, config.videoPromptMode).trim()),
+        config.size,
+        3600,
+    );
 
     const files = await Promise.all(
         requestReferences.map(async (image, index) => {
@@ -634,7 +638,8 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
     }
     assertSeedanceVideoReferences(videoReferences);
     assertSeedanceAudioReferences(audioReferences);
-    const promptText = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
+    const deliveryPrompt = facebookVideoSafeFramePrompt(prompt, config.size);
+    const promptText = buildSeedancePromptText(deliveryPrompt, references, videoReferences, audioReferences);
     if (!promptText && (!isSeedanceFixed720pModel(modelName) || !references.length)) throw new Error("请输入视频提示词，或连接参考图片/视频/音频");
 
     if (isTokaxisProxyBaseUrl(config.baseUrl)) {
@@ -663,7 +668,7 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
         }
     }
 
-    const content = await buildSeedanceContent(config, prompt, references, videoReferences, audioReferences);
+    const content = await buildSeedanceContent(config, deliveryPrompt, references, videoReferences, audioReferences);
     const supportsGeneratedAudio = seedanceSupportsGeneratedAudio(modelName);
     const watermark = boolConfig(config.videoWatermark, false);
     const payload = {
@@ -696,7 +701,11 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
     // through the reference-to-video prompt so the commerce hook may establish
     // a new scene instead of being constrained to a static source frame.
     const referenceMode: ReturnType<typeof googleVideoReferenceMode> = references.length ? "r2v" : "t2v";
-    const promptText = limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, references.length, duration, config.videoProductScaleMode, referenceMode, config.videoPromptMode).trim());
+    const promptText = facebookVideoSafeFramePrompt(
+        limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, references.length, duration, config.videoProductScaleMode, referenceMode, config.videoPromptMode).trim()),
+        config.size,
+        3600,
+    );
     const [images, audios] = await Promise.all([Promise.all(references.map((image) => resolveSeedanceImageUrl(config, image))), Promise.all(audioReferences.map(resolveSeedanceAudioUrl))]);
     const payload = buildTokaxisMiniMaxH3Payload({
         model: normalizeTokaxisMiniMaxH3Model(model),

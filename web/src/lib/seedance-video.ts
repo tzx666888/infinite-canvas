@@ -1,7 +1,7 @@
 import type { AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
-import { facebookVideoSourceSize } from "./facebook-media.ts";
+import { facebookSeedanceSourceRatio } from "./facebook-media.ts";
 
 export const SEEDANCE_REFERENCE_LIMITS = {
     images: 9,
@@ -174,7 +174,7 @@ export function normalizeSeedanceDuration(value: string, model = "") {
 }
 
 export function normalizeSeedanceRatio(value: string, model = "") {
-    value = facebookVideoSourceSize(value);
+    value = facebookSeedanceSourceRatio(value);
     if (!value || value === "auto" || value === "adaptive") return "adaptive";
     if (seedanceRatioOptionsForModel(model).some((item) => item.value === value)) return value;
     const match = value.match(/^(\d+)x(\d+)$/);

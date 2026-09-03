@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { FACEBOOK_MEDIA_PRESETS, facebookMediaTargetSize, facebookVideoSourceSize } from "../src/lib/facebook-media.ts";
+import { FACEBOOK_MEDIA_PRESETS, facebookMediaTargetSize, facebookSeedanceSourceRatio, facebookVideoSafeFramePrompt, facebookVideoSourceSize } from "../src/lib/facebook-media.ts";
 import { normalizeMiniMaxH3AspectRatio } from "../src/lib/minimax-h3-video.ts";
 import { normalizeSeedanceRatio } from "../src/lib/seedance-video.ts";
 import { normalizeImageSizeForSelectedModel } from "../src/lib/tokaxis-google-image.ts";
@@ -17,9 +17,11 @@ assert.equal(facebookMediaTargetSize("FB-4:5"), "1080x1350");
 assert.equal(facebookMediaTargetSize("FB1.91:1"), "1200x628");
 assert.equal(facebookVideoSourceSize("FB-4:5"), "720x1280");
 assert.equal(facebookVideoSourceSize("FB1.91:1"), "1280x720");
+assert.equal(facebookSeedanceSourceRatio("FB-4:5"), "3:4");
 assert.equal(normalizeMiniMaxH3AspectRatio("FB-4:5"), "9:16");
 assert.equal(normalizeMiniMaxH3AspectRatio("FB1.91:1"), "16:9");
 assert.equal(normalizeSeedanceRatio("FB-9:16"), "9:16");
+assert.equal(normalizeSeedanceRatio("FB-4:5"), "3:4");
 assert.equal(normalizeSeedanceRatio("FB1.91:1"), "16:9");
 assert.equal(videoAspectRatioForSize("FB-4:5"), "9:16");
 assert.equal(videoAspectRatioForSize("FB1.91:1"), "16:9");
@@ -28,6 +30,9 @@ assert.equal(googleVideoRouteAspectRatio("omni", "FB1.91:1"), "16:9");
 assert.equal(fixedGoogleVideoResolution("omni"), "720");
 assert.equal(fixedGoogleVideoResolution("tokaxis::omni_portrait"), "720");
 assert.equal(normalizeImageSizeForSelectedModel("gemini-3.1-flash-image-4k", "FB-9:16"), "1080x1920");
+assert.match(facebookVideoSafeFramePrompt("Keep the product centered", "FB-4:5"), /central 4:5 area/);
+assert.equal(facebookVideoSafeFramePrompt("Keep the product centered", "FB-9:16"), "Keep the product centered");
+assert.ok(facebookVideoSafeFramePrompt("x".repeat(4000), "FB-4:5", 3600).length <= 3600);
 
 const imagePanel = readFileSync(new URL("../src/components/image-settings-panel.tsx", import.meta.url), "utf8");
 const videoPanel = readFileSync(new URL("../src/components/video-settings-panel.tsx", import.meta.url), "utf8");
@@ -37,6 +42,7 @@ const referenceVideoModel = readFileSync(new URL("../src/app/(user)/canvas/utils
 const videoGenerationPreflight = readFileSync(new URL("../src/app/(user)/canvas/utils/video-generation-preflight.ts", import.meta.url), "utf8");
 const canvasNodeSize = readFileSync(new URL("../src/app/(user)/canvas/utils/canvas-node-size.ts", import.meta.url), "utf8");
 const facebookImageRoute = readFileSync(new URL("../src/app/api/media/facebook-image/route.ts", import.meta.url), "utf8");
+const facebookVideoRoute = readFileSync(new URL("../src/app/api/media/facebook-video/route.ts", import.meta.url), "utf8");
 const videoPage = readFileSync(new URL("../src/app/(user)/video/page.tsx", import.meta.url), "utf8");
 assert.match(imagePanel, /FACEBOOK_MEDIA_PRESETS/);
 assert.match(videoPanel, /FACEBOOK_MEDIA_PRESETS/);
@@ -47,6 +53,11 @@ assert.match(videoGenerationPreflight, /const deliverySize = facebookMediaPreset
 assert.equal((videoGenerationPreflight.match(/size: deliverySize \|\|/g) || []).length, 3);
 assert.match(canvasNodeSize, /const preset = facebookMediaPreset\(size\)/);
 assert.match(facebookImageRoute, /scale=\$\{preset\.width\}:\$\{preset\.height\}/);
+assert.match(facebookVideoRoute, /force_original_aspect_ratio=increase/);
+assert.match(facebookVideoRoute, /force_original_aspect_ratio=decrease/);
+assert.match(facebookVideoRoute, /probeVideoDimensions\(outputPath\)/);
+assert.match(facebookVideoRoute, /X-TokAxis-Media-Reframe/);
+assert.match(videoService, /facebookVideoSafeFramePrompt/);
 assert.match(videoPage, /size: config\.size/);
 assert.doesNotMatch(videoPage, /size: seedance \? normalizeSeedanceRatio/);
 assert.match(videoPage, /normalizeVideoResolutionValue\(config\.vquality, model, config\.videoSeconds\)/);
