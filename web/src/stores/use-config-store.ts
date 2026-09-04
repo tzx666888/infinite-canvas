@@ -7,6 +7,7 @@ import { nanoid } from "nanoid";
 
 import { modelDisplayInfo } from "@/lib/model-display";
 import { TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS } from "@/lib/minimax-h3-video";
+import { TOKAXIS_VIDEO30_MODEL_IDS } from "@/lib/video30";
 import { TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS } from "@/lib/seedance-video";
 import { isTokaxisGoogleImageModel, TOKAXIS_GOOGLE_IMAGE_MODELS } from "@/lib/tokaxis-google-image";
 import { ACTIVE_GOOGLE_VIDEO_MODEL_IDS, DEFAULT_GOOGLE_VIDEO_MODEL, GOOGLE_VEO_MODEL_IDS, GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-providers/google-video";
@@ -83,6 +84,7 @@ const TOKAXIS_FALLBACK_MODELS = [
     TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
     ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS,
     ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS,
+    ...TOKAXIS_VIDEO30_MODEL_IDS,
     ...TOKAXIS_AGENT_TEXT_MODEL_IDS,
     "gpt-5.6-sol",
     "gpt-5.5",
@@ -95,7 +97,7 @@ const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
 const TOKAXIS_REMOVED_MODEL_IDS = new Set(["minimax-h3-c4", "deepseek-v4-pro-ga-260813"]);
 const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["4K"]]);
 const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set<string>([...GROK_DISABLED_VIDEO_MODEL_IDS, ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()), ...GOOGLE_VEO_MODEL_IDS.map((model) => model.toLowerCase())]);
-const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>([...GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS.map((model) => model.toLowerCase())]);
+const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>([...GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()), ...TOKAXIS_VIDEO30_MODEL_IDS.map((model) => model.toLowerCase())]);
 const TOKAXIS_FALLBACK_MODEL_OPTIONS = TOKAXIS_FALLBACK_MODELS.map((model) => encodeChannelModel(TOKAXIS_CHANNEL_ID, model));
 const TOKAXIS_IMAGE_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "image");
 const TOKAXIS_VIDEO_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "video");

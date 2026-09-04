@@ -23,6 +23,7 @@ import {
 } from "@/lib/video-providers/grok-video";
 import { fixedSeedanceVideoResolution, isSeedanceVideoModel, normalizeSeedanceDuration, seedanceDurationOptionsForModel, seedanceSupportsGeneratedAudio, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { isTokaxisMiniMaxH3VideoModel, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, tokaxisMiniMaxH3Resolution } from "@/lib/minimax-h3-video";
+import { isTokaxisVideo30Model, VIDEO30_DURATION_OPTIONS, VIDEO30_REFERENCE_LIMITS } from "@/lib/video30";
 
 export type { VideoAspectRatio, VideoReferenceMode } from "@/lib/video-providers/shared";
 export { normalizeVideoModelId, videoAspectRatioForSize } from "@/lib/video-providers/shared";
@@ -123,15 +124,17 @@ export function agentVideoPromptLimits(model?: string) {
 }
 
 export function fixedVideoDurationOptions(model: string): readonly number[] | null {
+    if (isTokaxisVideo30Model(model)) return VIDEO30_DURATION_OPTIONS;
     if (isSeedanceVideoModel(model)) return seedanceDurationOptionsForModel(model);
     return fixedGoogleVideoDurationOptions(model) || fixedGrokVideoDurationOptions(model);
 }
 
 export function isCanvasVideoModel(model: string) {
-    return isGoogleVideoModel(model) || isGrokVideoModel(model) || isSeedanceVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model);
+    return isGoogleVideoModel(model) || isGrokVideoModel(model) || isSeedanceVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model) || isTokaxisVideo30Model(model);
 }
 
 export function fixedVideoResolution(model: string, duration?: string | number): "720" | "1080" | "1440" | "2K" | null {
+    if (isTokaxisVideo30Model(model)) return "720";
     if (isTokaxisMiniMaxH3VideoModel(model)) {
         const resolution = tokaxisMiniMaxH3Resolution(model);
         return resolution === "768P" ? "720" : resolution === "2K" ? "2K" : "1440";
@@ -140,23 +143,26 @@ export function fixedVideoResolution(model: string, duration?: string | number):
 }
 
 export function videoReferenceMode(model: string, referenceCount: number) {
-    if (isSeedanceVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model)) return referenceCount > 1 ? "r2v" : referenceCount === 1 ? "i2v" : "t2v";
+    if (isSeedanceVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model) || isTokaxisVideo30Model(model)) return referenceCount > 1 ? "r2v" : referenceCount === 1 ? "i2v" : "t2v";
     return isGoogleVideoModel(model) ? googleVideoReferenceMode(model, referenceCount) : grokVideoReferenceMode(model, referenceCount);
 }
 
 export function videoReferenceImageLimit(model: string) {
+    if (isTokaxisVideo30Model(model)) return VIDEO30_REFERENCE_LIMITS.images;
     if (isTokaxisMiniMaxH3VideoModel(model)) return MINIMAX_H3_REFERENCE_LIMITS.images;
     if (isSeedanceVideoModel(model)) return SEEDANCE_REFERENCE_LIMITS.images;
     return isGoogleVideoModel(model) ? googleVideoReferenceImageLimit(model) : grokVideoReferenceImageLimit(model);
 }
 
 export function supportsVideoReferenceCount(model: string, referenceImageCount: number) {
+    if (isTokaxisVideo30Model(model)) return referenceImageCount >= 0 && referenceImageCount <= VIDEO30_REFERENCE_LIMITS.images;
     if (isTokaxisMiniMaxH3VideoModel(model)) return referenceImageCount >= 0 && referenceImageCount <= MINIMAX_H3_REFERENCE_LIMITS.images;
     if (isSeedanceVideoModel(model)) return referenceImageCount >= 0 && referenceImageCount <= SEEDANCE_REFERENCE_LIMITS.images;
     return isGoogleVideoModel(model) ? supportsGoogleVideoReferenceCount(model, referenceImageCount) : supportsGrokVideoReferenceCount(model, referenceImageCount);
 }
 
 export function normalizeModelVideoSeconds(value: string, model: string) {
+    if (isTokaxisVideo30Model(model)) return "30";
     if (isTokaxisMiniMaxH3VideoModel(model)) return String(normalizeMiniMaxH3Duration(value));
     if (isGoogleVideoModel(model)) return normalizeGoogleVideoSeconds(value, model);
     if (isSeedanceVideoModel(model)) return String(normalizeSeedanceDuration(value, model));
