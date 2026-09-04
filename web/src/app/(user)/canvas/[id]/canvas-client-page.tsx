@@ -96,7 +96,7 @@ import { CanvasZoomControls } from "../components/canvas-zoom-controls";
 import { CanvasDirectorNode, CanvasDirectorPanel } from "../components/director/canvas-director-node";
 import { EnhancedDirectorDialog, type EnhancedDirectorPanorama } from "../components/director/enhanced-director-dialog";
 import type { DirectorSnapshotPayload } from "../components/director/director-types";
-import { useCanvasStore } from "../stores/use-canvas-store";
+import { flushCanvasPersistence, useCanvasStore } from "../stores/use-canvas-store";
 import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "../utils/canvas-agent-ops";
 import { buildCanvasResourceReferences, buildInputMentionReferences, buildNodeMentionReferences, getGenerationResourceNodes } from "../utils/canvas-resource-references";
 import { composePromptWithUpstreamText } from "../utils/prompt-composition";
@@ -1698,8 +1698,13 @@ function InfiniteCanvasPage() {
         router.push(`/canvas/${id}`);
     }, [createProject, router]);
 
-    const deleteCurrentProject = useCallback(() => {
+    const deleteCurrentProject = useCallback(async () => {
         deleteProjects([projectId]);
+        try {
+            await flushCanvasPersistence();
+        } catch {
+            return;
+        }
         cleanupAssetImages();
         router.push("/canvas");
     }, [cleanupAssetImages, deleteProjects, projectId, router]);

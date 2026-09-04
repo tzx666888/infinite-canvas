@@ -15,7 +15,7 @@ import { useCanvasStore } from "@/app/(user)/canvas/stores/use-canvas-store";
 type StoredLog = Record<string, unknown> & { id?: string };
 export type AppSyncDomainKey = "canvas" | "assets" | "image-workbench" | "video-workbench";
 type DomainKey = AppSyncDomainKey;
-type CanvasDomainData = { projects: CanvasProject[] };
+type CanvasDomainData = { projects: CanvasProject[]; deletedProjectIds?: string[] };
 type AssetDomainData = { assets: Asset[] };
 type LogDomainData = { logs: StoredLog[] };
 
@@ -92,9 +92,9 @@ export async function syncAppDataToWebdav(config: WebdavSyncConfig, onProgress?:
             key: "canvas",
             label: "画布",
             emptyData: { projects: [] },
-            localData: async () => ({ projects: useCanvasStore.getState().projects }),
-            mergeData: (local, remote) => ({ projects: mergeById(local.projects, remote.projects, "updatedAt") }),
-            applyData: async (data) => useCanvasStore.getState().replaceProjects(data.projects),
+            localData: async () => ({ projects: useCanvasStore.getState().projects, deletedProjectIds: useCanvasStore.getState().deletedProjectIds }),
+            mergeData: mergeCanvasDomainData,
+            applyData: async (data) => useCanvasStore.getState().replaceProjects(data.projects, data.deletedProjectIds),
         }),
         syncDomain<AssetDomainData>(config, onProgress, {
             key: "assets",
@@ -304,6 +304,15 @@ function mergeById<T extends { id?: string }>(local: T[], remote: T[], timeKey: 
         if (!current || getTime(item as Record<string, unknown>, timeKey) >= getTime(current as Record<string, unknown>, timeKey)) items.set(id, item);
     });
     return Array.from(items.values()).sort((a, b) => getTime(b as Record<string, unknown>, timeKey) - getTime(a as Record<string, unknown>, timeKey));
+}
+
+function mergeCanvasDomainData(local: CanvasDomainData, remote: CanvasDomainData): CanvasDomainData {
+    const deletedProjectIds = Array.from(new Set([...(local.deletedProjectIds || []), ...(remote.deletedProjectIds || [])]));
+    const deleted = new Set(deletedProjectIds);
+    return {
+        projects: mergeById(local.projects, remote.projects, "updatedAt").filter((project) => !deleted.has(project.id)),
+        deletedProjectIds,
+    };
 }
 
 function collectStorageKeys(value: unknown, keys = new Set<string>()) {
