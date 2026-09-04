@@ -48,15 +48,16 @@ jobs:
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish to npm
-        if: steps.package.outputs.should_publish == 'true' && secrets.NPM_TOKEN != ''
-        run: npm publish --access public
+      - name: Publish to npm when configured
+        if: steps.package.outputs.should_publish == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Skip npm publish without token
-        if: steps.package.outputs.should_publish == 'true' && secrets.NPM_TOKEN == ''
-        run: echo "NPM_TOKEN is not configured; source remains published in GitHub and npm publishing is skipped."
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN is not configured; source remains published in GitHub and npm publishing is skipped."
+            exit 0
+          fi
+          npm publish --access public
 
       - name: Skip existing version
         if: steps.package.outputs.should_publish != 'true'
