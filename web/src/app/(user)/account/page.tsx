@@ -19,6 +19,23 @@ const ledgerLabels: Record<CreditLedgerEntry["type"], string> = {
     migration_credit: "旧账户迁入",
 };
 
+function submitPaymentForm(form: { action: string; fields: Record<string, string> }, target: string) {
+    const element = document.createElement("form");
+    element.action = form.action;
+    element.method = "POST";
+    element.target = target;
+    for (const [name, value] of Object.entries(form.fields)) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = value;
+        element.appendChild(input);
+    }
+    document.body.appendChild(element);
+    element.submit();
+    element.remove();
+}
+
 export default function AccountPage() {
     const { message, modal } = App.useApp();
     const user = useUserStore((state) => state.user);
@@ -139,9 +156,8 @@ export default function AccountPage() {
         setCreatingPayment(true);
         try {
             const result = await createPaymentOrder({ amountYuan: selectedPackage, paymentMethod: selectedPaymentMethod });
-            const checkoutUrl = new URL(result.checkoutUrl, window.location.origin).toString();
-            if (paymentWindow && !paymentWindow.closed) paymentWindow.location.replace(checkoutUrl);
-            else window.location.assign(checkoutUrl);
+            const paymentTarget = paymentWindow && !paymentWindow.closed ? "canvas-payment" : "_self";
+            submitPaymentForm(result.form, paymentTarget);
             setPendingPayment(result.order);
             setTopUpOpen(false);
             if (!paymentWindow) message.info("浏览器拦截了新窗口，已在当前页面打开支付。完成付款后会自动返回账户页。");
