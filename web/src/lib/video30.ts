@@ -1,11 +1,11 @@
 import type { AiConfig } from "@/stores/use-config-store";
 
 /**
- * 30 秒长视频（tokaxis 渠道 video-30s）。
+ * 30 秒长视频（tokaxis 渠道 sd30）。
  *
  * 上游固定 30 秒，最多 9 张参考图，并按画面比例而不是分辨率描述输出。
  */
-export const TOKAXIS_VIDEO30_MODEL_ID = "video-30s";
+export const TOKAXIS_VIDEO30_MODEL_ID = "sd30";
 export const TOKAXIS_VIDEO30_MODEL_IDS = [TOKAXIS_VIDEO30_MODEL_ID] as const;
 const TOKAXIS_VIDEO30_MODEL_ID_SET = new Set(TOKAXIS_VIDEO30_MODEL_IDS.map((model) => model.toLowerCase()));
 
