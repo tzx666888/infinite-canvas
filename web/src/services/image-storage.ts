@@ -3,7 +3,7 @@
 import localforage from "localforage";
 
 import { nanoid } from "nanoid";
-import { readImageMeta } from "@/lib/image-utils";
+import { dataUrlToFile, readImageMeta } from "@/lib/image-utils";
 
 export type UploadedImage = {
     url: string;
@@ -26,7 +26,7 @@ const IMAGE_DOWNLOAD_ATTEMPTS = 3;
 const IMAGE_STORAGE_ATTEMPTS = 2;
 
 export async function uploadImage(input: string | Blob): Promise<UploadedImage> {
-    const blob = typeof input === "string" ? await downloadImageBlob(input) : input;
+    const blob = typeof input === "string" ? (input.startsWith("data:") ? dataUrlToFile({ id: "inline-image", name: "image.png", type: "image/png", dataUrl: input }) : await downloadImageBlob(input)) : input;
     if (!blob.size) throw new Error("图片结果为空，请刷新画布后重试恢复");
 
     const storageKey = `image:${nanoid()}`;

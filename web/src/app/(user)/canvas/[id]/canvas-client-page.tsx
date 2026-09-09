@@ -2641,12 +2641,20 @@ function InfiniteCanvasPage() {
             let generationErrorKind = "";
             const childId = nanoid();
             const source = { id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey };
-            const sourceDataUrl = await imageToDataUrl(source);
-            const maskCrop = await prepareMaskedEditCropDataUrls(sourceDataUrl, payload.maskDataUrl);
+            let sourceDataUrl: string;
+            let maskCrop: Awaited<ReturnType<typeof prepareMaskedEditCropDataUrls>>;
+            let uploadedMask: Awaited<ReturnType<typeof uploadImage>>;
+            try {
+                sourceDataUrl = await imageToDataUrl(source);
+                maskCrop = await prepareMaskedEditCropDataUrls(sourceDataUrl, payload.maskDataUrl);
+                uploadedMask = await uploadImage(payload.maskDataUrl);
+            } catch (error) {
+                message.error(canvasNodeErrorMessage(error instanceof Error ? error.message : "局部修改准备失败"));
+                return;
+            }
             const generationConfig = { ...baseGenerationConfig, size: resolveMaskEditRequestSizeFromDimensions(maskCrop.width, maskCrop.height) };
             const requestSource = { ...source, name: `${node.title || node.id}-edit-region.png`, dataUrl: maskCrop.sourceDataUrl, storageKey: undefined };
             const requestMask = { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: maskCrop.maskDataUrl };
-            const uploadedMask = await uploadImage(payload.maskDataUrl);
             const generationMetadata = {
                 ...buildImageGenerationMetadata("edit", generationConfig, 1, [source]),
                 size: node.metadata?.size || `${node.metadata?.naturalWidth || 1024}x${node.metadata?.naturalHeight || 1024}`,
