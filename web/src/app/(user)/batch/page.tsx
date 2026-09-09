@@ -9,6 +9,7 @@ import { saveAs } from "file-saver";
 import { zip } from "fflate";
 
 import { ModelPicker } from "@/components/model-picker";
+import { imageQualityOptionsForModel } from "@/lib/image-quality";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { useSaveAsset } from "@/hooks/use-save-asset";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
@@ -67,12 +68,6 @@ const MAX_BATCH_CONCURRENCY = 5;
 const DEFAULT_BATCH_CONCURRENCY = 3;
 const WORKSPACE_KEY = "current";
 const workspaceStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_batch_workspace" });
-const qualityOptions = [
-    { value: "auto", label: "自动" },
-    { value: "high", label: "高" },
-    { value: "medium", label: "中" },
-    { value: "low", label: "低" },
-];
 const sizeOptions = [
     { value: "auto", label: "自动" },
     { value: "1:1", label: "1:1" },
@@ -107,6 +102,7 @@ export default function BatchPage() {
     const [prompt, setPrompt] = useState("");
     const [model, setModel] = useState(effectiveConfig.imageModel || effectiveConfig.model);
     const [quality, setQuality] = useState(effectiveConfig.quality || "auto");
+    const qualityOptions = imageQualityOptionsForModel(model);
     const [size, setSize] = useState(effectiveConfig.size || "auto");
     const [concurrency, setConcurrency] = useState(DEFAULT_BATCH_CONCURRENCY);
     const [timeoutSeconds, setTimeoutSeconds] = useState(300);
@@ -639,7 +635,7 @@ export default function BatchPage() {
                             <div className="grid grid-cols-2 gap-3">
                                 <label className="grid gap-1.5 text-xs text-stone-500 dark:text-stone-400">
                                     质量
-                                    <Select value={quality} options={qualityOptions} onChange={setQuality} disabled={running} />
+                                    <Select value={qualityOptions.some((option) => option.value === quality) ? quality : "auto"} options={qualityOptions} onChange={setQuality} disabled={running} />
                                 </label>
                                 <label className="grid gap-1.5 text-xs text-stone-500 dark:text-stone-400">
                                     输出比例

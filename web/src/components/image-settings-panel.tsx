@@ -4,6 +4,7 @@ import { type ReactNode, useState } from "react";
 import { ConfigProvider, Switch } from "antd";
 
 import { type CanvasTheme } from "@/lib/canvas-theme";
+import { imageQualityOptionsForModel } from "@/lib/image-quality";
 import {
     GENERIC_IMAGE_MAX_EDGE,
     GENERIC_IMAGE_MAX_PIXELS,
@@ -17,12 +18,6 @@ import {
 import type { AiConfig } from "@/stores/use-config-store";
 import { FACEBOOK_MEDIA_PRESETS, facebookMediaPreset } from "@/lib/facebook-media";
 
-const qualityOptions = [
-    { value: "auto", label: "自动" },
-    { value: "high", label: "高" },
-    { value: "medium", label: "中" },
-    { value: "low", label: "低" },
-];
 const resolutionOptions = [
     { value: "1k", label: "1K" },
     { value: "2k", label: "2K" },
@@ -65,10 +60,11 @@ type ImageSettingsPanelProps = {
 
 export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10 }: ImageSettingsPanelProps) {
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
-    const quality = config.quality || "auto";
     const count = Math.max(1, Math.min(maxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
     const activeModel = config.imageModel || config.model;
+    const qualityOptions = imageQualityOptionsForModel(activeModel);
+    const quality = qualityOptions.some((option) => option.value === config.quality) ? config.quality : "auto";
     const usesNativeGoogleSizes = isTokaxisGoogleImageModel(activeModel);
     const maxImagePixels = imageMaxPixelsForSelectedModel(activeModel);
     const availableAspectOptions = aspectOptions.filter((item) => !item.nativeOnly || usesNativeGoogleSizes);
@@ -114,7 +110,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 {showTitle ? <div className="text-lg font-semibold">图像设置</div> : null}
                 <div className="space-y-2.5">
                     <SettingTitle color={theme.node.muted}>质量</SettingTitle>
-                    <div className="grid grid-cols-4 gap-2.5">
+                    <div className={`grid gap-2.5 ${qualityOptions.length > 4 ? "grid-cols-3" : "grid-cols-4"}`}>
                         {qualityOptions.map((item) => (
                             <OptionPill key={item.value} selected={quality === item.value} theme={theme} onClick={() => onConfigChange("quality", item.value)}>
                                 {item.label}
@@ -198,7 +194,7 @@ export function ImageSettingsTheme({ theme, children }: { theme: CanvasTheme; ch
 }
 
 export function imageQualityLabel(value: string) {
-    return ({ auto: "自动", high: "高", medium: "中", low: "低" } as Record<string, string>)[value] || value;
+    return ({ auto: "自动", high: "高", medium: "中", low: "低", xhigh: "极高", max: "最高" } as Record<string, string>)[value] || value;
 }
 
 export function imageSizeLabel(size: string, model?: string) {

@@ -1,4 +1,5 @@
 import { facebookMediaTargetSize } from "./facebook-media.ts";
+import { GPT_IMAGE_2_FAMILY_MAX_PIXELS, isGptImage2FamilyModel } from "./gpt-image.ts";
 
 export const TOKAXIS_GOOGLE_IMAGE_BASE_MODEL = "gemini-3.1-flash-image";
 
@@ -10,7 +11,7 @@ export const GENERIC_IMAGE_MIN_PIXELS = 655_360;
 export const GENERIC_IMAGE_MAX_EDGE = 3_840;
 export const GENERIC_IMAGE_MAX_PIXELS = GENERIC_IMAGE_MAX_EDGE * GENERIC_IMAGE_MAX_EDGE;
 export const GENERIC_IMAGE_MAX_RATIO = 3;
-export const GPT_IMAGE_2_MAX_PIXELS = 3_840 * 2_160;
+export const GPT_IMAGE_2_MAX_PIXELS = GPT_IMAGE_2_FAMILY_MAX_PIXELS;
 
 export const TOKAXIS_GOOGLE_IMAGE_MODELS: Record<TokaxisGoogleImageSize, string> = {
     "4K": `${TOKAXIS_GOOGLE_IMAGE_BASE_MODEL}-4k`,
@@ -109,7 +110,7 @@ export function normalizeImageSizeForSelectedModel(model: string, size?: string)
 }
 
 export function imageMaxPixelsForSelectedModel(model: string) {
-    return tokaxisGoogleModelName(model) === "gpt-image-2" ? GPT_IMAGE_2_MAX_PIXELS : GENERIC_IMAGE_MAX_PIXELS;
+    return isGptImage2FamilyModel(model) ? GPT_IMAGE_2_MAX_PIXELS : GENERIC_IMAGE_MAX_PIXELS;
 }
 
 export function resolveTokaxisGoogleImageConfig(model: string, size?: string, quality?: string) {

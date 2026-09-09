@@ -1,4 +1,19 @@
+import { isGptImage25Model, isGptImage2FamilyModel } from "./gpt-image.ts";
+
 const IMAGE_QUALITY_VALUES = new Set(["auto", "low", "medium", "high", "standard", "hd"]);
+const GPT_IMAGE_2_5_QUALITY_VALUES = new Set([...IMAGE_QUALITY_VALUES, "xhigh", "max"]);
+
+const BASE_IMAGE_QUALITY_OPTIONS = [
+    { value: "auto", label: "自动" },
+    { value: "high", label: "高" },
+    { value: "medium", label: "中" },
+    { value: "low", label: "低" },
+];
+const GPT_IMAGE_2_5_QUALITY_OPTIONS = [
+    ...BASE_IMAGE_QUALITY_OPTIONS,
+    { value: "xhigh", label: "极高" },
+    { value: "max", label: "最高" },
+];
 
 const IMAGE_QUALITY_ALIASES: Record<string, string> = {
     "1k": "low",
@@ -11,10 +26,15 @@ export function normalizeImageQualityForModel(quality: string, model: string) {
     const normalized = IMAGE_QUALITY_ALIASES[value] || value;
     const modelName = model.trim().toLowerCase().split("::").at(-1) || "";
 
-    if (/^gpt-image-2(?:-|$)/.test(modelName)) {
+    if (isGptImage2FamilyModel(modelName)) {
         if (normalized === "standard") return "low";
         if (normalized === "hd") return "high";
     }
 
-    return IMAGE_QUALITY_VALUES.has(normalized) ? normalized : undefined;
+    const supportedValues = isGptImage25Model(modelName) ? GPT_IMAGE_2_5_QUALITY_VALUES : IMAGE_QUALITY_VALUES;
+    return supportedValues.has(normalized) ? normalized : undefined;
+}
+
+export function imageQualityOptionsForModel(model: string) {
+    return isGptImage25Model(model) ? GPT_IMAGE_2_5_QUALITY_OPTIONS : BASE_IMAGE_QUALITY_OPTIONS;
 }

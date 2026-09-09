@@ -18,6 +18,7 @@ import {
     tokaxisGoogleModelForSize,
 } from "../src/lib/tokaxis-google-image.ts";
 import { normalizeImageQualityForModel } from "../src/lib/image-quality.ts";
+import { GPT_IMAGE_2_FAMILY_MAX_PIXELS, isGptImage25Model, isGptImage2FamilyModel, TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS } from "../src/lib/gpt-image.ts";
 
 assert.equal(Object.keys(TOKAXIS_GOOGLE_NATIVE_SIZES).length, 15, "Google 模型必须保留当前 15 种比例（含 2:1 全景）");
 assert.equal(TOKAXIS_GOOGLE_NATIVE_SIZES["2:1"]["4K"], "6144x3072", "2:1 全景必须映射到原生 4K 尺寸");
@@ -57,6 +58,15 @@ assert.deepEqual(
 assert.equal(normalizeImageSizeForSelectedModel("tokaxis::gemini-3.1-flash-image-4k", "5504x3072"), "5504x3072", "Google 4K 必须保留原生尺寸");
 assert.equal(GPT_IMAGE_2_MAX_PIXELS, 8_294_400, "GPT Image 2 必须使用上游的 4K UHD 总像素上限");
 assert.equal(imageMaxPixelsForSelectedModel("tokaxis::gpt-image-2"), GPT_IMAGE_2_MAX_PIXELS);
+for (const model of TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS) {
+    assert.equal(isGptImage25Model(`tokaxis::${model}`), true, `${model} 必须识别为正式 GPT Image 2.5 模型`);
+    assert.equal(isGptImage2FamilyModel(model), true, `${model} 必须复用 GPT Image 2 家族像素约束`);
+    assert.equal(imageMaxPixelsForSelectedModel(`tokaxis::${model}`), GPT_IMAGE_2_FAMILY_MAX_PIXELS);
+    assert.equal(normalizeImageQualityForModel("xhigh", model), "xhigh");
+    assert.equal(normalizeImageQualityForModel("max", model), "max");
+}
+assert.equal(isGptImage25Model("gpt-image-2.5"), false, "不得接受非官方 GPT Image 2.5 通用别名");
+assert.equal(normalizeImageQualityForModel("max", "gpt-image-2"), undefined, "GPT Image 2 不得继承 2.5 专属质量档");
 assert.equal(normalizeImageSizeForSelectedModel("tokaxis::gpt-image-2", "5056x3392"), "3520x2352", "切换到 GPT Image 2 应保留比例并遵守总像素上限");
 assert.equal(normalizeImageSizeForSelectedModel("tokaxis::gpt-image-2", "3840x2576"), "3520x2352", "旧画布中已保存的超限尺寸必须自动修复");
 assert.equal(normalizeImageSizeForSelectedModel("tokaxis::gpt-image-2", "4096x4096"), "2880x2880", "方形 Google 4K 应按 GPT Image 2 总像素上限收缩");
@@ -89,6 +99,7 @@ for (const [aspectRatio, sizes] of Object.entries(TOKAXIS_GOOGLE_NATIVE_SIZES)) 
 }
 
 const imageServiceSource = readFileSync(new URL("../src/services/api/image.ts", import.meta.url), "utf8");
+const gptImageSource = readFileSync(new URL("../src/lib/gpt-image.ts", import.meta.url), "utf8");
 const settingsSource = readFileSync(new URL("../src/app/api/settings/route.ts", import.meta.url), "utf8");
 const configStoreSource = readFileSync(new URL("../src/stores/use-config-store.ts", import.meta.url), "utf8");
 const settingsPanelSource = readFileSync(new URL("../src/components/image-settings-panel.tsx", import.meta.url), "utf8");
@@ -96,7 +107,12 @@ const canvasClientSource = readFileSync(new URL("../src/app/(user)/canvas/[id]/c
 assert.match(imageServiceSource, /isGptImageModel\(requestModel\) \? \{\} : \{ response_format: "b64_json" \}/, "GPT Image requests must omit the removed response_format field for JSON generation requests");
 assert.match(imageServiceSource, /if \(!isGptImageModel\(requestModel\)\) \{\s*formData\.set\("response_format", "b64_json"\);/, "GPT Image edit requests must omit the removed response_format multipart field");
 assert.match(imageServiceSource, /supportsGptImageInputFidelity\(requestModel\)/, "GPT Image edit requests must gate input_fidelity by model support");
-assert.match(imageServiceSource, /!\/\^gpt-image-2/, "GPT Image 2 requests must omit the unsupported input_fidelity field");
+assert.match(imageServiceSource, /!isGptImage2FamilyModel\(model\)/, "GPT Image 2 family requests must omit the unsupported input_fidelity field");
+for (const model of TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS) {
+    assert.match(gptImageSource, new RegExp(model.replaceAll(".", "\\.")), `formal model registry must expose ${model}`);
+}
+assert.match(configStoreSource, /TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS/, "saved model lists must include GPT Image 2.5 formal IDs");
+assert.doesNotMatch(settingsSource, /TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS/, "unverified GPT Image 2.5 models must stay out of the public fallback list");
 assert.doesNotMatch(settingsSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["(?:1K|2K)"\]/, "settings API must not expose retired Google image aliases");
 assert.doesNotMatch(configStoreSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["(?:1K|2K)"\]/, "model sync must not expose retired Google image aliases");
 const defaultsVersion = Number(configStoreSource.match(/TOKAXIS_DEFAULTS_VERSION = (\d+)/)?.[1]);
