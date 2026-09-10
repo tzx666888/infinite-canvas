@@ -10,7 +10,7 @@ import { TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS } from "@/lib/gpt-image";
 import { TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS } from "@/lib/minimax-h3-video";
 import { TOKAXIS_VIDEO30_MODEL_IDS } from "@/lib/video30";
 import { TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS } from "@/lib/seedance-video";
-import { isTokaxisGoogleImageModel, TOKAXIS_GOOGLE_IMAGE_MODELS } from "@/lib/tokaxis-google-image";
+import { isTokaxisGoogleImageModel } from "@/lib/tokaxis-google-image";
 import { ACTIVE_GOOGLE_VIDEO_MODEL_IDS, DEFAULT_GOOGLE_VIDEO_MODEL, GOOGLE_VEO_MODEL_IDS, GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-providers/google-video";
 import { GROK_DISABLED_VIDEO_MODEL_IDS } from "@/lib/video-providers/grok-video";
 import { normalizeVideoPromptMode, type VideoPromptMode } from "@/lib/video-prompt-policy";
@@ -77,12 +77,12 @@ const TOKAXIS_CHANNEL_ID = "tokaxis";
 const TOKAXIS_BASE_URL = "/api/gateway";
 const TOKAXIS_STATION_BASE_URL = "https://ai.tokaxis.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-const TOKAXIS_DEFAULTS_VERSION = 26;
-const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 26;
+const TOKAXIS_DEFAULTS_VERSION = 27;
+const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 27;
 export const TOKAXIS_AGENT_TEXT_MODEL_IDS = ["gpt-5.6-sol", "doubao-seed-2-1-pro-260628"] as const;
 const TOKAXIS_FALLBACK_MODELS = [
     "gpt-image-2",
-    TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
+    ...TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS,
     ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS,
     ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS,
     ...TOKAXIS_VIDEO30_MODEL_IDS,
@@ -95,8 +95,8 @@ const TOKAXIS_FALLBACK_MODELS = [
     "tts-1",
 ];
 const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
-const TOKAXIS_REMOVED_MODEL_IDS = new Set(["minimax-h3-c4", "deepseek-v4-pro-ga-260813", ...TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS]);
-const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", TOKAXIS_GOOGLE_IMAGE_MODELS["4K"]]);
+const TOKAXIS_REMOVED_MODEL_IDS = new Set(["minimax-h3-c4", "deepseek-v4-pro-ga-260813"]);
+const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", ...TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS]);
 const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set<string>([...GROK_DISABLED_VIDEO_MODEL_IDS, ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()), ...GOOGLE_VEO_MODEL_IDS.map((model) => model.toLowerCase())]);
 const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>([...GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()), ...TOKAXIS_VIDEO30_MODEL_IDS.map((model) => model.toLowerCase())]);
 const TOKAXIS_FALLBACK_MODEL_OPTIONS = TOKAXIS_FALLBACK_MODELS.map((model) => encodeChannelModel(TOKAXIS_CHANNEL_ID, model));
@@ -487,7 +487,7 @@ function normalizeTokaxisChannels(config: AiConfig) {
     const shouldMigrateModels = (config.tokaxisDefaultsVersion || 0) < TOKAXIS_DEFAULTS_VERSION;
     const models = sanitizeTokaxisModels(
         modelSource.length
-            ? [...modelSource, ...TOKAXIS_AGENT_TEXT_MODEL_IDS, ...(shouldMigrateModels ? ["gpt-5.6-sol", ...Object.values(TOKAXIS_GOOGLE_IMAGE_MODELS), ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS] : [])]
+            ? [...modelSource, ...TOKAXIS_AGENT_TEXT_MODEL_IDS, ...(shouldMigrateModels ? ["gpt-5.6-sol", ...TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS, ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS] : [])]
             : TOKAXIS_FALLBACK_MODELS,
     );
     return [
@@ -508,10 +508,7 @@ function normalizeDefaultTokaxisModel(value: string | undefined, options: string
 }
 
 function normalizeDefaultTokaxisImageModel(value: string | undefined, _size: string | undefined, shouldMigrateTokaxisDefaults: boolean, options = TOKAXIS_IMAGE_MODELS, channels = normalizeTokaxisChannels(defaultConfig)) {
-    if (value && isTokaxisGoogleImageModel(value)) {
-        const googleOption = options.find((option) => modelOptionName(option) === TOKAXIS_GOOGLE_IMAGE_MODELS["4K"]);
-        if (googleOption) return googleOption;
-    }
+    if (value && isTokaxisGoogleImageModel(value)) return options.find((option) => modelOptionName(option) === "gpt-image-2") || options[0];
     const normalized = normalizeDefaultTokaxisModel(value, options, channels);
     if (shouldMigrateTokaxisDefaults && modelOptionName(normalized) === "gpt-image-2") return defaultConfig.imageModel;
     return normalized;
