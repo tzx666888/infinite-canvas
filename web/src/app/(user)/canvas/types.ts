@@ -195,7 +195,7 @@ export type CanvasNodeMetadata = {
     statusMessage?: string;
     errorDetails?: string;
     pendingImageJobId?: string;
-    pendingVideoTask?: { id: string; provider: "google-flow" | "seedance" | "openai"; model: string };
+    pendingVideoTask?: { id: string; provider: "google-flow" | "seedance" | "video30" | "openai"; model: string };
     fontSize?: number;
     generationMode?: CanvasGenerationMode;
     generationType?: CanvasImageGenerationType;

@@ -21,6 +21,7 @@ import {
     SEEDANCE_REFERENCE_LIMITS,
 } from "@/lib/seedance-video";
 import { buildTokaxisMiniMaxH3Payload, isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, normalizeTokaxisMiniMaxH3Model, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
+import { isVideo30Config, normalizeVideo30Ratio } from "@/lib/video30";
 import { buildCompactVideoProductScalePrompt, buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { classifyVideoPromptDetail, hasConcreteVideoOpening, shouldSubmitRawVideoPrompt, type VideoPromptDetail } from "@/lib/video-prompt-policy";
 import { VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
@@ -64,8 +65,8 @@ export async function requestVideoGeneration(
 }
 
 export async function resumeVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: VideoRequestOptions): Promise<VideoGenerationResult> {
-    const delayMs = task.provider === "seedance" ? 5000 : 2500;
-    const maxAttempts = task.provider === "seedance" ? SEEDANCE_VIDEO_POLL_MAX_ATTEMPTS : OPENAI_VIDEO_POLL_MAX_ATTEMPTS;
+    const delayMs = task.provider === "seedance" || task.provider === "video30" ? 5000 : 2500;
+    const maxAttempts = task.provider === "video30" ? 240 : task.provider === "seedance" ? SEEDANCE_VIDEO_POLL_MAX_ATTEMPTS : OPENAI_VIDEO_POLL_MAX_ATTEMPTS;
     let transientFailures = 0;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -82,7 +83,7 @@ export async function resumeVideoGenerationTask(config: AiConfig, task: VideoGen
         }
         if (state.status === "completed") return state.result;
         if (state.status === "failed") throw new Error(state.error);
-        if (attempt === maxAttempts - 1) throw new Error(`${task.provider === "seedance" ? "Seedance " : ""}视频生成超时，请稍后重试`);
+        if (attempt === maxAttempts - 1) throw new Error(`${task.provider === "seedance" ? "Seedance " : task.provider === "video30" ? "30 秒长视频 " : ""}视频生成超时，请稍后重试`);
         await delay(delayMs, options?.signal);
     }
     throw new Error("视频生成超时，请稍后重试");
@@ -98,6 +99,10 @@ export async function createVideoGenerationTask(
 ): Promise<VideoGenerationTask> {
     const configuredModel = (config.videoModel || config.model).trim();
     const configuredRequest = resolveModelRequestConfig(config, configuredModel);
+    if (isVideo30Config(configuredRequest)) {
+        assertVideoConfig(configuredRequest, configuredRequest.model);
+        return createVideo30Task(configuredRequest, configuredModel, prompt, references, videoReferences, audioReferences, options);
+    }
     if (isMiniMaxH3VideoConfig(configuredRequest)) {
         assertVideoConfig(configuredRequest, configuredRequest.model);
         return createMiniMaxH3Task(configuredRequest, configuredModel, prompt, references, videoReferences, audioReferences, options);
@@ -119,7 +124,7 @@ export async function createVideoGenerationTask(
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: VideoRequestOptions): Promise<VideoGenerationTaskState> {
     const requestConfig = resolveModelRequestConfig(config, task.model);
     assertVideoConfig(requestConfig, requestConfig.model);
-    if (task.provider === "seedance") return pollSeedanceTask(requestConfig, task, options);
+    if (task.provider === "seedance" || task.provider === "video30") return pollSeedanceTask(requestConfig, task, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
 
@@ -133,8 +138,7 @@ export async function storeGeneratedVideo(result: VideoGenerationResult, request
             const source = await fetch(result.url);
             if (!source.ok) throw new Error(`Facebook 视频尺寸转换前下载失败（${source.status}）`);
             body.set("video", await source.blob(), "generated.mp4");
-        }
-        else throw new Error("视频接口没有返回可播放的视频");
+        } else throw new Error("视频接口没有返回可播放的视频");
         const response = await fetch("/api/media/facebook-video", { method: "POST", body });
         if (!response.ok) {
             const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
@@ -161,11 +165,7 @@ async function createFlowVideoTask(config: AiConfig, model: string, prompt: stri
     const seconds = normalizeGoogleVideoSeconds(config.videoSeconds, modelName);
     if (!prompt.trim() && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
     const referenceMode = googleVideoReferenceMode(modelName, requestReferences.length);
-    const promptText = facebookVideoSafeFramePrompt(
-        limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode, config.videoPromptMode).trim()),
-        config.size,
-        3600,
-    );
+    const promptText = facebookVideoSafeFramePrompt(limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode, config.videoPromptMode).trim()), config.size, 3600);
 
     const files = await Promise.all(
         requestReferences.map(async (image, index) => {
@@ -276,7 +276,9 @@ export function buildReferenceVideoPrompt(
                 ? "Preserve the source product/subject identity, package geometry, colors, labels, quantity, scale, and orientation. Treat every product unit and every retail box as a distinct rigid body with its own closed silhouette and a visible background gap. Keep rigid objects unchanged; use plausible motion with no fusion, interpenetration, morphing, redesign, rebranding, invented text, or added/removed parts."
                 : "Preserve the same subject or product identity, package geometry, colors, label placement, object count, environment, composition, and camera orientation.",
             promptRoute === "short" ? "" : "Add only physically plausible local motion. Keep faces, bodies, hands, labels, rigid objects, and background geometry stable; no morphing, redesign, rebranding, or invented label text.",
-            promptRoute === "short" ? "" : "If the source image is a product/object, keep it as a rigid unchanged product. Do not elongate it, add or remove parts, alter its surface pattern, or redesign its component count while creating motion around it.",
+            promptRoute === "short"
+                ? ""
+                : "If the source image is a product/object, keep it as a rigid unchanged product. Do not elongate it, add or remove parts, alter its surface pattern, or redesign its component count while creating motion around it.",
             explicitProductScalePrompt,
             marketGuidance,
             dramaGuidance,
@@ -450,9 +452,7 @@ let humanCommerceHookBag: number[] = [];
 let productOnlyCommerceHookBag: number[] = [];
 
 function commerceHookRandom() {
-    return globalThis.crypto?.getRandomValues
-        ? globalThis.crypto.getRandomValues(new Uint32Array(1))[0] / 0x1_0000_0000
-        : Math.random();
+    return globalThis.crypto?.getRandomValues ? globalThis.crypto.getRandomValues(new Uint32Array(1))[0] / 0x1_0000_0000 : Math.random();
 }
 
 function selectNonRepeatingHookIndex(length: number, productOnly: boolean) {
@@ -701,11 +701,7 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
     // through the reference-to-video prompt so the commerce hook may establish
     // a new scene instead of being constrained to a static source frame.
     const referenceMode: ReturnType<typeof googleVideoReferenceMode> = references.length ? "r2v" : "t2v";
-    const promptText = facebookVideoSafeFramePrompt(
-        limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, references.length, duration, config.videoProductScaleMode, referenceMode, config.videoPromptMode).trim()),
-        config.size,
-        3600,
-    );
+    const promptText = facebookVideoSafeFramePrompt(limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, references.length, duration, config.videoProductScaleMode, referenceMode, config.videoPromptMode).trim()), config.size, 3600);
     const [images, audios] = await Promise.all([Promise.all(references.map((image) => resolveSeedanceImageUrl(config, image))), Promise.all(audioReferences.map(resolveSeedanceAudioUrl))]);
     const payload = buildTokaxisMiniMaxH3Payload({
         model: normalizeTokaxisMiniMaxH3Model(model),
@@ -726,6 +722,44 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
         });
     } catch (error) {
         throw new Error(readAxiosError(error, "MiniMax H3 任务创建失败"));
+    }
+}
+
+async function createVideo30Task(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: VideoRequestOptions): Promise<VideoGenerationTask> {
+    if (!isTokaxisProxyBaseUrl(config.baseUrl)) throw new Error("30 秒长视频仅支持通过平台模型调用");
+    if (videoReferences.length) throw new Error("30 秒长视频不支持参考视频，请移除参考视频后重试");
+    if (audioReferences.length) throw new Error("30 秒长视频不支持参考音频，请移除参考音频后重试");
+    if (references.length > 9) throw new Error("30 秒长视频最多支持 9 张参考图");
+    if (!prompt.trim() && !references.length) throw new Error("请输入视频提示词，或至少连接 1 张参考图");
+    const promptText = facebookVideoSafeFramePrompt(
+        limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, references.length, "30", config.videoProductScaleMode, references.length ? "r2v" : "t2v", config.videoPromptMode).trim(), 12000),
+        config.size,
+        12000,
+    );
+    const images = await Promise.all(references.map((image) => resolveSeedanceImageUrl(config, image)));
+    const ratio = facebookMediaPreset(config.size)?.ratio || normalizeVideo30Ratio(config.size);
+    const payload = {
+        model: modelOptionName(model),
+        prompt: promptText,
+        images,
+        seconds: "30",
+        duration: "30",
+        ratio,
+        size: ratio,
+        generate_audio: boolConfig(config.videoGenerateAudio, true),
+        watermark: boolConfig(config.videoWatermark, false),
+    };
+    try {
+        return await createSeedanceVideoTaskRequest({
+            endpoint: seedanceApiUrl(config),
+            headers: aiHeaders(config, "application/json"),
+            model,
+            payload,
+            options,
+            provider: "video30",
+        });
+    } catch (error) {
+        throw new Error(readAxiosError(error, "30 秒长视频任务创建失败"));
     }
 }
 

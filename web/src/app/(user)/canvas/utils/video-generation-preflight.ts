@@ -13,6 +13,7 @@ import {
 } from "@/lib/seedance-video";
 import { fixedVideoResolution, googleVideoRouteAspectRatio, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, normalizeMiniMaxH3AspectRatio, tokaxisMiniMaxH3Resolution } from "@/lib/minimax-h3-video";
+import { isVideo30Config, normalizeVideo30Ratio, VIDEO30_REFERENCE_LIMITS } from "@/lib/video30";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -99,6 +100,17 @@ export function normalizeVideoGenerationPreflightConfig(config: AiConfig, refere
         };
     }
 
+    if (isVideo30Config(selectedConfig)) {
+        return {
+            ...selectedConfig,
+            videoSeconds: "30",
+            size: deliverySize || normalizeVideo30Ratio(config.size),
+            vquality: "720",
+            videoGenerateAudio: String(boolConfig(config.videoGenerateAudio, true)),
+            videoWatermark: String(boolConfig(config.videoWatermark, false)),
+        };
+    }
+
     return {
         ...selectedConfig,
         videoSeconds: normalizeModelVideoSeconds(config.videoSeconds, modelOptionName(selectedModel)),
@@ -151,6 +163,14 @@ function validateNormalizedVideoGenerationPreflight(input: VideoGenerationPrefli
         if (audioError) errors.push(audioError);
         if (!input.prompt && !images.length && !videos.length && !audios.length) errors.push("请输入视频提示词，或连接参考图片、视频或音频");
         if (!input.prompt && !isSeedanceFixed720pModel(modelName) && !images.length && !videos.length) errors.push("当前 Seedance 输入缺少有效的提示词、参考图或参考视频");
+        return errors;
+    }
+
+    if (isVideo30Config(input.config)) {
+        if (videos.length) errors.push("30 秒长视频不支持参考视频，请移除参考视频后重试");
+        if (audios.length) errors.push("30 秒长视频不支持参考音频，请移除参考音频后重试");
+        if (images.length > VIDEO30_REFERENCE_LIMITS.images) errors.push(`30 秒长视频最多支持 ${VIDEO30_REFERENCE_LIMITS.images} 张参考图`);
+        if (!input.prompt && !images.length) errors.push("请输入视频提示词，或至少连接 1 张参考图");
         return errors;
     }
 

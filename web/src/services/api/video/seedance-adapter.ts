@@ -15,10 +15,18 @@ type SeedanceTaskResponse = {
 
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string };
 
-export async function createSeedanceVideoTaskRequest(input: { endpoint: string; headers: Record<string, string>; model: string; payload: Record<string, unknown>; options?: VideoRequestOptions }): Promise<VideoGenerationTask> {
+export async function createSeedanceVideoTaskRequest(input: {
+    endpoint: string;
+    headers: Record<string, string>;
+    model: string;
+    payload: Record<string, unknown>;
+    options?: VideoRequestOptions;
+    provider?: "seedance" | "video30";
+}): Promise<VideoGenerationTask> {
     const created = unwrapSeedanceTask((await axios.post<ApiEnvelope<SeedanceTaskResponse>>(input.endpoint, input.payload, { headers: input.headers, signal: input.options?.signal })).data);
     const taskId = created.id || created.task_id;
     if (!taskId) throw new Error("Seedance 接口没有返回任务 ID");
+    if (input.provider === "video30") return { id: taskId, provider: "video30", model: input.model };
     return { id: taskId, provider: "seedance", model: input.model };
 }
 
