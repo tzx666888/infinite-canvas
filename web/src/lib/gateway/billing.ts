@@ -5,7 +5,7 @@ import { listSubmittedBillingTasks, refundCredits, refundCreditsByTask, reserveC
 import { resolveCanvasUpstreamAuthorization } from "./upstream-auth.ts";
 
 type PriceUnit = "request" | "image" | "second";
-type PriceRule = { credits: number; unit: PriceUnit };
+type PriceRule = { credits: number; unit: PriceUnit; creditsBySeconds?: Record<string, number> };
 type GatewayIdentity = { keyId: string; userId: string };
 
 const DEFAULT_AGENT_BILLING_WINDOW_SECONDS = 600;
@@ -25,8 +25,9 @@ export async function reserveGatewayRequest(request: Request, path: string, iden
     if (!usage.model) throw new AuthError("请求缺少模型名称", 400, "missing_model");
     const rule = prices[usage.model.toLowerCase()];
     if (!rule) throw new AuthError(`模型 ${usage.model} 暂未配置积分价格`, 409, "model_price_missing");
+    const baseCredits = requestBaseCredits(rule, usage.seconds);
     const units = rule.unit === "second" ? usage.seconds : rule.unit === "image" ? usage.images : 1;
-    const priced = resolveCustomerPrice({ userId: identity.userId, model: usage.model, baseCredits: rule.credits, unit: rule.unit });
+    const priced = resolveCustomerPrice({ userId: identity.userId, model: usage.model, baseCredits, unit: rule.unit });
     const billableUnits = Math.max(1, units);
     const baseAmount = billedAmount(priced.baseCredits, billableUnits, rule.unit);
     const amount = Math.max(baseAmount, billedAmount(priced.retailCredits, billableUnits, rule.unit));
@@ -57,6 +58,12 @@ export async function reserveGatewayRequest(request: Request, path: string, iden
 function billedAmount(rate: number, units: number, unit: PriceUnit) {
     const precise = Number((rate * units).toFixed(6));
     return unit === "second" ? Math.max(0, precise) : Math.max(1, Math.ceil(precise));
+}
+
+function requestBaseCredits(rule: PriceRule, seconds: number) {
+    if (rule.unit !== "request" || !rule.creditsBySeconds) return rule.credits;
+    const exact = rule.creditsBySeconds[String(Math.round(seconds))];
+    return Number.isFinite(exact) && exact > 0 ? exact : rule.credits;
 }
 
 export async function finalizeGatewayResponse(response: Response, reservation: GatewayReservation | null) {
@@ -165,12 +172,17 @@ function modelPrices() {
     const raw = process.env.CANVAS_MODEL_PRICES_JSON?.trim();
     if (!raw) return {} as Record<string, PriceRule>;
     try {
-        const parsed = JSON.parse(raw) as Record<string, { credits?: unknown; unit?: unknown }>;
+        const parsed = JSON.parse(raw) as Record<string, { credits?: unknown; unit?: unknown; creditsBySeconds?: unknown }>;
         return Object.fromEntries(
             Object.entries(parsed).flatMap(([model, rule]) => {
                 const credits = Number(rule?.credits);
                 const unit = rule?.unit;
-                return model.trim() && Number.isFinite(credits) && credits > 0 && (unit === "request" || unit === "image" || unit === "second") ? [[model.trim().toLowerCase(), { credits, unit } satisfies PriceRule]] : [];
+                const creditsBySeconds = rule?.creditsBySeconds && typeof rule.creditsBySeconds === "object" ? Object.fromEntries(Object.entries(rule.creditsBySeconds as Record<string, unknown>).flatMap(([seconds, value]) => {
+                    const parsedSeconds = Number(seconds);
+                    const parsedCredits = Number(value);
+                    return Number.isFinite(parsedSeconds) && parsedSeconds > 0 && Number.isFinite(parsedCredits) && parsedCredits > 0 ? [[String(Math.round(parsedSeconds)), parsedCredits]] : [];
+                })) : undefined;
+                return model.trim() && Number.isFinite(credits) && credits > 0 && (unit === "request" || unit === "image" || unit === "second") ? [[model.trim().toLowerCase(), { credits, unit, ...(creditsBySeconds && Object.keys(creditsBySeconds).length > 0 ? { creditsBySeconds } : {}) } satisfies PriceRule]] : [];
             }),
         );
     } catch {
