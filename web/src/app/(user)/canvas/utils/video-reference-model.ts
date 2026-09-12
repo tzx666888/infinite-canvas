@@ -4,6 +4,7 @@ import { defaultGoogleVideoEntrySettings, fixedGoogleVideoResolution, isGoogleVi
 import { isSeedanceVideoModel, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceSupportsGeneratedAudio } from "@/lib/seedance-video";
 import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
 import { isTokaxisMiniMaxH3VideoModel, normalizeMiniMaxH3Duration } from "@/lib/minimax-h3-video";
+import { isTokaxisVideo30Model, normalizeVideo30Ratio } from "@/lib/video30";
 import { facebookMediaPreset } from "@/lib/facebook-media";
 
 export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImageCount: number): AiConfig {
@@ -11,6 +12,15 @@ export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImag
     const nextConfig = model && (model !== config.model || model !== config.videoModel) ? { ...config, model, videoModel: model } : config;
     const modelName = model || nextConfig.model;
     const deliverySize = facebookMediaPreset(nextConfig.size)?.id;
+    if (isTokaxisVideo30Model(modelName)) {
+        return {
+            ...nextConfig,
+            videoSeconds: "30",
+            vquality: "720",
+            size: deliverySize || normalizeVideo30Ratio(nextConfig.size),
+            videoGenerateAudio: "true",
+        };
+    }
     if (isTokaxisMiniMaxH3VideoModel(modelName)) {
         return {
             ...nextConfig,
@@ -47,6 +57,7 @@ export function selectReferenceImageVideoModel(config: AiConfig, referenceImageC
 export function canvasVideoModelSelectionPatch(model: string) {
     const defaults = defaultGoogleVideoEntrySettings(model);
     if (defaults) return { model, seconds: defaults.videoSeconds, vquality: defaults.vquality };
+    if (isTokaxisVideo30Model(model)) return { model, seconds: "30", vquality: "720", generateAudio: "true" };
     if (isTokaxisMiniMaxH3VideoModel(model)) return { model, seconds: "10", vquality: "1440P", generateAudio: "true" };
     if (isSeedanceVideoModel(model)) {
         return {

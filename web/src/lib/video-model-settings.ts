@@ -180,12 +180,14 @@ export function normalizeReferenceVideoSeconds(value: string, model: string, ref
 }
 
 export function selectVideoReferenceImages<T>(items: T[], model: string) {
+    if (isTokaxisVideo30Model(model)) return items.slice(0, VIDEO30_REFERENCE_LIMITS.images);
     if (isTokaxisMiniMaxH3VideoModel(model)) return items.slice(0, MINIMAX_H3_REFERENCE_LIMITS.images);
     if (isSeedanceVideoModel(model)) return items.slice(0, SEEDANCE_REFERENCE_LIMITS.images);
     return isGoogleVideoModel(model) ? selectGoogleVideoReferenceImages(items, model) : selectGrokReferenceVideoImages(items, model);
 }
 
 export function selectVideoReferenceImagesWithPriority<T>(priorityItems: T[], timelineItems: T[], model: string) {
+    if (isTokaxisVideo30Model(model)) return [...priorityItems, ...timelineItems].slice(0, VIDEO30_REFERENCE_LIMITS.images);
     if (isTokaxisMiniMaxH3VideoModel(model)) return [...priorityItems, ...timelineItems].slice(0, MINIMAX_H3_REFERENCE_LIMITS.images);
     if (isSeedanceVideoModel(model)) return [...priorityItems, ...timelineItems].slice(0, SEEDANCE_REFERENCE_LIMITS.images);
     return isGoogleVideoModel(model) ? selectGoogleVideoReferenceImagesWithPriority(priorityItems, timelineItems, model) : selectGrokReferenceVideoImagesWithPriority(priorityItems, timelineItems, model);
