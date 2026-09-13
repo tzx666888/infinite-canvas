@@ -10,13 +10,10 @@ export type ProductVideoSpec = {
 };
 
 const SPECS: ProductVideoSpec[] = [
-    { id: "minimax-h3-720p", family: "minimax-h3", quality: "720p", baseModel: "MiniMaxH3-720p" },
     { id: "minimax-h3-1080p", family: "minimax-h3", quality: "1080p", baseModel: "MiniMaxH3-720p", enhancerModel: "1080" },
     { id: "minimax-h3-1080p-pro", family: "minimax-h3", quality: "1080p-pro", baseModel: "MiniMaxH3-720p", enhancerModel: "1080pro" },
-    { id: "sd30-720p", family: "sd30", quality: "720p", baseModel: "sd30" },
     { id: "sd30-1080p", family: "sd30", quality: "1080p", baseModel: "sd30", enhancerModel: "1080" },
     { id: "sd30-1080p-pro", family: "sd30", quality: "1080p-pro", baseModel: "sd30", enhancerModel: "1080pro" },
-    { id: "omni-720p", family: "omni", quality: "720p", baseModel: "omni" },
     { id: "omni-1080p", family: "omni", quality: "1080p", baseModel: "omni", enhancerModel: "1080" },
     { id: "omni-1080p-pro", family: "omni", quality: "1080p-pro", baseModel: "omni", enhancerModel: "1080pro" },
 ];
@@ -24,11 +21,7 @@ const SPECS: ProductVideoSpec[] = [
 export const PRODUCT_VIDEO_MODEL_IDS = SPECS.map((item) => item.id) as readonly string[];
 const SPEC_BY_ID = new Map(SPECS.map((item) => [item.id, item]));
 const LEGACY_ALIASES = new Map<string, string>([
-    ["minimaxh3-720p", "minimax-h3-720p"],
-    ["minimaxh3-2k", "minimax-h3-1080p"],
-    ["sd30", "sd30-720p"],
-    ["omni", "omni-720p"],
-    ["omni_portrait", "omni-720p"],
+    ["minimaxh3-2k", "minimaxh3-2k"],
 ]);
 
 export function normalizeProductVideoModel(value: string) {
