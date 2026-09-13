@@ -23,6 +23,7 @@ import {
 import { buildTokaxisMiniMaxH3Payload, isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, normalizeTokaxisMiniMaxH3Model, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
 import { isVideo30Config, normalizeVideo30Ratio } from "@/lib/video30";
 import { isTokaxisVideoEnhancerModel } from "@/lib/aliyun-video-enhancer";
+import { productVideoBaseModel, productVideoSpec } from "@/lib/product-video-models";
 import { buildCompactVideoProductScalePrompt, buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { classifyVideoPromptDetail, hasConcreteVideoOpening, shouldSubmitRawVideoPrompt, type VideoPromptDetail } from "@/lib/video-prompt-policy";
 import { VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
@@ -99,7 +100,28 @@ export async function createVideoGenerationTask(
     options?: VideoRequestOptions,
 ): Promise<VideoGenerationTask> {
     const configuredModel = (config.videoModel || config.model).trim();
+    const productSpec = productVideoSpec(configuredModel);
+    if (productSpec) {
+        const portrait = /(?:9:16|portrait|vertical|720x1280|1080x1920)/i.test(config.size);
+        const baseModel = productVideoBaseModel(configuredModel, portrait);
+        const baseConfig = { ...config, model: baseModel, videoModel: baseModel };
+        if (productSpec.quality !== "720p") return createProductEnhancedVideoTask(baseConfig, configuredModel, productSpec.enhancerModel || "1080", prompt, references, videoReferences, audioReferences, options);
+        const configuredRequest = resolveModelRequestConfig(baseConfig, baseModel);
+        return createVideoGenerationTaskWithRequest(configuredRequest, baseModel, prompt, references, videoReferences, audioReferences, options);
+    }
     const configuredRequest = resolveModelRequestConfig(config, configuredModel);
+    return createVideoGenerationTaskWithRequest(configuredRequest, configuredModel, prompt, references, videoReferences, audioReferences, options);
+}
+
+async function createVideoGenerationTaskWithRequest(
+    configuredRequest: AiConfig,
+    configuredModel: string,
+    prompt: string,
+    references: ReferenceImage[],
+    videoReferences: ReferenceVideo[],
+    audioReferences: ReferenceAudio[],
+    options?: VideoRequestOptions,
+): Promise<VideoGenerationTask> {
     if (isTokaxisVideoEnhancerModel(configuredRequest.model)) {
         assertVideoConfig(configuredRequest, configuredRequest.model);
         return createAliyunVideoEnhancerTask(configuredRequest, configuredModel, videoReferences, options);
@@ -116,14 +138,35 @@ export async function createVideoGenerationTask(
         assertVideoConfig(configuredRequest, configuredRequest.model);
         return createSeedanceTask(configuredRequest, configuredModel, prompt, references, videoReferences, audioReferences, options);
     }
-    const selectedModel = resolveConfiguredGoogleVideoModel(config, references.length);
+    const selectedModel = resolveConfiguredGoogleVideoModel(configuredRequest, references.length);
     if (!selectedModel) throw new Error("当前令牌未开放所需的 Omni 视频模型，请先同步模型权限");
-    const requestConfig = resolveModelRequestConfig(config, selectedModel);
+    const requestConfig = resolveModelRequestConfig(configuredRequest, selectedModel);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (videoReferences.length || audioReferences.length) {
         throw new Error("当前视频接口不支持参考视频或参考音频，请切换到 Seedance 2.0 / 火山 Agent Plan 模型，或移除参考素材");
     }
     return createFlowVideoTask(requestConfig, selectedModel, prompt, references, options);
+}
+
+async function createProductEnhancedVideoTask(
+    baseConfig: AiConfig,
+    publicModel: string,
+    enhancerModel: "1080" | "1080pro",
+    prompt: string,
+    references: ReferenceImage[],
+    videoReferences: ReferenceVideo[],
+    audioReferences: ReferenceAudio[],
+    options?: VideoRequestOptions,
+): Promise<VideoGenerationTask> {
+    if (videoReferences.length || audioReferences.length) throw new Error("1080p 视频增强只接受原模型生成结果，不能再连接参考视频或参考音频");
+    const baseTask = await createVideoGenerationTask(baseConfig, prompt, references, [], [], { signal: options?.signal });
+    const baseResult = await resumeVideoGenerationTask(baseConfig, baseTask, { signal: options?.signal });
+    let sourceUrl = baseResult.url;
+    if (!sourceUrl && baseResult.blob) sourceUrl = (await uploadMediaFile(baseResult.blob, "video")).url;
+    if (!sourceUrl) throw new Error("原模型未返回可供增强的视频");
+    const requestConfig = resolveModelRequestConfig(baseConfig, enhancerModel);
+    const task = await createAliyunVideoEnhancerTaskFromUrl(requestConfig, enhancerModel, sourceUrl, options);
+    return { ...task, model: enhancerModel };
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: VideoRequestOptions): Promise<VideoGenerationTaskState> {
@@ -773,6 +816,10 @@ async function createAliyunVideoEnhancerTask(config: AiConfig, model: string, vi
     if (!isTokaxisProxyBaseUrl(config.baseUrl)) throw new Error("阿里超分仅支持通过平台模型调用");
     if (videoReferences.length !== 1) throw new Error("阿里超分模型需要且只能连接 1 个成片视频");
     const source = await resolveSeedanceVideoUrl(videoReferences[0]);
+    return createAliyunVideoEnhancerTaskFromUrl(config, model, source, options);
+}
+
+async function createAliyunVideoEnhancerTaskFromUrl(config: AiConfig, model: string, source: string, options?: VideoRequestOptions): Promise<VideoGenerationTask> {
     try {
         return await createSeedanceVideoTaskRequest({
             endpoint: aiApiUrl(config, "/videos"),

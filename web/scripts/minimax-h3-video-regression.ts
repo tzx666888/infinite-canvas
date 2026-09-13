@@ -59,7 +59,7 @@ assert.match(settingsSource, /resolution === "768P"/);
 assert.match(settingsSource, /resolution === "2K"/);
 const fallbackModelsBlock = configStoreSource.match(/const TOKAXIS_FALLBACK_MODELS\s*=\s*\[([\s\S]*?)\];/)?.[1] ?? "";
 
-assert.match(fallbackModelsBlock, /TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS/);
+assert.match(fallbackModelsBlock, /PRODUCT_VIDEO_MODEL_IDS/);
 assert.doesNotMatch(fallbackModelsBlock, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/);
 assert.match(configStoreSource, /\.\.\.TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS\.map\(\(model\) => model\.toLowerCase\(\)\)/);
 

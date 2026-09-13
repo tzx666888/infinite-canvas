@@ -183,7 +183,9 @@ export function selectGoogleVideoReferenceImagesWithPriority<T>(priorityItems: T
 }
 
 function normalizeVideoModelId(model: string) {
-    return model.trim().toLowerCase().split("::").at(-1) || "";
+    const normalized = model.trim().toLowerCase().split("::").at(-1) || "";
+    if (normalized.startsWith("omni-")) return "omni";
+    return normalized;
 }
 
 function googleVideoAspectRatioForSize(value: string): VideoAspectRatio {

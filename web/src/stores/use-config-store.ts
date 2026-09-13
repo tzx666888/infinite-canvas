@@ -10,6 +10,7 @@ import { TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS } from "@/lib/gpt-image";
 import { TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS } from "@/lib/minimax-h3-video";
 import { TOKAXIS_VIDEO30_MODEL_IDS } from "@/lib/video30";
 import { TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS } from "@/lib/seedance-video";
+import { PRODUCT_VIDEO_MODEL_IDS } from "@/lib/product-video-models";
 import { isTokaxisGoogleImageModel } from "@/lib/tokaxis-google-image";
 import { ACTIVE_GOOGLE_VIDEO_MODEL_IDS, DEFAULT_GOOGLE_VIDEO_MODEL, GOOGLE_VEO_MODEL_IDS, GOOGLE_VIDEO_MODEL_IDS } from "@/lib/video-providers/google-video";
 import { GROK_DISABLED_VIDEO_MODEL_IDS } from "@/lib/video-providers/grok-video";
@@ -83,9 +84,8 @@ export const TOKAXIS_AGENT_TEXT_MODEL_IDS = ["gpt-5.6-sol", "doubao-seed-2-1-pro
 const TOKAXIS_FALLBACK_MODELS = [
     "gpt-image-2",
     ...TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS,
-    ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS,
-    ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS,
-    ...TOKAXIS_VIDEO30_MODEL_IDS,
+    ...GOOGLE_VEO_MODEL_IDS,
+    ...PRODUCT_VIDEO_MODEL_IDS,
     ...TOKAXIS_AGENT_TEXT_MODEL_IDS,
     "gpt-5.6-sol",
     "gpt-5.5",
@@ -98,7 +98,7 @@ const TOKAXIS_DISABLED_IMAGE_MODEL_RE = /^nano-banana(?:-|$)/;
 const TOKAXIS_REMOVED_MODEL_IDS = new Set(["minimax-h3-c4", "deepseek-v4-pro-ga-260813"]);
 const TOKAXIS_PUBLIC_IMAGE_MODEL_IDS = new Set(["gpt-image-2", ...TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS]);
 const TOKAXIS_DISABLED_VIDEO_MODEL_IDS = new Set<string>([...GROK_DISABLED_VIDEO_MODEL_IDS, ...TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()), ...GOOGLE_VEO_MODEL_IDS.map((model) => model.toLowerCase())]);
-const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>([...GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()), ...TOKAXIS_VIDEO30_MODEL_IDS.map((model) => model.toLowerCase())]);
+const TOKAXIS_VIDEO_MODEL_IDS = new Set<string>([...GOOGLE_VEO_MODEL_IDS, ...PRODUCT_VIDEO_MODEL_IDS.map((model) => model.toLowerCase())]);
 const TOKAXIS_FALLBACK_MODEL_OPTIONS = TOKAXIS_FALLBACK_MODELS.map((model) => encodeChannelModel(TOKAXIS_CHANNEL_ID, model));
 const TOKAXIS_IMAGE_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "image");
 const TOKAXIS_VIDEO_MODELS = filterModelsByCapability(TOKAXIS_FALLBACK_MODEL_OPTIONS, "video");
@@ -279,7 +279,7 @@ export const useConfigStore = create<ConfigStore>()(
                             throw new Error(payload?.error?.message || payload?.message || `模型列表同步失败：${response.status}`);
                         }
                         const payload = (await response.json()) as { data?: Array<{ id?: unknown }> };
-                        syncedModels = sanitizeTokaxisModels((payload.data || []).map((item) => (typeof item.id === "string" ? item.id : "")));
+                        syncedModels = Array.from(new Set([...sanitizeTokaxisModels((payload.data || []).map((item) => (typeof item.id === "string" ? item.id : ""))), ...PRODUCT_VIDEO_MODEL_IDS]));
                     } catch (error) {
                         console.warn("[platform-models] sync failed", error);
                         throw error;

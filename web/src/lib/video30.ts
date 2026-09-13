@@ -17,7 +17,8 @@ export const VIDEO30_REFERENCE_LIMITS = {
 };
 
 export function isTokaxisVideo30Model(model: string) {
-    return TOKAXIS_VIDEO30_MODEL_ID_SET.has((model.trim().split("::").at(-1) || "").toLowerCase());
+    const normalized = (model.trim().split("::").at(-1) || "").toLowerCase();
+    return TOKAXIS_VIDEO30_MODEL_ID_SET.has(normalized) || normalized.startsWith("sd30-");
 }
 
 export function isVideo30Config(config: AiConfig | Pick<AiConfig, "model" | "videoModel">) {

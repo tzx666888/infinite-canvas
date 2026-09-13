@@ -24,6 +24,7 @@ import {
 import { fixedSeedanceVideoResolution, isSeedanceVideoModel, normalizeSeedanceDuration, seedanceDurationOptionsForModel, seedanceSupportsGeneratedAudio, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { isTokaxisMiniMaxH3VideoModel, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, tokaxisMiniMaxH3Resolution } from "@/lib/minimax-h3-video";
 import { isTokaxisVideo30Model, VIDEO30_DURATION_OPTIONS, VIDEO30_REFERENCE_LIMITS } from "@/lib/video30";
+import { productVideoSpec } from "@/lib/product-video-models";
 
 export type { VideoAspectRatio, VideoReferenceMode } from "@/lib/video-providers/shared";
 export { normalizeVideoModelId, videoAspectRatioForSize } from "@/lib/video-providers/shared";
@@ -124,6 +125,10 @@ export function agentVideoPromptLimits(model?: string) {
 }
 
 export function fixedVideoDurationOptions(model: string): readonly number[] | null {
+    const product = productVideoSpec(model);
+    if (product?.family === "sd30") return VIDEO30_DURATION_OPTIONS;
+    if (product?.family === "minimax-h3") return [5, 10, 15] as const;
+    if (product?.family === "omni") return [10] as const;
     if (isTokaxisVideo30Model(model)) return VIDEO30_DURATION_OPTIONS;
     if (isSeedanceVideoModel(model)) return seedanceDurationOptionsForModel(model);
     return fixedGoogleVideoDurationOptions(model) || fixedGrokVideoDurationOptions(model);
@@ -134,6 +139,8 @@ export function isCanvasVideoModel(model: string) {
 }
 
 export function fixedVideoResolution(model: string, duration?: string | number): "720" | "1080" | "1440" | "2K" | null {
+    const product = productVideoSpec(model);
+    if (product?.quality === "1080p" || product?.quality === "1080p-pro") return "1080";
     if (isTokaxisVideo30Model(model)) return "720";
     if (isTokaxisMiniMaxH3VideoModel(model)) {
         const resolution = tokaxisMiniMaxH3Resolution(model);

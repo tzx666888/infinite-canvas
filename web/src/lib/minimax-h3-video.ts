@@ -7,15 +7,15 @@ const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID_SET = new Set(TOKAXIS_MINIMAX_H3_VIDEO_M
 
 export function normalizeTokaxisMiniMaxH3Model(value: string) {
     const normalized = (value.trim().split("::").at(-1) || "").toLowerCase();
-    if (normalized === "minimaxh3-2k") return "MiniMaxH3-2k";
-    if (normalized === "minimaxh3-720p") return "MiniMaxH3-720p";
+    if (["minimax-h3-1080p", "minimax-h3-1080p-pro", "minimaxh3-2k"].includes(normalized)) return "MiniMaxH3-2k";
+    if (["minimax-h3-720p", "minimaxh3-720p"].includes(normalized)) return "MiniMaxH3-720p";
     throw new Error(`不支持的 MiniMax H3 视频模型：${value || "(空)"}`);
 }
 
 export function tokaxisMiniMaxH3Resolution(value: string) {
     const normalized = (value.trim().split("::").at(-1) || "").toLowerCase();
-    if (normalized === "minimaxh3-2k") return "2K";
-    if (normalized === "minimaxh3-720p") return "768P";
+    if (["minimax-h3-1080p", "minimax-h3-1080p-pro", "minimaxh3-2k"].includes(normalized)) return "2K";
+    if (["minimax-h3-720p", "minimaxh3-720p"].includes(normalized)) return "768P";
     throw new Error(`不支持的 MiniMax H3 视频模型：${value || "(空)"}`);
 }
 
@@ -25,7 +25,8 @@ export const MINIMAX_H3_REFERENCE_LIMITS = {
 };
 
 export function isTokaxisMiniMaxH3VideoModel(model: string) {
-    return TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID_SET.has((model.trim().split("::").at(-1) || "").toLowerCase());
+    const normalized = (model.trim().split("::").at(-1) || "").toLowerCase();
+    return TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID_SET.has(normalized) || ["minimax-h3-720p", "minimax-h3-1080p", "minimax-h3-1080p-pro"].includes(normalized);
 }
 
 export function isMiniMaxH3VideoConfig(config: AiConfig | Pick<AiConfig, "model" | "videoModel">) {
