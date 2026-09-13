@@ -12,8 +12,10 @@ import {
     SEEDANCE_REFERENCE_LIMITS,
 } from "@/lib/seedance-video";
 import { fixedVideoResolution, googleVideoRouteAspectRatio, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
+import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
 import { isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, normalizeMiniMaxH3AspectRatio, tokaxisMiniMaxH3Resolution } from "@/lib/minimax-h3-video";
 import { isVideo30Config, normalizeVideo30Ratio, VIDEO30_REFERENCE_LIMITS } from "@/lib/video30";
+import { productVideoSpec } from "@/lib/product-video-models";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -59,6 +61,19 @@ export function normalizeVideoGenerationPreflightConfig(config: AiConfig, refere
     if (!selectedModel) return { ...config, model: "", videoModel: "" };
     const selectedConfig = { ...config, model: selectedModel, videoModel: selectedModel };
     const deliverySize = facebookMediaPreset(config.size)?.id;
+    const product = productVideoSpec(selectedModel);
+
+    if (product?.family === "omni") {
+        const ratio = videoAspectRatioForSize(config.size);
+        return {
+            ...selectedConfig,
+            videoSeconds: "10",
+            size: deliverySize || (ratio === "9:16" ? "720x1280" : "1280x720"),
+            vquality: "1080",
+            videoGenerateAudio: String(boolConfig(config.videoGenerateAudio, true)),
+            videoWatermark: String(boolConfig(config.videoWatermark, false)),
+        };
+    }
 
     if (isGoogleVideoModel(selectedModel)) {
         const resolvedModel = resolveConfiguredGoogleVideoModel(selectedConfig, referenceImageCount);
@@ -135,6 +150,14 @@ function validateNormalizedVideoGenerationPreflight(input: VideoGenerationPrefli
     const modelName = modelOptionName(selectedModel);
     const { images, videos, audios } = input.references;
     if (!selectedModel) return ["请选择视频模型"];
+
+    const product = productVideoSpec(modelName);
+    if (product?.family === "omni") {
+        if (videos.length || audios.length) errors.push("Omni 不支持参考视频或参考音频，请移除这些素材");
+        if (images.length > 3) errors.push("Omni 最多支持 3 张参考图");
+        if (!input.prompt && !images.length) errors.push("请输入视频提示词，或至少连接 1 张参考图");
+        return errors;
+    }
 
     if (isGoogleVideoModel(modelName)) {
         if (videos.length || audios.length) errors.push("Veo / Omni 不支持参考视频或参考音频；请移除这些素材，或切换到 Seedance 2.0");

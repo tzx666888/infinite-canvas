@@ -6,12 +6,23 @@ import { videoAspectRatioForSize } from "@/lib/video-providers/shared";
 import { isTokaxisMiniMaxH3VideoModel, normalizeMiniMaxH3Duration } from "@/lib/minimax-h3-video";
 import { isTokaxisVideo30Model, normalizeVideo30Ratio } from "@/lib/video30";
 import { facebookMediaPreset } from "@/lib/facebook-media";
+import { productVideoSpec } from "@/lib/product-video-models";
 
 export function resolveReferenceImageVideoConfig(config: AiConfig, referenceImageCount: number): AiConfig {
     const model = selectReferenceImageVideoModel(config, referenceImageCount);
     const nextConfig = model && (model !== config.model || model !== config.videoModel) ? { ...config, model, videoModel: model } : config;
     const modelName = model || nextConfig.model;
     const deliverySize = facebookMediaPreset(nextConfig.size)?.id;
+    const product = productVideoSpec(modelName);
+    if (product?.family === "omni") {
+        return {
+            ...nextConfig,
+            videoSeconds: "10",
+            vquality: "1080",
+            size: deliverySize || (videoAspectRatioForSize(nextConfig.size) === "9:16" ? "720x1280" : "1280x720"),
+            videoGenerateAudio: String(nextConfig.videoGenerateAudio !== "false"),
+        };
+    }
     if (isTokaxisVideo30Model(modelName)) {
         return {
             ...nextConfig,
@@ -55,6 +66,8 @@ export function selectReferenceImageVideoModel(config: AiConfig, referenceImageC
 }
 
 export function canvasVideoModelSelectionPatch(model: string) {
+    const product = productVideoSpec(model);
+    if (product?.family === "omni") return { model, seconds: "10", vquality: "1080", generateAudio: "true" };
     const defaults = defaultGoogleVideoEntrySettings(model);
     if (defaults) return { model, seconds: defaults.videoSeconds, vquality: defaults.vquality };
     if (isTokaxisVideo30Model(model)) return { model, seconds: "30", vquality: "720", generateAudio: "true" };

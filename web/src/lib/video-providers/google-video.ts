@@ -184,7 +184,10 @@ export function selectGoogleVideoReferenceImagesWithPriority<T>(priorityItems: T
 
 function normalizeVideoModelId(model: string) {
     const normalized = model.trim().toLowerCase().split("::").at(-1) || "";
-    if (normalized.startsWith("omni-")) return "omni";
+    // Keep productized enhancement IDs distinct. They are routed through the
+    // product-video adapter and must remain independently selectable in the UI.
+    // Only the retired 720p alias is normalized to the base Omni entry.
+    if (normalized === "omni-720p") return "omni";
     return normalized;
 }
 

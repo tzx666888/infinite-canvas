@@ -5,6 +5,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- v3.157.31 模型清单与增强入口：生产画布模型下拉必须同时显示 Omni 基础入口、Omni 1080p/Omni 1080p Pro、MiniMax H3 720p/2K/1080p/1080p Pro、sd30 基础入口、30 秒长视频 1080p/1080p Pro；基础模型路由和增强链均须可提交，旧 `*-720p` 产品化别名不得公开。公网 `/api/settings` 与中转站模型广场清单保持一致。
 - v3.157.21 sd30 画布视频回归：模型可选，确认弹窗不再提示“不支持画布视频生成”；固定 30 秒、720p、最多 9 张参考图，FB-9:16/FB-4:5/FB1.91:1 交付比例正确映射；任务创建成功并可轮询到完成。Omni、MiniMax H3、Google 视频、Seedance 行为不得改变。
 - v3.157.20 图片模型切换：新旧画布账号的图片模型下拉不得再显示 Google 静态生图，历史选中 Google 的本地配置应自动切到 GPT Image 2；Flare/Sunburst 必须均可选、可生成和编辑，单张扣 2 credits。Gemini 文本、Google 视频、GPT Image 2、Omni、MiniMax H3、sd30 必须保持原行为。
 

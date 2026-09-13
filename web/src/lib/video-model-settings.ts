@@ -24,7 +24,7 @@ import {
 import { fixedSeedanceVideoResolution, isSeedanceVideoModel, normalizeSeedanceDuration, seedanceDurationOptionsForModel, seedanceSupportsGeneratedAudio, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { isTokaxisMiniMaxH3VideoModel, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, tokaxisMiniMaxH3Resolution } from "@/lib/minimax-h3-video";
 import { isTokaxisVideo30Model, VIDEO30_DURATION_OPTIONS, VIDEO30_REFERENCE_LIMITS } from "@/lib/video30";
-import { productVideoSpec } from "@/lib/product-video-models";
+import { isProductVideoModel, productVideoSpec } from "@/lib/product-video-models";
 
 export type { VideoAspectRatio, VideoReferenceMode } from "@/lib/video-providers/shared";
 export { normalizeVideoModelId, videoAspectRatioForSize } from "@/lib/video-providers/shared";
@@ -106,7 +106,7 @@ export function videoModelCapabilityContract(model: string): VideoModelCapabilit
         sizes: ["720x1280", "1280x720"],
         resolution,
         referenceImageLimit,
-        supportsGeneratedAudio: isSeedanceVideoModel(model) ? seedanceSupportsGeneratedAudio(model) : isTokaxisMiniMaxH3VideoModel(model) || isGoogleVideoModel(model),
+        supportsGeneratedAudio: isSeedanceVideoModel(model) ? seedanceSupportsGeneratedAudio(model) : isProductVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model) || isGoogleVideoModel(model),
         agentPromptLimits: DEFAULT_AGENT_VIDEO_PROMPT_LIMITS,
         promptProfile: isSeedanceVideoModel(model)
             ? "multimodal"
@@ -135,7 +135,7 @@ export function fixedVideoDurationOptions(model: string): readonly number[] | nu
 }
 
 export function isCanvasVideoModel(model: string) {
-    return isGoogleVideoModel(model) || isGrokVideoModel(model) || isSeedanceVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model) || isTokaxisVideo30Model(model);
+    return isProductVideoModel(model) || isGoogleVideoModel(model) || isGrokVideoModel(model) || isSeedanceVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model) || isTokaxisVideo30Model(model);
 }
 
 export function fixedVideoResolution(model: string, duration?: string | number): "720" | "1080" | "1440" | "2K" | null {
@@ -150,11 +150,15 @@ export function fixedVideoResolution(model: string, duration?: string | number):
 }
 
 export function videoReferenceMode(model: string, referenceCount: number) {
+    const product = productVideoSpec(model);
+    if (product?.family === "omni") return googleVideoReferenceMode("omni", referenceCount);
     if (isSeedanceVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model) || isTokaxisVideo30Model(model)) return referenceCount > 1 ? "r2v" : referenceCount === 1 ? "i2v" : "t2v";
     return isGoogleVideoModel(model) ? googleVideoReferenceMode(model, referenceCount) : grokVideoReferenceMode(model, referenceCount);
 }
 
 export function videoReferenceImageLimit(model: string) {
+    const product = productVideoSpec(model);
+    if (product?.family === "omni") return 3;
     if (isTokaxisVideo30Model(model)) return VIDEO30_REFERENCE_LIMITS.images;
     if (isTokaxisMiniMaxH3VideoModel(model)) return MINIMAX_H3_REFERENCE_LIMITS.images;
     if (isSeedanceVideoModel(model)) return SEEDANCE_REFERENCE_LIMITS.images;
@@ -162,6 +166,8 @@ export function videoReferenceImageLimit(model: string) {
 }
 
 export function supportsVideoReferenceCount(model: string, referenceImageCount: number) {
+    const product = productVideoSpec(model);
+    if (product?.family === "omni") return referenceImageCount >= 0 && referenceImageCount <= 3;
     if (isTokaxisVideo30Model(model)) return referenceImageCount >= 0 && referenceImageCount <= VIDEO30_REFERENCE_LIMITS.images;
     if (isTokaxisMiniMaxH3VideoModel(model)) return referenceImageCount >= 0 && referenceImageCount <= MINIMAX_H3_REFERENCE_LIMITS.images;
     if (isSeedanceVideoModel(model)) return referenceImageCount >= 0 && referenceImageCount <= SEEDANCE_REFERENCE_LIMITS.images;
@@ -169,6 +175,8 @@ export function supportsVideoReferenceCount(model: string, referenceImageCount: 
 }
 
 export function normalizeModelVideoSeconds(value: string, model: string) {
+    const product = productVideoSpec(model);
+    if (product?.family === "omni") return "10";
     if (isTokaxisVideo30Model(model)) return "30";
     if (isTokaxisMiniMaxH3VideoModel(model)) return String(normalizeMiniMaxH3Duration(value));
     if (isGoogleVideoModel(model)) return normalizeGoogleVideoSeconds(value, model);
@@ -187,6 +195,8 @@ export function normalizeReferenceVideoSeconds(value: string, model: string, ref
 }
 
 export function selectVideoReferenceImages<T>(items: T[], model: string) {
+    const product = productVideoSpec(model);
+    if (product?.family === "omni") return selectGoogleVideoReferenceImages(items, "omni");
     if (isTokaxisVideo30Model(model)) return items.slice(0, VIDEO30_REFERENCE_LIMITS.images);
     if (isTokaxisMiniMaxH3VideoModel(model)) return items.slice(0, MINIMAX_H3_REFERENCE_LIMITS.images);
     if (isSeedanceVideoModel(model)) return items.slice(0, SEEDANCE_REFERENCE_LIMITS.images);
@@ -194,6 +204,8 @@ export function selectVideoReferenceImages<T>(items: T[], model: string) {
 }
 
 export function selectVideoReferenceImagesWithPriority<T>(priorityItems: T[], timelineItems: T[], model: string) {
+    const product = productVideoSpec(model);
+    if (product?.family === "omni") return selectGoogleVideoReferenceImagesWithPriority(priorityItems, timelineItems, "omni");
     if (isTokaxisVideo30Model(model)) return [...priorityItems, ...timelineItems].slice(0, VIDEO30_REFERENCE_LIMITS.images);
     if (isTokaxisMiniMaxH3VideoModel(model)) return [...priorityItems, ...timelineItems].slice(0, MINIMAX_H3_REFERENCE_LIMITS.images);
     if (isSeedanceVideoModel(model)) return [...priorityItems, ...timelineItems].slice(0, SEEDANCE_REFERENCE_LIMITS.images);

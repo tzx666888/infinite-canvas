@@ -40,6 +40,7 @@ import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { isGoogleVideoModel, normalizeModelVideoSeconds, selectVideoReferenceImagesWithPriority, videoAspectRatioForSize } from "@/lib/video-model-settings";
 import { isTokaxisMiniMaxH3VideoModel } from "@/lib/minimax-h3-video";
+import { isProductVideoModel } from "@/lib/product-video-models";
 import { isSeedanceVideoModel } from "@/lib/seedance-video";
 import { isGrokVideoModel } from "@/lib/video-providers/grok-video";
 import { buildStoryboardVideoConstraintPrompt, GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, STORYBOARD_DIRECTED_VIDEO_MARKER, unwrapStoryboardVideoUserDirection } from "@/lib/storyboard-video-constraints";
@@ -7106,7 +7107,7 @@ function videoBridgeErrorMessage(error: unknown) {
 }
 
 function isProductLockBridgeVideoModel(model: string) {
-    return isGoogleVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model) || isSeedanceVideoModel(model) || isGrokVideoModel(model);
+    return isProductVideoModel(model) || isGoogleVideoModel(model) || isTokaxisMiniMaxH3VideoModel(model) || isSeedanceVideoModel(model) || isGrokVideoModel(model);
 }
 
 function stripImageMentionRoles(prompt: string) {
