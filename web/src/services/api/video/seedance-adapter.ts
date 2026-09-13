@@ -21,12 +21,13 @@ export async function createSeedanceVideoTaskRequest(input: {
     model: string;
     payload: Record<string, unknown>;
     options?: VideoRequestOptions;
-    provider?: "seedance" | "video30";
+    provider?: "seedance" | "video30" | "aliyun-enhancer";
 }): Promise<VideoGenerationTask> {
     const created = unwrapSeedanceTask((await axios.post<ApiEnvelope<SeedanceTaskResponse>>(input.endpoint, input.payload, { headers: input.headers, signal: input.options?.signal })).data);
     const taskId = created.id || created.task_id;
     if (!taskId) throw new Error("Seedance 接口没有返回任务 ID");
     if (input.provider === "video30") return { id: taskId, provider: "video30", model: input.model };
+    if (input.provider === "aliyun-enhancer") return { id: taskId, provider: "aliyun-enhancer", model: input.model };
     return { id: taskId, provider: "seedance", model: input.model };
 }
 

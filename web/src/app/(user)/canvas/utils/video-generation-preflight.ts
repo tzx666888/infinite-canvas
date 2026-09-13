@@ -14,6 +14,7 @@ import {
 import { fixedVideoResolution, googleVideoRouteAspectRatio, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
 import { isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, normalizeMiniMaxH3AspectRatio, tokaxisMiniMaxH3Resolution } from "@/lib/minimax-h3-video";
 import { isVideo30Config, normalizeVideo30Ratio, VIDEO30_REFERENCE_LIMITS } from "@/lib/video30";
+import { isTokaxisVideoEnhancerModel } from "@/lib/aliyun-video-enhancer";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -139,6 +140,12 @@ function validateNormalizedVideoGenerationPreflight(input: VideoGenerationPrefli
     if (isGoogleVideoModel(modelName)) {
         if (videos.length || audios.length) errors.push("Veo / Omni 不支持参考视频或参考音频；请移除这些素材，或切换到 Seedance 2.0");
         if (!input.prompt && !images.length) errors.push("请输入视频提示词，或至少连接 1 张参考图");
+        return errors;
+    }
+
+    if (isTokaxisVideoEnhancerModel(modelName)) {
+        if (images.length || audios.length) errors.push("阿里超分模型只接受 1 个参考视频，请移除图片和音频");
+        if (videos.length !== 1) errors.push("阿里超分模型需要且只能连接 1 个成片视频");
         return errors;
     }
 

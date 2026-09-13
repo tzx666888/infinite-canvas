@@ -22,6 +22,7 @@ import {
 } from "@/lib/seedance-video";
 import { buildTokaxisMiniMaxH3Payload, isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, normalizeTokaxisMiniMaxH3Model, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
 import { isVideo30Config, normalizeVideo30Ratio } from "@/lib/video30";
+import { isTokaxisVideoEnhancerModel } from "@/lib/aliyun-video-enhancer";
 import { buildCompactVideoProductScalePrompt, buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { classifyVideoPromptDetail, hasConcreteVideoOpening, shouldSubmitRawVideoPrompt, type VideoPromptDetail } from "@/lib/video-prompt-policy";
 import { VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
@@ -65,8 +66,8 @@ export async function requestVideoGeneration(
 }
 
 export async function resumeVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: VideoRequestOptions): Promise<VideoGenerationResult> {
-    const delayMs = task.provider === "seedance" || task.provider === "video30" ? 5000 : 2500;
-    const maxAttempts = task.provider === "video30" ? 240 : task.provider === "seedance" ? SEEDANCE_VIDEO_POLL_MAX_ATTEMPTS : OPENAI_VIDEO_POLL_MAX_ATTEMPTS;
+    const delayMs = task.provider === "seedance" || task.provider === "video30" || task.provider === "aliyun-enhancer" ? 5000 : 2500;
+    const maxAttempts = task.provider === "video30" || task.provider === "aliyun-enhancer" ? 240 : task.provider === "seedance" ? SEEDANCE_VIDEO_POLL_MAX_ATTEMPTS : OPENAI_VIDEO_POLL_MAX_ATTEMPTS;
     let transientFailures = 0;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -83,7 +84,7 @@ export async function resumeVideoGenerationTask(config: AiConfig, task: VideoGen
         }
         if (state.status === "completed") return state.result;
         if (state.status === "failed") throw new Error(state.error);
-        if (attempt === maxAttempts - 1) throw new Error(`${task.provider === "seedance" ? "Seedance " : task.provider === "video30" ? "30 秒长视频 " : ""}视频生成超时，请稍后重试`);
+        if (attempt === maxAttempts - 1) throw new Error(`${task.provider === "seedance" ? "Seedance " : task.provider === "video30" ? "30 秒长视频 " : task.provider === "aliyun-enhancer" ? "阿里超分 " : ""}视频任务超时，请稍后重试`);
         await delay(delayMs, options?.signal);
     }
     throw new Error("视频生成超时，请稍后重试");
@@ -99,6 +100,10 @@ export async function createVideoGenerationTask(
 ): Promise<VideoGenerationTask> {
     const configuredModel = (config.videoModel || config.model).trim();
     const configuredRequest = resolveModelRequestConfig(config, configuredModel);
+    if (isTokaxisVideoEnhancerModel(configuredRequest.model)) {
+        assertVideoConfig(configuredRequest, configuredRequest.model);
+        return createAliyunVideoEnhancerTask(configuredRequest, configuredModel, videoReferences, options);
+    }
     if (isVideo30Config(configuredRequest)) {
         assertVideoConfig(configuredRequest, configuredRequest.model);
         return createVideo30Task(configuredRequest, configuredModel, prompt, references, videoReferences, audioReferences, options);
@@ -125,6 +130,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     const requestConfig = resolveModelRequestConfig(config, task.model);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (task.provider === "seedance" || task.provider === "video30") return pollSeedanceTask(requestConfig, task, options);
+    if (task.provider === "aliyun-enhancer") return pollAliyunEnhancerTask(requestConfig, task, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
 
@@ -763,6 +769,24 @@ async function createVideo30Task(config: AiConfig, model: string, prompt: string
     }
 }
 
+async function createAliyunVideoEnhancerTask(config: AiConfig, model: string, videoReferences: ReferenceVideo[], options?: VideoRequestOptions): Promise<VideoGenerationTask> {
+    if (!isTokaxisProxyBaseUrl(config.baseUrl)) throw new Error("阿里超分仅支持通过平台模型调用");
+    if (videoReferences.length !== 1) throw new Error("阿里超分模型需要且只能连接 1 个成片视频");
+    const source = await resolveSeedanceVideoUrl(videoReferences[0]);
+    try {
+        return await createSeedanceVideoTaskRequest({
+            endpoint: aiApiUrl(config, "/videos"),
+            headers: aiHeaders(config, "application/json"),
+            model: modelOptionName(model),
+            payload: { model: modelOptionName(model), video_url: source, size: config.size },
+            options,
+            provider: "aliyun-enhancer",
+        });
+    } catch (error) {
+        throw new Error(readAxiosError(error, "阿里超分任务创建失败"));
+    }
+}
+
 async function pollSeedanceTask(config: AiConfig, task: VideoGenerationTask, options?: VideoRequestOptions): Promise<VideoGenerationTaskState> {
     try {
         return await pollSeedanceVideoTaskRequest({
@@ -773,6 +797,19 @@ async function pollSeedanceTask(config: AiConfig, task: VideoGenerationTask, opt
         });
     } catch (error) {
         throw new Error(readAxiosError(error, "Seedance 任务查询失败"));
+    }
+}
+
+async function pollAliyunEnhancerTask(config: AiConfig, task: VideoGenerationTask, options?: VideoRequestOptions): Promise<VideoGenerationTaskState> {
+    try {
+        return await pollSeedanceVideoTaskRequest({
+            endpoint: aiApiUrl(config, `/videos/${encodeURIComponent(task.id)}`),
+            contentEndpoint: aiApiUrl(config, `/videos/${encodeURIComponent(task.id)}/content`),
+            headers: aiHeaders(config),
+            options,
+        });
+    } catch (error) {
+        throw new Error(readAxiosError(error, "阿里超分任务查询失败"));
     }
 }
 
