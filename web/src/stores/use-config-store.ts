@@ -78,8 +78,8 @@ const TOKAXIS_CHANNEL_ID = "tokaxis";
 const TOKAXIS_BASE_URL = "/api/gateway";
 const TOKAXIS_STATION_BASE_URL = "https://ai.tokaxis.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-const TOKAXIS_DEFAULTS_VERSION = 27;
-const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 27;
+const TOKAXIS_DEFAULTS_VERSION = 28;
+const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 28;
 export const TOKAXIS_AGENT_TEXT_MODEL_IDS = ["gpt-5.6-sol", "doubao-seed-2-1-pro-260628"] as const;
 const TOKAXIS_FALLBACK_MODELS = [
     "gpt-image-2",
@@ -487,7 +487,7 @@ function normalizeTokaxisChannels(config: AiConfig) {
     const shouldMigrateModels = (config.tokaxisDefaultsVersion || 0) < TOKAXIS_DEFAULTS_VERSION;
     const models = sanitizeTokaxisModels(
         modelSource.length
-            ? [...modelSource, ...TOKAXIS_AGENT_TEXT_MODEL_IDS, ...(shouldMigrateModels ? ["gpt-5.6-sol", ...TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS, ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS] : [])]
+            ? [...modelSource, ...TOKAXIS_AGENT_TEXT_MODEL_IDS, ...(shouldMigrateModels ? ["gpt-5.6-sol", ...TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS, ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS, ...PRODUCT_VIDEO_MODEL_IDS] : [])]
             : TOKAXIS_FALLBACK_MODELS,
     );
     return [
