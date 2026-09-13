@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v3.157.30
+
+- [模型迁移] 提升 TokAxis 画布默认配置版本，确保已有浏览器会话重新执行模型清单迁移并显示 Omni、SD30、MiniMax H3 的 1080p/1080p Pro 产品入口。
+- [回归] 保留 `omni`、`omni_portrait`、`sd30`、`MiniMaxH3-720p`、`MiniMaxH3-2k` 基础模型及其原有路由，不重新加入已隐藏的供应商别名。
+
 ## v3.157.29
 
 - [视频模型] 保留原有基础视频模型，仅新增 Omni、MiniMax H3、SD30 的 1080p 与 1080p Pro 六个增强入口；移除重复的 720p 产品化别名。

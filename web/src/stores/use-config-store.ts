@@ -78,8 +78,10 @@ const TOKAXIS_CHANNEL_ID = "tokaxis";
 const TOKAXIS_BASE_URL = "/api/gateway";
 const TOKAXIS_STATION_BASE_URL = "https://ai.tokaxis.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-const TOKAXIS_DEFAULTS_VERSION = 28;
-const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 28;
+// Bump this whenever the product model allow-list changes so existing
+// browsers re-run the persisted-config migration and receive new models.
+const TOKAXIS_DEFAULTS_VERSION = 29;
+const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 29;
 export const TOKAXIS_AGENT_TEXT_MODEL_IDS = ["gpt-5.6-sol", "doubao-seed-2-1-pro-260628"] as const;
 const TOKAXIS_FALLBACK_MODELS = [
     "gpt-image-2",
