@@ -28,8 +28,6 @@ export function modelDisplayInfo(model: string): ModelDisplayInfo {
     if (lower === "qy-seedance-2.0") return { label: "Seedance 2.0", description: "图/视频/音频多参考；5/10/15 秒；最高 1080p；支持声音；可识别真人图受上游隐私审核", badge: "Seedance" };
     if (lower === "qy-seedance-2.0-fast") return { label: "Seedance 2.0 Fast", description: "图/视频/音频多参考；5/10/15 秒；最高 720p；支持声音；可识别真人图受上游隐私审核", badge: "Seedance" };
     if (lower === "sd30") return { label: "30 秒长视频", description: "文字或最多 9 张参考图；固定 30 秒；支持六种画面比例", badge: "30Video" };
-    if (lower === "1080") return { label: "阿里超分 1080", description: "连接 1 个成片视频；超分增强输出", badge: "阿里云" };
-    if (lower === "1080pro") return { label: "阿里超分 Pro 1080", description: "连接 1 个成片视频；超分+画质增强输出", badge: "阿里云" };
     if (lower === "minimaxh3-720p") return { label: "MiniMax H3 720p", description: "文字或最多 5 张参考图；5–15 秒；横屏/竖屏；支持声音", badge: "MiniMax" };
     if (lower === "minimaxh3-2k") return { label: "MiniMax H3 2K", description: "文字或最多 5 张参考图；5–15 秒；2K；横屏/竖屏；支持声音", badge: "MiniMax" };
     if (lower === "grok-imagine-video-1.5-fast") return { label: "Grok Fast 视频", description: "无参考/单图 6、10、15 秒；2–7 图 6、10 秒；720p", badge: "Grok" };

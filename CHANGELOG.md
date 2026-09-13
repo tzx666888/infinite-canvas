@@ -2,9 +2,14 @@
 
 ## Unreleased
 
+## v3.157.26
+
+- [模型清单] 移除画布公开的阿里超分 `1080` / `1080pro` 入口，避免把后台增强链误显示为独立模型。
+- [回归] 现有 Omni、MiniMax H3、Veo、Seedance、sd30 模型清单与路由保持不变。
+
 ## v3.157.25
 
-- [阿里视频增强] 新增 `1080`（SuperResolveVideo）与 `1080pro`（EnhanceVideoQuality）画布模型；仅接受 1 个已生成视频作为输入，异步任务通过中转站回传成片，不改变现有 Omni、H3、Veo、Seedance、sd30 路由。
+- [画布模型清单] 阿里视频增强暂不加入画布公开模型清单；现有 Omni、H3、Veo、Seedance、sd30 路由保持不变。
 - [回归] `bun run build` 通过；现有视频模型分支保持独立。
 
 ## v3.157.24
