@@ -6,10 +6,11 @@ import type { NextRequest } from "next/server";
 import { AuthError, authErrorResponse } from "../../../../lib/auth/auth-error.ts";
 import { enforceRateLimit, requestAddress } from "../../../../lib/auth/rate-limit.ts";
 import { authenticateCanvasApiKey } from "../../../../lib/auth/store.ts";
-import { ensureGatewayTaskReconciler, finalizeGatewayResponse, publicModelPrices, reconcileGatewayTaskResponse, refundGatewayReservation, reserveGatewayRequest, settleGatewayReservation, type GatewayReservation } from "../../../../lib/gateway/billing.ts";
+import { ensureGatewayTaskReconciler, finalizeGatewayResponse, publicModelPrices, reconcileGatewayTaskResponse, refundGatewayReservation, resolveCanvasBillingModel, reserveGatewayRequest, settleGatewayReservation, type GatewayReservation } from "../../../../lib/gateway/billing.ts";
 import { buildCanvasAttributionHeaders } from "../../../../lib/gateway/attribution.ts";
 import { sanitizeGatewayErrorResponse } from "../../../../lib/gateway/errors.ts";
 import { resolveCanvasUpstreamAuthorization } from "../../../../lib/gateway/upstream-auth.ts";
+import { claimVideoEnhancementGrant, commitVideoEnhancementGrant, isCompatibleProductBaseModel, isInternalVideoEnhancerModel, isVideoCreationPath, rememberVideoEnhancementGrant, releaseVideoEnhancementGrant, type VideoEnhancementGrant } from "../../../../lib/gateway/video-enhancement-grants.ts";
 import { storeTemporaryMediaDataUrl } from "../../../../lib/temporary-media.ts";
 
 export const runtime = "nodejs";
@@ -40,6 +41,7 @@ const STRIPPED_REQUEST_HEADERS = [
     "x-canvas-user-id",
     "x-canvas-username",
     "x-canvas-attribution",
+    "x-canvas-billing-model",
     "x-canvas-request-id",
     "cookie",
     "host",
@@ -57,6 +59,9 @@ const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "content-le
 const GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE = "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
 const TOKAXIS_ASYNC_VIDEO_MODELS = new Set(["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimaxh3-720p", "minimaxh3-2k", "sd30"]);
 const TOKAXIS_LEGACY_GROK_VIDEO_MODELS = new Set(["grok-imagine-video-1.5-fast", "grok-imagine-video-1.5-preview", "grok-imagine-video-1.5-1080p"]);
+// Productized 1080p pipelines use these private ids for the second hop. They
+// are deliberately absent from the public price/catalog list and must not
+// create a second customer charge.
 const legacyGrokVideoTaskIds = new Set<string>();
 
 type RouteContext = {
@@ -77,6 +82,7 @@ export function OPTIONS() {
 
 async function proxyGateway(request: NextRequest, context: RouteContext) {
     let reservation: GatewayReservation | null = null;
+    let enhancementGrant: VideoEnhancementGrant | null = null;
     try {
         const params = await context.params;
         const path = (params.path || []).join("/");
@@ -96,7 +102,12 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         const rawBody = request.method === "GET" ? undefined : await readBoundedRequestBody(request);
         const bodyRequest = () => recreateRequest(request, rawBody);
         ensureGatewayTaskReconciler();
-        reservation = await reserveGatewayRequest(bodyRequest(), path, { keyId: identity.keyId, userId: identity.user.id });
+        const requestModel = request.method === "POST" ? await requestBodyModel(bodyRequest()) : "";
+        const canvasRequestId = request.headers.get("x-canvas-request-id")?.trim() || randomUUID();
+        if (request.method === "POST" && isVideoCreationPath(path) && isInternalVideoEnhancerModel(requestModel)) {
+            enhancementGrant = claimVideoEnhancementGrant({ userId: identity.user.id, requestId: canvasRequestId, enhancerModel: requestModel });
+        }
+        reservation = enhancementGrant ? null : await reserveGatewayRequest(bodyRequest(), path, { keyId: identity.keyId, userId: identity.user.id }, canvasRequestId);
 
         const upstreamUrl = new URL(`${UPSTREAM_ORIGIN}/${path}`);
         upstreamUrl.search = request.nextUrl.search;
@@ -105,7 +116,6 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         STRIPPED_REQUEST_HEADERS.forEach((name) => headers.delete(name));
         headers.set("Authorization", authorization);
         headers.set("Accept-Encoding", "identity");
-        const canvasRequestId = request.headers.get("x-canvas-request-id")?.trim() || randomUUID();
         buildCanvasAttributionHeaders({ userId: identity.user.id, username: identity.user.username }, canvasRequestId).forEach((value, key) => headers.set(key, value));
 
         let videoModel = "";
@@ -124,6 +134,7 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
             body = rawBody === undefined ? undefined : isMiniMaxH3Model(videoModel) ? await prepareMiniMaxH3RequestBody(bodyRequest()) : exactArrayBuffer(rawBody);
         } catch (error) {
             const message = error instanceof Error ? error.message : "参考素材处理失败";
+            if (enhancementGrant) releaseVideoEnhancementGrant(enhancementGrant);
             return finishGatewayResponse(Response.json({ error: { code: "invalid_reference_media", message } }, { status: 400 }), reservation);
         }
         if (request.method === "POST" && LONG_RUNNING_IMAGE_PATH.test(path)) return proxyLongRunningImage(upstreamUrl, headers, body, reservation);
@@ -139,6 +150,7 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         if (!upstreamResponse.ok) {
             const responseText = await upstreamResponse.text();
             console.error("[canvas-gateway] upstream request failed", { path, status: upstreamResponse.status, body: responseText.slice(0, 1000) });
+            if (enhancementGrant) releaseVideoEnhancementGrant(enhancementGrant);
             return finishGatewayResponse(
                 new Response(sanitizeGatewayErrorResponse(responseText, upstreamResponse.status), { status: upstreamResponse.status, headers: { ...Object.fromEntries(responseHeaders.entries()), "Content-Type": "application/json; charset=utf-8" } }),
                 reservation,
@@ -150,11 +162,21 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
             return finalizeGatewayResponse(catalogResponse, reservation);
         }
 
+        const requestedBillingModel = request.headers.get("x-canvas-billing-model") || "";
+        const resolvedBillingModel = resolveCanvasBillingModel(requestModel, requestedBillingModel);
+        const bodyModel = requestModel.trim().toLowerCase().split("::").at(-1) || "";
+        const billingModel = resolvedBillingModel.trim().toLowerCase().split("::").at(-1) || "";
+        if (request.method === "POST" && isVideoCreationPath(path) && billingModel !== bodyModel && isCompatibleProductBaseModel(billingModel, bodyModel)) {
+            rememberVideoEnhancementGrant({ userId: identity.user.id, requestId: canvasRequestId, publicModel: billingModel, baseModel: bodyModel });
+        }
+        if (enhancementGrant) commitVideoEnhancementGrant(enhancementGrant);
+
         const response = new Response(upstreamResponse.body, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: responseHeaders });
         const finalized = await finalizeGatewayResponse(response, reservation);
         return request.method === "GET" ? reconcileGatewayTaskResponse(path, finalized) : finalized;
     } catch (error) {
         if (reservation) refundGatewayReservation(reservation, "模型服务连接失败，积分退回");
+        if (enhancementGrant) releaseVideoEnhancementGrant(enhancementGrant);
         return authErrorResponse(error);
     }
 }
@@ -259,6 +281,20 @@ async function materializeMiniMaxH3Media(value: unknown, publicOrigin: string): 
 
 async function videoGenerationRequestModel(request: Request) {
     try {
+        const payload = (await request.clone().json()) as { model?: unknown };
+        return typeof payload?.model === "string" ? payload.model : "";
+    } catch {
+        return "";
+    }
+}
+
+async function requestBodyModel(request: Request) {
+    try {
+        if ((request.headers.get("content-type") || "").includes("multipart/form-data")) {
+            const form = await request.clone().formData();
+            const model = form.get("model");
+            return typeof model === "string" ? model : "";
+        }
         const payload = (await request.clone().json()) as { model?: unknown };
         return typeof payload?.model === "string" ? payload.model : "";
     } catch {

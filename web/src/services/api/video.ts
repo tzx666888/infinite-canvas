@@ -27,7 +27,7 @@ import { productVideoBaseModel, productVideoSpec } from "@/lib/product-video-mod
 import { buildCompactVideoProductScalePrompt, buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { classifyVideoPromptDetail, hasConcreteVideoOpening, shouldSubmitRawVideoPrompt, type VideoPromptDetail } from "@/lib/video-prompt-policy";
 import { VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
-import { buildApiUrl, isTokaxisProxyBaseUrl, modelOptionName, requiresClientApiKey, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, decodeChannelModel, encodeChannelModel, isTokaxisProxyBaseUrl, modelOptionName, requiresClientApiKey, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { createGoogleFlowVideoTaskRequest, pollGoogleFlowVideoTaskRequest } from "@/services/api/video/google-flow-adapter";
@@ -45,11 +45,13 @@ function aiApiUrl(config: AiConfig, path: string) {
     return buildApiUrl(config.baseUrl, path);
 }
 
-function aiHeaders(config: AiConfig, contentType?: string) {
+function aiHeaders(config: AiConfig, contentType?: string, options?: VideoRequestOptions) {
     const apiKey = config.apiKey.trim();
     return {
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
         ...(contentType ? { "Content-Type": contentType } : {}),
+        ...(options?.requestId ? { "x-canvas-request-id": options.requestId } : {}),
+        ...(options?.billingModel ? { "x-canvas-billing-model": modelOptionName(options.billingModel) } : {}),
     };
 }
 
@@ -104,9 +106,10 @@ export async function createVideoGenerationTask(
     if (productSpec) {
         const portrait = /(?:9:16|portrait|vertical|720x1280|1080x1920)/i.test(config.size);
         const baseModel = productVideoBaseModel(configuredModel, portrait);
-        const baseConfig = { ...config, model: baseModel, videoModel: baseModel };
+        const baseModelOption = preserveChannelModel(configuredModel, baseModel);
+        const baseConfig = { ...config, model: baseModelOption, videoModel: baseModelOption };
         if (productSpec.quality !== "720p") return createProductEnhancedVideoTask(baseConfig, configuredModel, productSpec.enhancerModel || "1080", prompt, references, videoReferences, audioReferences, options);
-        const configuredRequest = resolveModelRequestConfig(baseConfig, baseModel);
+        const configuredRequest = resolveModelRequestConfig(baseConfig, baseModelOption);
         return createVideoGenerationTaskWithRequest(configuredRequest, baseModel, prompt, references, videoReferences, audioReferences, options);
     }
     const configuredRequest = resolveModelRequestConfig(config, configuredModel);
@@ -159,14 +162,25 @@ async function createProductEnhancedVideoTask(
     options?: VideoRequestOptions,
 ): Promise<VideoGenerationTask> {
     if (videoReferences.length || audioReferences.length) throw new Error("1080p 视频增强只接受原模型生成结果，不能再连接参考视频或参考音频");
-    const baseTask = await createVideoGenerationTask(baseConfig, prompt, references, [], [], { signal: options?.signal });
-    const baseResult = await resumeVideoGenerationTask(baseConfig, baseTask, { signal: options?.signal });
-    let sourceUrl = baseResult.url;
-    if (!sourceUrl && baseResult.blob) sourceUrl = (await uploadMediaFile(baseResult.blob, "video")).url;
+    const requestOptions = withVideoRequestId(options);
+    const baseTask = await createVideoGenerationTask(baseConfig, prompt, references, [], [], { ...requestOptions, billingModel: publicModel });
+    const baseResult = await resumeVideoGenerationTask(baseConfig, baseTask, { signal: requestOptions.signal });
+    // A browser blob: URL cannot be fetched by the server-side enhancer. Always
+    // materialize the completed base clip before handing it to the bridge.
+    let sourceUrl = "";
+    if (baseResult.blob) sourceUrl = await blobToDataUrl(baseResult.blob, "video/mp4");
+    else if (baseResult.url) {
+        const source = await fetch(baseResult.url);
+        if (!source.ok) throw new Error(`原模型视频下载失败（${source.status}）`);
+        sourceUrl = await blobToDataUrl(await source.blob(), "video/mp4");
+    }
     if (!sourceUrl) throw new Error("原模型未返回可供增强的视频");
-    const requestConfig = resolveModelRequestConfig(baseConfig, enhancerModel);
-    const task = await createAliyunVideoEnhancerTaskFromUrl(requestConfig, enhancerModel, sourceUrl, options);
-    return { ...task, model: enhancerModel };
+    // Keep the same platform channel as the base task; the private enhancer ids
+    // are intentionally not part of the public model catalog.
+    const enhancerModelOption = preserveChannelModel(baseConfig.model, enhancerModel);
+    const requestConfig = { ...resolveModelRequestConfig(baseConfig, baseConfig.model), model: enhancerModel };
+    const task = await createAliyunVideoEnhancerTaskFromUrl(requestConfig, enhancerModelOption, sourceUrl, requestOptions);
+    return { ...task, model: enhancerModelOption };
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: VideoRequestOptions): Promise<VideoGenerationTaskState> {
@@ -226,7 +240,7 @@ async function createFlowVideoTask(config: AiConfig, model: string, prompt: stri
     try {
         return await createGoogleFlowVideoTaskRequest({
             endpoint: aiApiUrl(config, "/videos"),
-            headers: aiHeaders(config),
+            headers: aiHeaders(config, undefined, options),
             model: modelName,
             taskModel: model,
             prompt: promptText,
@@ -711,7 +725,7 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
             watermark: boolConfig(config.videoWatermark, false),
         });
         try {
-            return await createSeedanceVideoTaskRequest({ endpoint: seedanceApiUrl(config), headers: aiHeaders(config, "application/json"), model, payload, options });
+            return await createSeedanceVideoTaskRequest({ endpoint: seedanceApiUrl(config), headers: aiHeaders(config, "application/json", options), model, payload, options });
         } catch (error) {
             throw new Error(readAxiosError(error, "Seedance 任务创建失败"));
         }
@@ -731,7 +745,7 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
     };
 
     try {
-        return await createSeedanceVideoTaskRequest({ endpoint: seedanceApiUrl(config), headers: aiHeaders(config, "application/json"), model, payload, options });
+        return await createSeedanceVideoTaskRequest({ endpoint: seedanceApiUrl(config), headers: aiHeaders(config, "application/json", options), model, payload, options });
     } catch (error) {
         throw new Error(readAxiosError(error, "Seedance 任务创建失败"));
     }
@@ -764,7 +778,7 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
     try {
         return await createSeedanceVideoTaskRequest({
             endpoint: seedanceApiUrl(config),
-            headers: aiHeaders(config, "application/json"),
+            headers: aiHeaders(config, "application/json", options),
             model: model || TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID,
             payload,
             options,
@@ -801,7 +815,7 @@ async function createVideo30Task(config: AiConfig, model: string, prompt: string
     try {
         return await createSeedanceVideoTaskRequest({
             endpoint: seedanceApiUrl(config),
-            headers: aiHeaders(config, "application/json"),
+            headers: aiHeaders(config, "application/json", options),
             model,
             payload,
             options,
@@ -823,7 +837,7 @@ async function createAliyunVideoEnhancerTaskFromUrl(config: AiConfig, model: str
     try {
         return await createSeedanceVideoTaskRequest({
             endpoint: aiApiUrl(config, "/videos"),
-            headers: aiHeaders(config, "application/json"),
+            headers: aiHeaders(config, "application/json", options),
             model: modelOptionName(model),
             payload: { model: modelOptionName(model), video_url: source, size: config.size },
             options,
@@ -1042,11 +1056,24 @@ function delay(ms: number, signal?: AbortSignal) {
     });
 }
 
-function blobToDataUrl(blob: Blob) {
+function preserveChannelModel(value: string, rawModel: string) {
+    const channel = decodeChannelModel(value);
+    return channel ? encodeChannelModel(channel.channelId, rawModel) : rawModel;
+}
+
+function withVideoRequestId(options?: VideoRequestOptions): VideoRequestOptions {
+    const requestId = options?.requestId?.trim();
+    if (requestId) return { ...options, requestId };
+    const cryptoApi = globalThis.crypto as Crypto & { randomUUID?: () => string } | undefined;
+    const generated = cryptoApi?.randomUUID?.() || `canvas-video-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return { ...options, requestId: generated };
+}
+
+function blobToDataUrl(blob: Blob, fallbackMimeType = "application/octet-stream") {
     return new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
         reader.onerror = () => reject(new Error("读取本地素材失败"));
-        reader.readAsDataURL(blob);
+        reader.readAsDataURL(blob.type ? blob : new Blob([blob], { type: fallbackMimeType }));
     });
 }

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { AuthError } from "../auth/auth-error.ts";
 import { listSubmittedBillingTasks, refundCredits, refundCreditsByTask, reserveCredits, resolveCustomerPrice, settleCredits, settleCreditsByTask } from "../auth/store.ts";
+import { productVideoSpec } from "../product-video-models.ts";
 import { resolveCanvasUpstreamAuthorization } from "./upstream-auth.ts";
 
 type PriceUnit = "request" | "image" | "second";
@@ -215,7 +216,26 @@ async function requestUsage(request: Request, path: string) {
     } catch {
         throw new AuthError("请求内容无法解析", 400, "invalid_request_body");
     }
-    return { model: model.split("::").at(-1) || model, images, seconds };
+    return { model: resolveCanvasBillingModel(model, request.headers.get("x-canvas-billing-model")), images, seconds };
+}
+
+/**
+ * Product video requests use the public product id for billing while the
+ * upstream body continues to carry the provider's base model id.  Only a
+ * product id whose declared base model matches the request body is accepted;
+ * arbitrary client headers can therefore never downgrade another model's
+ * price.
+ */
+export function resolveCanvasBillingModel(requestModel: string, requestedBillingModel?: string | null) {
+    const bodyModel = requestModel.trim().toLowerCase().split("::").at(-1) || "";
+    const candidate = (requestedBillingModel || "").trim().toLowerCase().split("::").at(-1) || "";
+    if (!candidate || candidate === bodyModel) return bodyModel || requestModel.trim();
+    const spec = productVideoSpec(candidate);
+    if (!spec || spec.quality === "720p") return bodyModel || requestModel.trim();
+    if (spec.family === "omni") {
+        return bodyModel === "omni" || bodyModel === "omni_portrait" ? candidate : bodyModel || requestModel.trim();
+    }
+    return bodyModel === spec.baseModel.trim().toLowerCase() ? candidate : bodyModel || requestModel.trim();
 }
 
 function defaultVideoSeconds(path: string) {
