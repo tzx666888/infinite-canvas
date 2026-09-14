@@ -22,6 +22,7 @@ assert.match(serviceSource, /x-canvas-request-id/, "enhanced video hops must sha
 assert.match(serviceSource, /x-canvas-billing-model/, "the base hop must carry the public product billing id");
 assert.match(serviceSource, /blobToDataUrl\(baseResult\.blob/, "the enhancer must receive materialized video data");
 assert.match(serviceSource, /blobToDataUrl\(await source\.blob\(\)/, "URL results must be downloaded before enhancement");
+assert.match(serviceSource, /prompt:\s*VIDEO_ENHANCER_PROMPT/, "the enhancer request must satisfy the gateway prompt requirement");
 assert.doesNotMatch(serviceSource, /uploadMediaFile\(baseResult\.blob/, "a browser blob URL must never be handed to the server enhancer");
 assert.match(gatewaySource, /claimVideoEnhancementGrant/, "private enhancement requests must require a server-side grant");
 assert.match(gatewaySource, /commitVideoEnhancementGrant/, "successful enhancement requests must consume their grant");

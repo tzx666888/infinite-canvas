@@ -40,6 +40,7 @@ export type { VideoGenerationResult, VideoGenerationTask, VideoGenerationTaskSta
 const OPENAI_VIDEO_POLL_MAX_ATTEMPTS = 240;
 const SEEDANCE_VIDEO_POLL_MAX_ATTEMPTS = 120;
 const VIDEO_POLL_TRANSIENT_RETRY_LIMIT = 12;
+const VIDEO_ENHANCER_PROMPT = "Enhance the supplied video while preserving its content, motion, composition, and audio.";
 
 function aiApiUrl(config: AiConfig, path: string) {
     return buildApiUrl(config.baseUrl, path);
@@ -839,7 +840,7 @@ async function createAliyunVideoEnhancerTaskFromUrl(config: AiConfig, model: str
             endpoint: aiApiUrl(config, "/videos"),
             headers: aiHeaders(config, "application/json", options),
             model: modelOptionName(model),
-            payload: { model: modelOptionName(model), video_url: source, size: config.size },
+            payload: { model: modelOptionName(model), prompt: VIDEO_ENHANCER_PROMPT, video_url: source, size: config.size },
             options,
             provider: "aliyun-enhancer",
         });
