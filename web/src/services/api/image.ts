@@ -75,6 +75,17 @@ type ResponseApiPayload = {
     msg?: string;
 };
 type ResponseStreamState = { buffer: string; text: string; payload?: ResponseApiPayload; error?: string };
+type ChatCompletionPayload = {
+    choices?: Array<{
+        message?: {
+            content?: string | null | Array<{ type?: string; text?: string }>;
+            tool_calls?: Array<{ id?: string; type?: string; function?: { name?: string; arguments?: string }; thought_signature?: string }>;
+        };
+    }>;
+    error?: { message?: string };
+    code?: number;
+    msg?: string;
+};
 
 type ImageApiResponse = {
     data?: unknown;
@@ -944,6 +955,70 @@ async function requestStreamingResponse(config: AiConfig, body: Record<string, u
     return { ...result, content: state.text || result.content };
 }
 
+function toChatCompletionMessages(messages: ResponseInputMessage[]) {
+    return messages.map((message) => {
+        if ("type" in message) {
+            return {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                    {
+                        id: message.call_id,
+                        type: "function",
+                        function: { name: message.name, arguments: message.arguments },
+                        ...(message.thoughtSignature ? { thought_signature: message.thoughtSignature } : {}),
+                    },
+                ],
+            };
+        }
+        if (message.role === "tool") return { role: "tool", tool_call_id: message.tool_call_id, content: message.content };
+        return message;
+    });
+}
+
+function toChatCompletionToolChoice(toolChoice: ToolChoice) {
+    return typeof toolChoice === "object" ? { type: "function", function: { name: toolChoice.name } } : toolChoice;
+}
+
+async function requestChatCompletionToolResponse(
+    config: AiConfig,
+    messages: ResponseInputMessage[],
+    tools: ResponseFunctionTool[],
+    toolChoice: ToolChoice,
+    onDelta?: (text: string) => void,
+    options?: RequestOptions,
+): Promise<ToolResponseResult> {
+    const response = await fetch(aiApiUrl(config, "/chat/completions"), {
+        method: "POST",
+        headers: { ...aiHeaders(config, "application/json"), Accept: "application/json" },
+        body: JSON.stringify({
+            model: config.model,
+            messages: toChatCompletionMessages(withSystemMessage(config, messages)),
+            tools,
+            tool_choice: toChatCompletionToolChoice(toolChoice),
+            parallel_tool_calls: false,
+            stream: false,
+        }),
+        signal: options?.signal,
+    });
+    if (!response.ok) throw new Error(await readFetchError(response, "请求失败"));
+    const payload = (await response.json()) as ChatCompletionPayload;
+    if ((typeof payload.code === "number" && payload.code !== 0) || payload.error?.message) throw new Error(payload.error?.message || payload.msg || "请求失败");
+    const message = payload.choices?.[0]?.message;
+    const content = Array.isArray(message?.content) ? message.content.map((item) => item.text || "").join("") : message?.content || "";
+    const toolCalls = (message?.tool_calls || [])
+        .map((call) => ({
+            id: call.id || "",
+            type: "function" as const,
+            function: { name: call.function?.name || "", arguments: call.function?.arguments || "{}" },
+            ...(call.thought_signature ? { thoughtSignature: call.thought_signature } : {}),
+        }))
+        .filter((call) => call.id && call.function.name);
+    const result = { content: sanitizeModelResponseText(content), toolCalls };
+    if (result.content) onDelta?.(result.content);
+    return result;
+}
+
 function toGeminiBody(config: AiConfig, messages: ResponseInputMessage[], extra?: Record<string, unknown>) {
     const systemText = [config.systemPrompt.trim(), ...messages.flatMap((message) => (!("type" in message) && message.role === "system" ? [geminiTextContent(message.content)] : []))].filter(Boolean).join("\n\n");
     const contents = toGeminiContents(messages.filter((message) => ("type" in message ? true : message.role !== "system")));
@@ -1315,6 +1390,8 @@ export async function requestToolResponse(config: AiConfig, messages: ResponseIn
                 const result =
                     requestConfig.apiFormat === "gemini"
                         ? await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages, toGeminiToolOptions(tools, toolChoice)), onDelta, options)
+                        : modelOptionName(requestConfig.model).trim().toLowerCase() === "gemini-3.8-flash-high"
+                          ? await requestChatCompletionToolResponse(requestConfig, messages, tools, toolChoice, onDelta, options)
                         : await requestStreamingResponse(
                               requestConfig,
                               {

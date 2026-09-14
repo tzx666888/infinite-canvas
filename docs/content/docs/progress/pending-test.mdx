@@ -5,6 +5,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- v3.157.33 Gemini 3.8 Agent 协议：选择 `Gemini 3.8 Flash High` 后，普通对话和带工具的画布 Agent 均经 Chat Completions 成功返回，不得再请求不受支持的 Responses 协议或出现 `unknown provider`。
+
 - v3.157.32 Gemini 回归：画布文本模型可选择 `Gemini 3.8 Flash High` 并获得真实回复；`internal` 与 `canvas` 中转组返回 200，`vip` 与 `svip` 保持 503。图片模型可选择 `Gemini 3.1 Flash Image 4K`，生成结果为有效 4K 图片；中转站 Google 生图线路对现有全部用户组可用。
 
 - v3.157.31 模型清单与增强入口：生产画布模型下拉必须同时显示 Omni 基础入口、Omni 1080p/Omni 1080p Pro、MiniMax H3 720p/2K/1080p/1080p Pro、sd30 基础入口、30 秒长视频 1080p/1080p Pro；基础模型路由和增强链均须可提交，旧 `*-720p` 产品化别名不得公开。公网 `/api/settings` 与中转站模型广场清单保持一致。

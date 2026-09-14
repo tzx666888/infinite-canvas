@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v3.157.33
+
+- [Gemini 3.8 Agent] 针对中转站不支持 Gemini Responses 协议的问题，画布自动改走 Chat Completions，并保留多轮工具调用格式。
+- [回归] 真实画布 Key 已验证 3.8 文本回复与 Google 4K 生图；临时测试 Key 测试后撤销。
+
 ## v3.157.32
 
 - [Gemini 3.8] 画布文本模型清单新增 `gemini-3.8-flash-high`，已有浏览器配置自动迁移并获得新入口。
