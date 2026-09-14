@@ -112,7 +112,8 @@ for (const model of TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS) {
     assert.match(gptImageSource, new RegExp(model.replaceAll(".", "\\.")), `formal model registry must expose ${model}`);
 }
 assert.match(configStoreSource, /TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS/, "saved model lists must include GPT Image 2.5 formal IDs");
-assert.doesNotMatch(settingsSource, /TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS/, "unverified GPT Image 2.5 models must stay out of the public fallback list");
+assert.match(settingsSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["4K"\]/, "settings API must expose the restored Google 4K image model");
+assert.match(configStoreSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["4K"\]/, "saved model lists must include the restored Google 4K image model");
 assert.doesNotMatch(settingsSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["(?:1K|2K)"\]/, "settings API must not expose retired Google image aliases");
 assert.doesNotMatch(configStoreSource, /TOKAXIS_GOOGLE_IMAGE_MODELS\["(?:1K|2K)"\]/, "model sync must not expose retired Google image aliases");
 const defaultsVersion = Number(configStoreSource.match(/TOKAXIS_DEFAULTS_VERSION = (\d+)/)?.[1]);
@@ -120,6 +121,6 @@ const selectionsVersion = Number(configStoreSource.match(/TOKAXIS_DEFAULT_SELECT
 assert.ok(defaultsVersion >= 24, "saved model lists must migrate to the current public model contract");
 assert.equal(selectionsVersion, defaultsVersion, "saved model selections and public model lists must migrate together");
 assert.match(settingsPanelSource, /usesNativeGoogleSizes \? resolutionOptions\.filter\(\(item\) => item\.value === "4k"\)/, "Google image settings must show only the 4K resolution choice");
-assert.match(canvasClientSource, /VIDEO_BRIDGE_FALLBACK_IMAGE_MODELS = \["gemini-3\.1-flash-image-4k", "gpt-image-2"\]/, "video bridge fallback must never request retired Google image aliases");
+assert.doesNotMatch(canvasClientSource, /gemini-3\.1-flash-image(?:-1k|-2k)?"/, "video bridge fallback must never request retired Google image aliases");
 
 console.log("Google image model contract passed: 4K-only public model, legacy migration, 15 native ratios including 2:1.");

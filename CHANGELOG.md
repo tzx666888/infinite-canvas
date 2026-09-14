@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v3.157.32
+
+- [Gemini 3.8] 画布文本模型清单新增 `gemini-3.8-flash-high`，已有浏览器配置自动迁移并获得新入口。
+- [Google 生图] 重新公开已恢复的 `gemini-3.1-flash-image-4k`，历史基础/1K/2K 选择统一迁移到 4K。
+- [计费] Gemini 3.8 按每次请求 1 credit、Google 4K 生图按每张 2 credits；中转站价格和分组权限保持独立。
+
 ## v3.157.31
 
 - [视频模型] 修复产品化 Omni 增强 ID 被 Google 入口压缩的问题，使 `omni-1080p` 与 `omni-1080p-pro` 可独立选择并沿用 Omni 路由。
