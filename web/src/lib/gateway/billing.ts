@@ -155,7 +155,14 @@ async function reconcileSubmittedGatewayTasks(state: { started: boolean; running
 
 function fallbackVideoTaskPath(model: string) {
     const normalized = model.trim().toLowerCase();
-    if (["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimaxh3-720p", "minimaxh3-2k", "sd30"].includes(normalized)) return "v1/videos/generations";
+    if ([
+        "seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast",
+        "minimaxh3-720p", "minimaxh3-2k", "sd30", "omni", "omni_portrait",
+        // The nine public tiers.
+        "minimax-h3-720p", "minimax-h3-1080p", "minimax-h3-1080p-pro",
+        "sd30-720p", "sd30-1080p", "sd30-1080p-pro",
+        "omni-720p", "omni-1080p", "omni-1080p-pro",
+    ].includes(normalized)) return "v1/videos/generations";
     if (normalized.startsWith("grok-imagine-video-")) return "v1/videos";
     return "v1/videos";
 }

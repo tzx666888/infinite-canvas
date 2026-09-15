@@ -57,7 +57,12 @@ const STRIPPED_REQUEST_HEADERS = [
 ];
 const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "content-length", "transfer-encoding", "x-oneapi-request-id", "x-oneapi-node", "x-oneapi-version"];
 const GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE = "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
-const TOKAXIS_ASYNC_VIDEO_MODELS = new Set(["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimaxh3-720p", "minimaxh3-2k", "sd30"]);
+const TOKAXIS_ASYNC_VIDEO_MODELS = new Set(["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimaxh3-720p", "minimaxh3-2k", "sd30",
+    // The nine public tiers. The -1080p ones are orchestrated station side, so the
+    // gateway forwards them as a single call rather than chaining enhancement here.
+    "minimax-h3-720p", "minimax-h3-1080p", "minimax-h3-1080p-pro",
+    "sd30-720p", "sd30-1080p", "sd30-1080p-pro",
+    "omni-720p", "omni-1080p", "omni-1080p-pro"]);
 const TOKAXIS_LEGACY_GROK_VIDEO_MODELS = new Set(["grok-imagine-video-1.5-fast", "grok-imagine-video-1.5-preview", "grok-imagine-video-1.5-1080p"]);
 // Productized 1080p pipelines use these private ids for the second hop. They
 // are deliberately absent from the public price/catalog list and must not
@@ -306,8 +311,15 @@ function isTokaxisAsyncVideoModel(model: string) {
     return TOKAXIS_ASYNC_VIDEO_MODELS.has(model.trim().toLowerCase().split("::").at(-1) || "");
 }
 
+// Public H3 tiers plus the bare upstream ids. Reference images must be uploaded
+// and rewritten for every one of them: MiniMax rejects inline base64 with 413.
+const TOKAXIS_MINIMAX_H3_MODELS = new Set([
+    "minimaxh3-720p", "minimaxh3-2k",
+    "minimax-h3-720p", "minimax-h3-1080p", "minimax-h3-1080p-pro",
+]);
+
 function isMiniMaxH3Model(model: string) {
-    return new Set(["minimaxh3-720p", "minimaxh3-2k"]).has(model.trim().toLowerCase().split("::").at(-1) || "");
+    return TOKAXIS_MINIMAX_H3_MODELS.has(model.trim().toLowerCase().split("::").at(-1) || "");
 }
 
 function isTokaxisLegacyGrokVideoModel(model: string) {

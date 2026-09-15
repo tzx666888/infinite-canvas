@@ -10,6 +10,9 @@ export type ProductVideoSpec = {
 };
 
 const SPECS: ProductVideoSpec[] = [
+    { id: "minimax-h3-720p", family: "minimax-h3", quality: "720p", baseModel: "MiniMaxH3-720p" },
+    { id: "sd30-720p", family: "sd30", quality: "720p", baseModel: "sd30" },
+    { id: "omni-720p", family: "omni", quality: "720p", baseModel: "omni" },
     { id: "minimax-h3-1080p", family: "minimax-h3", quality: "1080p", baseModel: "MiniMaxH3-720p", enhancerModel: "1080" },
     { id: "minimax-h3-1080p-pro", family: "minimax-h3", quality: "1080p-pro", baseModel: "MiniMaxH3-720p", enhancerModel: "1080pro" },
     { id: "sd30-1080p", family: "sd30", quality: "1080p", baseModel: "sd30", enhancerModel: "1080" },

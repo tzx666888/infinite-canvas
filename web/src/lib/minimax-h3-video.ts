@@ -5,17 +5,24 @@ export const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID = "MiniMaxH3-720p";
 export const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS = [TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID, "MiniMaxH3-2k"] as const;
 const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID_SET = new Set(TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()));
 
+/** The three tiers the station publishes; it owns any super-resolution behind them. */
+export const PUBLIC_MINIMAX_H3_MODEL_IDS = new Set(["minimax-h3-720p", "minimax-h3-1080p", "minimax-h3-1080p-pro"]);
+
 export function normalizeTokaxisMiniMaxH3Model(value: string) {
     const normalized = (value.trim().split("::").at(-1) || "").toLowerCase();
-    if (["minimax-h3-1080p", "minimax-h3-1080p-pro", "minimaxh3-2k"].includes(normalized)) return "MiniMaxH3-2k";
-    if (["minimax-h3-720p", "minimaxh3-720p"].includes(normalized)) return "MiniMaxH3-720p";
+    // Public tiers go upstream untouched - the station maps them onto the base model.
+    if (PUBLIC_MINIMAX_H3_MODEL_IDS.has(normalized)) return normalized;
+    if (normalized === "minimaxh3-2k") return "MiniMaxH3-2k";
+    if (normalized === "minimaxh3-720p") return "MiniMaxH3-720p";
     throw new Error(`不支持的 MiniMax H3 视频模型：${value || "(空)"}`);
 }
 
 export function tokaxisMiniMaxH3Resolution(value: string) {
     const normalized = (value.trim().split("::").at(-1) || "").toLowerCase();
-    if (["minimax-h3-1080p", "minimax-h3-1080p-pro", "minimaxh3-2k"].includes(normalized)) return "2K";
-    if (["minimax-h3-720p", "minimaxh3-720p"].includes(normalized)) return "768P";
+    // Every public tier is generated at 768P; the 1080p tiers are upscaled upstream.
+    if (PUBLIC_MINIMAX_H3_MODEL_IDS.has(normalized)) return "768P";
+    if (normalized === "minimaxh3-2k") return "2K";
+    if (normalized === "minimaxh3-720p") return "768P";
     throw new Error(`不支持的 MiniMax H3 视频模型：${value || "(空)"}`);
 }
 
@@ -33,8 +40,11 @@ export function isMiniMaxH3VideoConfig(config: AiConfig | Pick<AiConfig, "model"
     return isTokaxisMiniMaxH3VideoModel(config.videoModel || config.model);
 }
 
+export const MINIMAX_H3_DURATION_OPTIONS = [10, 15] as const;
+
 export function normalizeMiniMaxH3Duration(value: string | number) {
-    return Math.max(5, Math.min(15, Math.floor(Number(value) || 5)));
+    // Only 10s and 15s are sold; anything shorter snaps up to the 10s tier.
+    return Number(value) >= 15 ? 15 : 10;
 }
 
 export function normalizeMiniMaxH3AspectRatio(value: string) {

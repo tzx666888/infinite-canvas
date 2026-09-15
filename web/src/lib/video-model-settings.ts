@@ -22,7 +22,7 @@ import {
     supportsGrokVideoReferenceCount,
 } from "@/lib/video-providers/grok-video";
 import { fixedSeedanceVideoResolution, isSeedanceVideoModel, normalizeSeedanceDuration, seedanceDurationOptionsForModel, seedanceSupportsGeneratedAudio, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { isTokaxisMiniMaxH3VideoModel, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, tokaxisMiniMaxH3Resolution } from "@/lib/minimax-h3-video";
+import { isTokaxisMiniMaxH3VideoModel, MINIMAX_H3_DURATION_OPTIONS, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, tokaxisMiniMaxH3Resolution } from "@/lib/minimax-h3-video";
 import { isTokaxisVideo30Model, VIDEO30_DURATION_OPTIONS, VIDEO30_REFERENCE_LIMITS } from "@/lib/video30";
 import { isProductVideoModel, productVideoSpec } from "@/lib/product-video-models";
 
@@ -94,7 +94,7 @@ export type VideoModelCapabilityContract = {
  */
 export function videoModelCapabilityContract(model: string): VideoModelCapabilityContract | null {
     if (!isCanvasVideoModel(model)) return null;
-    const durations = fixedVideoDurationOptions(model) || (isTokaxisMiniMaxH3VideoModel(model) ? [5, 10, 15] : [6, 10, 15]);
+    const durations = fixedVideoDurationOptions(model) || (isTokaxisMiniMaxH3VideoModel(model) ? MINIMAX_H3_DURATION_OPTIONS : [6, 10, 15]);
     const resolution = fixedVideoResolution(model, durations[0]) || (isTokaxisMiniMaxH3VideoModel(model) ? "1440" : "720");
     const referenceImageLimit = videoReferenceImageLimit(model);
     const referenceMode = videoReferenceMode(model, Math.min(2, Math.max(1, referenceImageLimit)));
@@ -127,7 +127,7 @@ export function agentVideoPromptLimits(model?: string) {
 export function fixedVideoDurationOptions(model: string): readonly number[] | null {
     const product = productVideoSpec(model);
     if (product?.family === "sd30") return VIDEO30_DURATION_OPTIONS;
-    if (product?.family === "minimax-h3") return [5, 10, 15] as const;
+    if (product?.family === "minimax-h3") return MINIMAX_H3_DURATION_OPTIONS;
     if (product?.family === "omni") return [10] as const;
     if (isTokaxisVideo30Model(model)) return VIDEO30_DURATION_OPTIONS;
     if (isSeedanceVideoModel(model)) return seedanceDurationOptionsForModel(model);
