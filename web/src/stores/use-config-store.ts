@@ -90,8 +90,8 @@ const TOKAXIS_FALLBACK_MODELS = [
     TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
     ...GOOGLE_VEO_MODEL_IDS,
     ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS,
-    ...TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()),
-    ...TOKAXIS_VIDEO30_MODEL_IDS.map((model) => model.toLowerCase()),
+    // PRODUCT_VIDEO_MODEL_IDS carries all nine public tiers; the bare upstream ids
+    // (minimaxh3-720p, minimaxh3-2k, sd30) stay routable but are no longer offered.
     ...PRODUCT_VIDEO_MODEL_IDS,
     ...TOKAXIS_AGENT_TEXT_MODEL_IDS,
     TOKAXIS_GEMINI_38_MODEL_ID,

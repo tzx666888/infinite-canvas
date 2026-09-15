@@ -23,7 +23,7 @@ import {
 import { buildTokaxisMiniMaxH3Payload, isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, normalizeTokaxisMiniMaxH3Model, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
 import { isVideo30Config, normalizeVideo30Ratio } from "@/lib/video30";
 import { isTokaxisVideoEnhancerModel } from "@/lib/aliyun-video-enhancer";
-import { productVideoBaseModel, productVideoSpec } from "@/lib/product-video-models";
+import { normalizeProductVideoModel, productVideoBaseModel, productVideoSpec } from "@/lib/product-video-models";
 import { buildCompactVideoProductScalePrompt, buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { classifyVideoPromptDetail, hasConcreteVideoOpening, shouldSubmitRawVideoPrompt, type VideoPromptDetail } from "@/lib/video-prompt-policy";
 import { VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
@@ -105,13 +105,13 @@ export async function createVideoGenerationTask(
     const configuredModel = (config.videoModel || config.model).trim();
     const productSpec = productVideoSpec(configuredModel);
     if (productSpec) {
-        const portrait = /(?:9:16|portrait|vertical|720x1280|1080x1920)/i.test(config.size);
-        const baseModel = productVideoBaseModel(configuredModel, portrait);
-        const baseModelOption = preserveChannelModel(configuredModel, baseModel);
-        const baseConfig = { ...config, model: baseModelOption, videoModel: baseModelOption };
-        if (productSpec.quality !== "720p") return createProductEnhancedVideoTask(baseConfig, configuredModel, productSpec.enhancerModel || "1080", prompt, references, videoReferences, audioReferences, options);
-        const configuredRequest = resolveModelRequestConfig(baseConfig, baseModelOption);
-        return createVideoGenerationTaskWithRequest(configuredRequest, baseModel, prompt, references, videoReferences, audioReferences, options);
+        // The station runs base generation and super-resolution behind this id. Doing
+        // it here too would charge the customer for the enhancement leg a second time.
+        const publicModel = normalizeProductVideoModel(configuredModel);
+        const publicModelOption = preserveChannelModel(configuredModel, publicModel);
+        const publicConfig = { ...config, model: publicModelOption, videoModel: publicModelOption };
+        const configuredRequest = resolveModelRequestConfig(publicConfig, publicModelOption);
+        return createVideoGenerationTaskWithRequest(configuredRequest, publicModel, prompt, references, videoReferences, audioReferences, options);
     }
     const configuredRequest = resolveModelRequestConfig(config, configuredModel);
     return createVideoGenerationTaskWithRequest(configuredRequest, configuredModel, prompt, references, videoReferences, audioReferences, options);
