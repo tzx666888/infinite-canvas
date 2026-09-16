@@ -23,7 +23,7 @@ import {
 import { buildTokaxisMiniMaxH3Payload, isMiniMaxH3VideoConfig, MINIMAX_H3_REFERENCE_LIMITS, normalizeMiniMaxH3Duration, normalizeTokaxisMiniMaxH3Model, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID } from "@/lib/minimax-h3-video";
 import { isVideo30Config, normalizeVideo30Ratio } from "@/lib/video30";
 import { isTokaxisVideoEnhancerModel } from "@/lib/aliyun-video-enhancer";
-import { normalizeProductVideoModel, productVideoBaseModel, productVideoSpec } from "@/lib/product-video-models";
+import { normalizeProductVideoModel, productVideoBaseModel, productVideoFlowPolicyModel, productVideoSpec } from "@/lib/product-video-models";
 import { buildCompactVideoProductScalePrompt, buildVideoProductScalePrompt } from "@/lib/video-product-scale";
 import { classifyVideoPromptDetail, hasConcreteVideoOpening, shouldSubmitRawVideoPrompt, type VideoPromptDetail } from "@/lib/video-prompt-policy";
 import { VIDEO_WORKBENCH_PROMPT_MARKER } from "@/lib/video-workbench-prompt";
@@ -111,6 +111,11 @@ export async function createVideoGenerationTask(
         const publicModelOption = preserveChannelModel(configuredModel, publicModel);
         const publicConfig = { ...config, model: publicModelOption, videoModel: publicModelOption };
         const configuredRequest = resolveModelRequestConfig(publicConfig, publicModelOption);
+        if (productSpec.family === "omni") {
+            assertVideoConfig(configuredRequest, configuredRequest.model);
+            if (videoReferences.length || audioReferences.length) throw new Error("Omni 不支持参考视频或参考音频，请移除这些素材");
+            return createFlowVideoTask(configuredRequest, publicModelOption, prompt, references, options);
+        }
         return createVideoGenerationTaskWithRequest(configuredRequest, publicModel, prompt, references, videoReferences, audioReferences, options);
     }
     const configuredRequest = resolveModelRequestConfig(config, configuredModel);
@@ -217,18 +222,19 @@ export async function storeGeneratedVideo(result: VideoGenerationResult, request
 
 async function createFlowVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: VideoRequestOptions): Promise<VideoGenerationTask> {
     const modelName = modelOptionName(model);
-    if (!supportsGoogleVideoReferenceCount(modelName, references.length)) {
-        const limit = googleVideoReferenceImageLimit(modelName);
+    const policyModel = productVideoFlowPolicyModel(modelName) || modelName;
+    if (!supportsGoogleVideoReferenceCount(policyModel, references.length)) {
+        const limit = googleVideoReferenceImageLimit(policyModel);
         if (references.length > limit) {
-            throw new Error(`${googleVideoModelDisplayName(modelName)}最多支持 ${limit} 张参考图，请移除多余图片后重试`);
+            throw new Error(`${googleVideoModelDisplayName(policyModel)}最多支持 ${limit} 张参考图，请移除多余图片后重试`);
         }
-        const mode = googleVideoReferenceMode(modelName, references.length);
-        throw new Error(mode === "i2v" ? `${googleVideoModelDisplayName(modelName)} 需要连接 1–2 张参考图` : `${googleVideoModelDisplayName(modelName)} 需要连接 1–3 张参考图`);
+        const mode = googleVideoReferenceMode(policyModel, references.length);
+        throw new Error(mode === "i2v" ? `${googleVideoModelDisplayName(policyModel)} 需要连接 1–2 张参考图` : `${googleVideoModelDisplayName(policyModel)} 需要连接 1–3 张参考图`);
     }
     const requestReferences = references;
-    const seconds = normalizeGoogleVideoSeconds(config.videoSeconds, modelName);
+    const seconds = normalizeGoogleVideoSeconds(config.videoSeconds, policyModel);
     if (!prompt.trim() && !requestReferences.length) throw new Error("请输入视频提示词，或连接干净关键帧/参考图后再生成视频");
-    const referenceMode = googleVideoReferenceMode(modelName, requestReferences.length);
+    const referenceMode = googleVideoReferenceMode(policyModel, requestReferences.length);
     const promptText = facebookVideoSafeFramePrompt(limitVideoPrompt(buildReferenceVideoPrompt(prompt, references.length, requestReferences.length, seconds, config.videoProductScaleMode, referenceMode, config.videoPromptMode).trim()), config.size, 3600);
 
     const files = await Promise.all(
