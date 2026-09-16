@@ -12,6 +12,7 @@ import {
     isVideoCreationPath,
     rememberVideoEnhancementGrant,
 } from "../src/lib/gateway/video-enhancement-grants.ts";
+import { productVideoFlowPolicyModel } from "../src/lib/product-video-models.ts";
 
 const serviceSource = await readFile(new URL("../src/services/api/video.ts", import.meta.url), "utf8");
 const gatewaySource = await readFile(new URL("../src/app/api/gateway/[...path]/route.ts", import.meta.url), "utf8");
@@ -24,6 +25,12 @@ assert.match(serviceSource, /blobToDataUrl\(baseResult\.blob/, "the enhancer mus
 assert.match(serviceSource, /blobToDataUrl\(await source\.blob\(\)/, "URL results must be downloaded before enhancement");
 assert.match(serviceSource, /prompt:\s*VIDEO_ENHANCER_PROMPT/, "the enhancer request must satisfy the gateway prompt requirement");
 assert.doesNotMatch(serviceSource, /uploadMediaFile\(baseResult\.blob/, "a browser blob URL must never be handed to the server enhancer");
+assert.match(serviceSource, /productSpec\.family === "omni"/, "productized Omni must have an explicit transport branch");
+assert.match(serviceSource, /createFlowVideoTask\(configuredRequest, publicModelOption/, "Omni 1080p must submit its public product ID instead of the base Omni ID");
+assert.match(serviceSource, /productVideoFlowPolicyModel\(modelName\) \|\| modelName/, "public Omni IDs must reuse base Omni capability checks without rewriting the wire model");
+assert.equal(productVideoFlowPolicyModel("omni-1080p"), "omni");
+assert.equal(productVideoFlowPolicyModel("tokaxis::omni-1080p-pro"), "omni");
+assert.equal(productVideoFlowPolicyModel("omni"), "");
 assert.match(gatewaySource, /claimVideoEnhancementGrant/, "private enhancement requests must require a server-side grant");
 assert.match(gatewaySource, /commitVideoEnhancementGrant/, "successful enhancement requests must consume their grant");
 assert.match(gatewaySource, /request\.clone\(\)\.formData\(\)/, "multipart Omni requests must expose their model to billing/grant routing");

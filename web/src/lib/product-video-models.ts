@@ -47,6 +47,16 @@ export function productVideoBaseModel(value: string, portrait = false) {
     return spec.baseModel;
 }
 
+/**
+ * Productized Omni IDs keep their public ID on the wire so new-api can route
+ * them to the 1080p orchestrator.  Only capability checks use the base Omni
+ * policy; replacing the request model itself would silently bypass channel 50.
+ */
+export function productVideoFlowPolicyModel(value: string) {
+    const spec = productVideoSpec(value);
+    return spec?.family === "omni" ? "omni" : "";
+}
+
 export function productVideoNeedsEnhancement(value: string) {
     return productVideoSpec(value)?.enhancerModel || null;
 }
