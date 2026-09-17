@@ -163,6 +163,7 @@ function fallbackVideoTaskPath(model: string) {
     const normalized = model.trim().toLowerCase();
     if ([
         "seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast",
+        "doubao-seedance-2-5-260628", "doubao-seedance-2-0-260128", "doubao-seedance-2-0-mini-260615", "doubao-seedance-2-0-fast-260128", "doubao-seedance-1-5-pro-251215",
         "minimaxh3-720p", "minimaxh3-2k", "sd30", "omni", "omni_portrait",
         // The nine public tiers.
         "minimax-h3-720p", "minimax-h3-1080p", "minimax-h3-1080p-pro",

@@ -1,4 +1,11 @@
-# Infinite Canvas v3.157.8
+# Infinite Canvas v3.157.41
+
+## v3.157.41 本次发布
+
+- 画布同步火山方舟官方 5 个 Seedance 视频模型，旧 3 个供应商型号不再公开。
+- 官方模型使用 `seconds + metadata` 异步协议，并按型号隔离分辨率、声音和参考素材参数。
+- 生产镜像目标：`ghcr.io/tzx666888/infinite-canvas:v3.157.41`。
+- 回滚目标：`ghcr.io/tzx666888/infinite-canvas:v3.157.40`；上线前备份 Compose、容器状态及画布账户数据。
 
 ## v3.157.8 本次发布
 

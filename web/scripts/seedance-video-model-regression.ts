@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
     buildTokaxisSeedanceVideoPayload,
     isSeedanceFixed720pModel,
+    isOfficialArkSeedanceModel,
     isSeedanceVideoModel,
     isTokaxisSeedanceVideoModel,
     normalizeSeedanceDuration,
@@ -14,6 +15,8 @@ import {
     seedanceResolutionOptionsForModel,
     seedanceSupportsGeneratedAudio,
     seedanceSupportsVideoAudioReferences,
+    TOKAXIS_LEGACY_SEEDANCE_VIDEO_MODEL_IDS,
+    TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_IDS,
     TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS,
 } from "../src/lib/seedance-video.ts";
 import { parseSeedanceVideoTaskState } from "../src/services/api/video/seedance-adapter.ts";
@@ -21,12 +24,22 @@ import { parseSeedanceVideoTaskState } from "../src/services/api/video/seedance-
 const fixed = "Seedance 2.0-fast-720p";
 const standard = "qy-seedance-2.0";
 const fast = "qy-seedance-2.0-fast";
+const official = [
+    "doubao-seedance-2-5-260628",
+    "doubao-seedance-2-0-260128",
+    "doubao-seedance-2-0-mini-260615",
+    "doubao-seedance-2-0-fast-260128",
+    "doubao-seedance-1-5-pro-251215",
+] as const;
 
-assert.deepEqual(TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS, [fixed, standard, fast]);
+assert.deepEqual(TOKAXIS_LEGACY_SEEDANCE_VIDEO_MODEL_IDS, [fixed, standard, fast]);
+assert.deepEqual(TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_IDS, official);
+assert.deepEqual(TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS, [fixed, standard, fast, ...official]);
 for (const model of TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS) {
     assert.equal(isSeedanceVideoModel(`tokaxis::${model}`), true, `${model} must be recognized as Seedance`);
     assert.equal(isTokaxisSeedanceVideoModel(`tokaxis::${model}`), true, `${model} must use the TokAxis Seedance protocol`);
 }
+for (const model of official) assert.equal(isOfficialArkSeedanceModel(model), true);
 
 assert.equal(isSeedanceFixed720pModel(fixed), true);
 assert.equal(normalizeSeedanceResolution("1080p", fixed), "720p");
@@ -78,7 +91,7 @@ assert.deepEqual(
         resolution: "720p",
         aspect_ratio: "9:16",
     },
-    "the fixed model payload must omit unsupported references and audio fields entirely",
+    "the fixed legacy model payload must remain unchanged while hidden from new customers",
 );
 assert.deepEqual(
     buildTokaxisSeedanceVideoPayload({
@@ -104,8 +117,44 @@ assert.deepEqual(
         generate_audio: false,
         watermark: true,
     },
-    "the standard model payload must keep only its supported controls",
+    "the standard legacy model payload must remain unchanged while hidden from new customers",
 );
+assert.deepEqual(
+    buildTokaxisSeedanceVideoPayload({
+        model: "doubao-seedance-2-0-mini-260615",
+        prompt: "move",
+        images: ["image"],
+        videos: ["video"],
+        audios: ["audio"],
+        duration: "5",
+        resolution: "1080p",
+        ratio: "9:16",
+        generateAudio: true,
+        watermark: false,
+    }),
+    {
+        model: "doubao-seedance-2-0-mini-260615",
+        prompt: "move",
+        images: ["image"],
+        seconds: "5",
+        metadata: {
+            resolution: "720p",
+            ratio: "9:16",
+            generate_audio: false,
+            watermark: false,
+            content: [
+                { type: "image_url", image_url: { url: "image" } },
+                { type: "video_url", video_url: { url: "video" } },
+                { type: "audio_url", audio_url: { url: "audio" } },
+            ],
+        },
+    },
+    "official Ark models must use seconds and metadata without leaking legacy top-level controls",
+);
+assert.equal(normalizeSeedanceResolution("1080p", "doubao-seedance-2-5-260628"), "1080p");
+assert.equal(normalizeSeedanceResolution("1080p", "doubao-seedance-2-0-260128"), "1080p");
+assert.equal(normalizeSeedanceResolution("1080p", "doubao-seedance-2-0-fast-260128"), "720p");
+assert.equal(normalizeSeedanceResolution("1080p", "doubao-seedance-2-0-mini-260615"), "720p");
 
 assert.deepEqual(parseSeedanceVideoTaskState({ id: "task-1", status: "queued" }), { status: "pending" });
 assert.deepEqual(parseSeedanceVideoTaskState({ id: "task-1", status: "completed", video: { url: "https://example.test/video.mp4" } }), {
@@ -131,8 +180,9 @@ assert.match(serviceSource, /buildTokaxisSeedanceVideoPayload/, "TokAxis Seedanc
 assert.match(proxySource, /isTokaxisAsyncVideoModel/, "the proxy must isolate async TokAxis video models from the legacy Grok rewrite");
 assert.match(proxySource, /videos\\\/generations\(\?:\\\/\[\^\/\]\+\)\?/, "the proxy must allow Seedance polling paths");
 const fallbackModelsBlock = configSource.match(/const TOKAXIS_FALLBACK_MODELS = \[([\s\S]*?)\n\];/)?.[1] ?? "";
-assert.doesNotMatch(fallbackModelsBlock, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/, "withdrawn Seedance models must stay out of the client fallback registry");
-assert.match(configSource, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS\.map\(\(model\) => model\.toLowerCase\(\)\)/, "persisted Seedance selections must be filtered during migration");
+assert.match(fallbackModelsBlock, /TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_IDS/, "official Ark Seedance models must be public fallback models");
+assert.doesNotMatch(fallbackModelsBlock, /TOKAXIS_LEGACY_SEEDANCE_VIDEO_MODEL_IDS/, "the three legacy Seedance ids must stay out of the client fallback registry");
+assert.match(configSource, /TOKAXIS_LEGACY_SEEDANCE_VIDEO_MODEL_IDS\.map\(\(model\) => model\.toLowerCase\(\)\)/, "persisted legacy Seedance selections must be filtered during migration");
 assert.doesNotMatch(settingsRouteSource, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/, "withdrawn Seedance models must stay out of the server fallback registry");
 
 console.log("Seedance video model regression checks passed");

@@ -59,6 +59,7 @@ const STRIPPED_REQUEST_HEADERS = [
 const STRIPPED_RESPONSE_HEADERS = ["connection", "content-encoding", "content-length", "transfer-encoding", "x-oneapi-request-id", "x-oneapi-node", "x-oneapi-version"];
 const GROK_VIDEO_CHANNEL_UNAVAILABLE_MESSAGE = "Grok 视频通道当前没有可用额度或正在冷却，请更换可用 Grok 视频通道后再试";
 const TOKAXIS_ASYNC_VIDEO_MODELS = new Set(["seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast", "minimaxh3-720p", "minimaxh3-2k", "sd30",
+    "doubao-seedance-2-5-260628", "doubao-seedance-2-0-260128", "doubao-seedance-2-0-mini-260615", "doubao-seedance-2-0-fast-260128", "doubao-seedance-1-5-pro-251215",
     // The nine public tiers. The -1080p ones are orchestrated station side, so the
     // gateway forwards them as a single call rather than chaining enhancement here.
     "minimax-h3-720p", "minimax-h3-1080p", "minimax-h3-1080p-pro",

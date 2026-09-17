@@ -12,7 +12,15 @@ export const SEEDANCE_REFERENCE_LIMITS = {
     audioMaxBytes: 15 * 1024 * 1024,
 };
 
-export const TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS = ["Seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast"] as const;
+export const TOKAXIS_LEGACY_SEEDANCE_VIDEO_MODEL_IDS = ["Seedance 2.0-fast-720p", "qy-seedance-2.0", "qy-seedance-2.0-fast"] as const;
+export const TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_IDS = [
+    "doubao-seedance-2-5-260628",
+    "doubao-seedance-2-0-260128",
+    "doubao-seedance-2-0-mini-260615",
+    "doubao-seedance-2-0-fast-260128",
+    "doubao-seedance-1-5-pro-251215",
+] as const;
+export const TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS = [...TOKAXIS_LEGACY_SEEDANCE_VIDEO_MODEL_IDS, ...TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_IDS] as const;
 
 export type TokaxisSeedanceVideoPayloadInput = {
     model: string;
@@ -28,7 +36,9 @@ export type TokaxisSeedanceVideoPayloadInput = {
 };
 
 const TOKAXIS_SEEDANCE_VIDEO_MODEL_ID_SET = new Set(TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()));
+const TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_ID_SET = new Set(TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_IDS.map((model) => model.toLowerCase()));
 const TOKAXIS_SEEDANCE_FIXED_720P_MODEL = "seedance 2.0-fast-720p";
+const TOKAXIS_SEEDANCE_720P_ONLY_MODELS = new Set(["doubao-seedance-2-0-mini-260615", "doubao-seedance-2-0-fast-260128", "doubao-seedance-1-5-pro-251215"]);
 
 export const seedanceResolutionOptions = [
     { value: "480p", label: "480p" },
@@ -89,6 +99,10 @@ export function isTokaxisSeedanceVideoModel(model: string) {
     return TOKAXIS_SEEDANCE_VIDEO_MODEL_ID_SET.has(rawModelName(model).toLowerCase());
 }
 
+export function isOfficialArkSeedanceModel(model: string) {
+    return TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_ID_SET.has(rawModelName(model).toLowerCase());
+}
+
 export function isSeedanceFixed720pModel(model: string) {
     return rawModelName(model).toLowerCase() === TOKAXIS_SEEDANCE_FIXED_720P_MODEL;
 }
@@ -99,10 +113,12 @@ export function isSeedanceFastModel(model: string) {
 }
 
 export function seedanceSupportsGeneratedAudio(model: string) {
+    if (isOfficialArkSeedanceModel(model)) return rawModelName(model).toLowerCase() === "doubao-seedance-1-5-pro-251215";
     return !isSeedanceFixed720pModel(model);
 }
 
 export function seedanceSupportsVideoAudioReferences(model: string) {
+    if (isOfficialArkSeedanceModel(model)) return rawModelName(model).toLowerCase() !== "doubao-seedance-1-5-pro-251215";
     return !isSeedanceFixed720pModel(model);
 }
 
@@ -112,12 +128,35 @@ export function buildTokaxisSeedanceVideoPayload(input: TokaxisSeedanceVideoPayl
 
     const fixed720p = isSeedanceFixed720pModel(model);
     const ratio = normalizeSeedanceRatio(input.ratio, model);
+    const duration = normalizeSeedanceDuration(input.duration, model);
+    const resolution = normalizeSeedanceResolution(input.resolution, model);
+    if (isOfficialArkSeedanceModel(model)) {
+        const supportsRichReferences = seedanceSupportsVideoAudioReferences(model);
+        const content = [
+            ...(input.images || []).map((url) => ({ type: "image_url", image_url: { url } })),
+            ...(supportsRichReferences ? input.videos || [] : []).map((url) => ({ type: "video_url", video_url: { url } })),
+            ...(supportsRichReferences ? input.audios || [] : []).map((url) => ({ type: "audio_url", audio_url: { url } })),
+        ];
+        return {
+            model,
+            prompt: input.prompt,
+            ...(input.images?.length ? { images: [...input.images] } : {}),
+            seconds: String(duration),
+            metadata: {
+                resolution,
+                ...(ratio === "adaptive" ? {} : { ratio }),
+                generate_audio: seedanceSupportsGeneratedAudio(model) && input.generateAudio,
+                watermark: input.watermark,
+                ...(content.some((item) => item.type !== "image_url") ? { content } : {}),
+            },
+        };
+    }
     const payload: Record<string, unknown> = {
         model,
         prompt: input.prompt,
         ...(input.images?.length ? { images: [...input.images] } : {}),
-        duration: normalizeSeedanceDuration(input.duration, model),
-        resolution: normalizeSeedanceResolution(input.resolution, model),
+        duration,
+        resolution,
         ...(ratio === "adaptive" ? {} : { aspect_ratio: ratio }),
     };
 
@@ -132,6 +171,7 @@ export function buildTokaxisSeedanceVideoPayload(input: TokaxisSeedanceVideoPayl
 
 export function seedanceResolutionOptionsForModel(model: string) {
     if (isSeedanceFixed720pModel(model)) return seedanceResolutionOptions.filter((item) => item.value === "720p");
+    if (TOKAXIS_SEEDANCE_720P_ONLY_MODELS.has(rawModelName(model).toLowerCase())) return seedanceResolutionOptions.filter((item) => item.value !== "1080p");
     if (isSeedanceFastModel(model)) return seedanceResolutionOptions.filter((item) => item.value !== "1080p");
     return seedanceResolutionOptions;
 }
@@ -151,6 +191,7 @@ export function isArkPlanBaseUrl(baseUrl: string) {
 export function normalizeSeedanceResolution(value: string, model = "") {
     const normalized = normalizeResolutionToken(value);
     if (isSeedanceFixed720pModel(model)) return "720p";
+    if (TOKAXIS_SEEDANCE_720P_ONLY_MODELS.has(rawModelName(model).toLowerCase()) && normalized === "1080p") return "720p";
     if (isSeedanceFastModel(model) && normalized === "1080p") return "720p";
     return seedanceResolutionOptions.some((item) => item.value === normalized) ? normalized : "720p";
 }
