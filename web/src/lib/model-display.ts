@@ -28,6 +28,11 @@ export function modelDisplayInfo(model: string): ModelDisplayInfo {
     if (lower === "seedance 2.0-fast-720p") return { label: "Seedance 2.0 Fast 720p", description: "文字或 1–9 张参考图；5/10/15 秒；固定 720p；无生成声音", badge: "Seedance" };
     if (lower === "qy-seedance-2.0") return { label: "Seedance 2.0", description: "图/视频/音频多参考；5/10/15 秒；最高 1080p；支持声音；可识别真人图受上游隐私审核", badge: "Seedance" };
     if (lower === "qy-seedance-2.0-fast") return { label: "Seedance 2.0 Fast", description: "图/视频/音频多参考；5/10/15 秒；最高 720p；支持声音；可识别真人图受上游隐私审核", badge: "Seedance" };
+    if (lower === "doubao-seedance-2-5-260628") return { label: "Seedance 2.5 官方版", description: "文字、图片、视频和音频参考；5/10/15 秒；最高 1080p", badge: "火山方舟" };
+    if (lower === "doubao-seedance-2-0-260128") return { label: "Seedance 2.0 官方版", description: "文字、图片、视频和音频参考；5/10/15 秒；最高 1080p", badge: "火山方舟" };
+    if (lower === "doubao-seedance-2-0-mini-260615") return { label: "Seedance 2.0 Mini", description: "低成本快速生成；5/10/15 秒；最高 720p", badge: "火山方舟" };
+    if (lower === "doubao-seedance-2-0-fast-260128") return { label: "Seedance 2.0 Fast 官方版", description: "高速视频生成；5/10/15 秒；最高 720p", badge: "火山方舟" };
+    if (lower === "doubao-seedance-1-5-pro-251215") return { label: "Seedance 1.5 Pro", description: "专业视频生成；5/10/15 秒；最高 720p；支持生成声音", badge: "火山方舟" };
     if (lower === "minimax-h3-720p") return { label: "MiniMax H3 720p", description: "文字或最多 5 张参考图；5–15 秒；支持声音", badge: "Video" };
     if (lower === "minimax-h3-1080p") return { label: "MiniMax H3 1080p", description: "原生视频生成与 1080p 输出", badge: "Video" };
     if (lower === "minimax-h3-1080p-pro") return { label: "MiniMax H3 1080p Pro", description: "原生视频生成与增强输出", badge: "Video" };
