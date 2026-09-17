@@ -174,26 +174,28 @@ try {
     await utimes(join(temporaryMediaDirectory, temporaryImageName), expiredAt, expiredAt);
     assert.equal(await readTemporaryMedia(temporaryImageName), null, "temporary media must be deleted after 24 hours");
 
-    const seedancePollRequest = new NextRequest("http://localhost/api/tokaxis/v1/videos/generations/task_seedance_contract", {
+    const seedanceTaskId = (await seedanceResponse.json()).id;
+    const seedancePollRequest = new NextRequest(`http://localhost/api/tokaxis/v1/videos/generations/${seedanceTaskId}`, {
         method: "GET",
         headers: { Authorization: `Bearer ${canvasKey}` },
     });
-    const seedancePollResponse = await GET(seedancePollRequest, { params: { path: ["v1", "videos", "generations", "task_seedance_contract"] } });
+    const seedancePollResponse = await GET(seedancePollRequest, { params: { path: ["v1", "videos", "generations", seedanceTaskId] } });
     assert.equal(seedancePollResponse.status, 200, "Seedance task polling path must be forwarded");
-    assert.match(capturedUrls.at(-1) || "", /\/v1\/videos\/generations\/task_seedance_contract$/, "Seedance polling must keep its task route");
+    assert.ok(capturedUrls.at(-1)?.endsWith(`/v1/videos/generations/${seedanceTaskId}`), "Seedance polling must keep its owned task route");
 
     const requestCountBeforeUnknownModel = capturedBodies.length;
     const unknownModelResponse = await create({ model: "unknown-video-model", prompt: "must not cross-route" });
     assert.equal(unknownModelResponse.status, 400, "unknown generation models must be rejected instead of rewritten as Grok");
     assert.equal(capturedBodies.length, requestCountBeforeUnknownModel, "unknown models must fail before an upstream request");
 
-    const ordinaryTaskRequest = new NextRequest("http://localhost/api/tokaxis/v1/videos/task_google_contract", {
+    const ordinaryTaskId = (await h3Response.json()).id;
+    const ordinaryTaskRequest = new NextRequest(`http://localhost/api/tokaxis/v1/videos/${ordinaryTaskId}`, {
         method: "GET",
         headers: { Authorization: `Bearer ${canvasKey}` },
     });
-    const ordinaryTaskResponse = await GET(ordinaryTaskRequest, { params: { path: ["v1", "videos", "task_google_contract"] } });
+    const ordinaryTaskResponse = await GET(ordinaryTaskRequest, { params: { path: ["v1", "videos", ordinaryTaskId] } });
     assert.equal(ordinaryTaskResponse.status, 200);
-    assert.match(capturedUrls.at(-1) || "", /\/v1\/videos\/task_google_contract$/, "generic task IDs must use the normal video polling route");
+    assert.ok(capturedUrls.at(-1)?.endsWith(`/v1/videos/${ordinaryTaskId}`), "owned generic task IDs must use the normal video polling route");
 
     const requestCountBeforeConflict = capturedBodies.length;
     const conflictResponse = await create({

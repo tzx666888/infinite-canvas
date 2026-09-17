@@ -119,34 +119,40 @@ const taskReconcilerState = globalThis as typeof globalThis & { __infiniteCanvas
 export function ensureGatewayTaskReconciler() {
     if (taskReconcilerState.__infiniteCanvasTaskReconciler?.started) return;
     const state = (taskReconcilerState.__infiniteCanvasTaskReconciler = { started: true, running: false });
-    const timer = setInterval(() => void reconcileSubmittedGatewayTasks(state), TASK_RECONCILE_INTERVAL_MS);
+    const run = () => void reconcileSubmittedGatewayTasks(state).catch((error) => console.error("[canvas-billing] reconciliation failed", error));
+    const timer = setInterval(run, TASK_RECONCILE_INTERVAL_MS);
     timer.unref?.();
-    void reconcileSubmittedGatewayTasks(state);
+    run();
 }
 
 async function reconcileSubmittedGatewayTasks(state: { started: boolean; running: boolean }) {
     if (state.running) return;
     state.running = true;
     try {
+        const { reconcileReservedImageJobs } = await import("../../server/image-job-store.ts");
+        await reconcileReservedImageJobs();
         const origin = (process.env.CANVAS_UPSTREAM_ORIGIN || process.env.TOKAXIS_INTERNAL_ORIGIN || "").replace(/\/+$/, "");
         if (!origin) return;
-        for (const task of listSubmittedBillingTasks()) {
+        const tasks = listSubmittedBillingTasks();
+        for (let offset = 0; offset < tasks.length; offset += 8) {
+            await Promise.all(tasks.slice(offset, offset + 8).map(async (task) => {
             const path = task.upstreamPath || fallbackVideoTaskPath(task.model);
-            if (!path) continue;
+            if (!path) return;
             try {
                 const authorization = resolveCanvasUpstreamAuthorization();
-                if (!authorization) continue;
-                const response = await fetch(`${origin}/${path}/${encodeURIComponent(task.upstreamTaskId)}`, { headers: { Authorization: authorization }, cache: "no-store" });
-                if (!response.ok) continue;
+                if (!authorization) return;
+                const response = await fetch(`${origin}/${path}/${encodeURIComponent(task.upstreamTaskId)}`, { headers: { Authorization: authorization }, cache: "no-store", signal: AbortSignal.timeout(30_000) });
+                if (!response.ok) return;
                 const payload = await response.json().catch(() => null);
                 const taskPayload = envelopeData(payload);
-                if (!taskPayload || typeof taskPayload !== "object") continue;
+                if (!taskPayload || typeof taskPayload !== "object") return;
                 const status = text((taskPayload as Record<string, unknown>).status).toLowerCase();
                 if (["failed", "error", "expired", "cancelled", "canceled"].includes(status)) refundCreditsByTask(task.upstreamTaskId, "视频生成失败，积分退回");
                 if (["done", "completed", "succeeded", "success", "finished"].includes(status)) settleCreditsByTask(task.upstreamTaskId);
             } catch {
                 // A network failure cannot prove that the provider task failed. Keep the reservation for the next pass.
             }
+            }));
         }
     } finally {
         state.running = false;

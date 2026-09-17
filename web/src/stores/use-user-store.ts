@@ -4,6 +4,7 @@ import { create } from "zustand";
 
 import { fetchCurrentUser, loginAccount, logoutAccount, registerAccount } from "@/services/api/auth";
 import type { AuthUser } from "@/lib/auth/types";
+import { activateLocalUser, suspendLocalUser } from "@/lib/user-local-storage";
 
 export type LocalUser = AuthUser;
 
@@ -31,7 +32,7 @@ export const useUserStore = create<UserStore>()((set, get) => ({
         if (hydrationPromise) return hydrationPromise;
         set({ isLoading: true });
         hydrationPromise = fetchCurrentUser()
-            .then((user) => set({ user, isReady: true, isLoading: false }))
+            .then((user) => { if (user) activateLocalUser(user.id); set({ user, isReady: true, isLoading: false }); })
             .catch(() => set({ user: null, isReady: true, isLoading: false }))
             .finally(() => {
                 hydrationPromise = null;
@@ -41,7 +42,7 @@ export const useUserStore = create<UserStore>()((set, get) => ({
     refreshUser: () => {
         if (refreshPromise) return refreshPromise;
         refreshPromise = fetchCurrentUser()
-            .then((user) => set({ user, isReady: true }))
+            .then((user) => { if (user) activateLocalUser(user.id); else if (get().user) { suspendLocalUser(); window.location.reload(); } set({ user, isReady: true }); })
             .catch(() => undefined)
             .finally(() => {
                 refreshPromise = null;
@@ -52,6 +53,7 @@ export const useUserStore = create<UserStore>()((set, get) => ({
         set({ isLoading: true });
         try {
             const { user } = await loginAccount(input);
+            activateLocalUser(user.id);
             set({ user, isReady: true, isLoading: false });
             return user;
         } catch (error) {
@@ -63,6 +65,7 @@ export const useUserStore = create<UserStore>()((set, get) => ({
         set({ isLoading: true });
         try {
             const { user } = await registerAccount(input);
+            activateLocalUser(user.id);
             set({ user, isReady: true, isLoading: false });
             return user;
         } catch (error) {
@@ -71,11 +74,15 @@ export const useUserStore = create<UserStore>()((set, get) => ({
         }
     },
     logout: async () => {
+        const { flushCanvasPersistence } = await import("@/app/(user)/canvas/stores/use-canvas-store");
+        await flushCanvasPersistence();
         try {
             await logoutAccount();
         } finally {
+            suspendLocalUser();
             set({ user: null, isReady: true, isLoading: false });
+            window.location.reload();
         }
     },
-    clearSession: () => set({ user: null, isReady: true, isLoading: false }),
+    clearSession: () => { suspendLocalUser(); set({ user: null, isReady: true, isLoading: false }); window.location.reload(); },
 }));

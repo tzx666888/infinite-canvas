@@ -1,9 +1,12 @@
 {
     "name": "infinite-canvas",
-    "version": "3.157.39",
+    "version": "3.157.40",
     "private": true,
     "type": "module",
     "scripts": {
+        "test:security-boundaries": "node --import ./scripts/agent-video-guide-loader.mjs scripts/security-boundaries-regression.ts",
+        "test:user-storage": "node --experimental-strip-types scripts/user-storage-regression.ts",
+        "test:regression": "node scripts/regression-suite.mjs",
         "dev": "next dev --webpack -H 0.0.0.0 -p 3000",
         "build": "next build",
         "start": "next start",
@@ -64,7 +67,7 @@
         "lucide-react": "^1.33.0",
         "motion": "^12.43.0",
         "nanoid": "5.1.16",
-        "next": "16.3.2",
+        "next": "16.3.3",
         "radix-ui": "^1.6.7",
         "react": "19.2.8",
         "react-dom": "19.2.8",
@@ -90,11 +93,15 @@
         "@hono/node-server": "1.19.15",
         "body-parser": "2.3.0",
         "brace-expansion": "5.0.9",
-        "fast-uri": "3.1.5",
-        "hono": "4.12.34",
+        "fast-uri": "3.1.6",
+        "hono": "4.13.5",
         "ip-address": "10.3.1",
-        "js-yaml": "4.3.1",
+        "js-yaml": "4.3.2",
         "prismjs": "1.30.0",
-        "qs": "6.15.2"
+        "qs": "6.16.0",
+        "sharp": "0.35.4",
+        "baseline-browser-mapping": "2.11.0",
+        "browserslist": "4.28.7",
+        "postcss-selector-parser": "7.1.3"
     }
 }

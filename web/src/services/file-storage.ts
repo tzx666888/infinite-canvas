@@ -1,6 +1,6 @@
 "use client";
 
-import localforage from "localforage";
+import { createUserScopedStore } from "../lib/user-local-storage.ts";
 import { nanoid } from "nanoid";
 
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
@@ -10,7 +10,7 @@ export type StoredMediaStats = {
     bytes: number;
 };
 
-const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
+const store = createUserScopedStore("media_files");
 const objectUrls = new Map<string, string>();
 
 export async function uploadMediaFile(input: string | Blob, prefix = "file"): Promise<UploadedFile> {
@@ -107,13 +107,14 @@ export function readVideoMeta(url: string) {
     });
 }
 
-function readAudioMeta(url: string) {
+export function readAudioMeta(url: string) {
     return new Promise<{ durationMs?: number }>((resolve) => {
         const audio = document.createElement("audio");
         let settled = false;
         const done = () => {
             if (settled) return;
             settled = true;
+            clearTimeout(timer);
             const result = { durationMs: Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : undefined };
             audio.onloadedmetadata = null;
             audio.onerror = null;
@@ -123,6 +124,9 @@ function readAudioMeta(url: string) {
         };
         audio.onloadedmetadata = done;
         audio.onerror = done;
+        const timer = setTimeout(done, 10_000);
+        audio.preload = "metadata";
         audio.src = url;
+        audio.load();
     });
 }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { App, Button, Input, Tag } from "antd";
 import { Copy, Download, Edit3, Play, Plus, Send, Sparkles, Trash2 } from "lucide-react";
-import localforage from "localforage";
+import { createUserScopedStore } from "@/lib/user-local-storage";
 import { useRouter } from "next/navigation";
 
 import { requestGeneration } from "@/services/api/image";
@@ -23,8 +23,8 @@ type CreativeWorkflow = {
 };
 type WorkflowResult = { id: string; prompt: string; dataUrl: string; createdAt: number };
 
-const workflowStore = localforage.createInstance({ name: "infinite-canvas", storeName: "creative_workflows" });
-const resultStore = localforage.createInstance({ name: "infinite-canvas", storeName: "creative_workflow_results" });
+const workflowStore = createUserScopedStore("creative_workflows");
+const resultStore = createUserScopedStore("creative_workflow_results");
 
 const STARTERS: CreativeWorkflow[] = [
     {

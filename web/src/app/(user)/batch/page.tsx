@@ -2,7 +2,7 @@
 
 import { App, Button, Empty, Image as AntImage, Input, Progress, Select, Tag, Tooltip } from "antd";
 import { Archive, BookOpen, CheckCircle2, CircleStop, Clock3, Download, ImagePlus, Layers3, LoaderCircle, Play, RefreshCw, RotateCcw, Save, Trash2, Upload, X } from "lucide-react";
-import localforage from "localforage";
+import { createUserScopedStore } from "@/lib/user-local-storage";
 import { nanoid } from "nanoid";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { saveAs } from "file-saver";
@@ -67,7 +67,7 @@ const MAX_BATCH_IMAGES = 30;
 const MAX_BATCH_CONCURRENCY = 5;
 const DEFAULT_BATCH_CONCURRENCY = 3;
 const WORKSPACE_KEY = "current";
-const workspaceStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_batch_workspace" });
+const workspaceStore = createUserScopedStore("image_batch_workspace");
 const sizeOptions = [
     { value: "auto", label: "自动" },
     { value: "1:1", label: "1:1" },

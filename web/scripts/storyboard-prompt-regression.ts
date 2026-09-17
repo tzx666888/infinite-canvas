@@ -782,7 +782,7 @@ assert.match(configStoreSource, /textModel: `tokaxis::\$\{TOKAXIS_AGENT_TEXT_MOD
 assert.match(configStoreSource, /shouldMigrateTokaxisDefaults \? defaultConfig\.textModel/, "existing persisted defaults must migrate to the current Agent text route");
 assert.match(
     configStoreSource,
-    /\.\.\.TOKAXIS_AGENT_TEXT_MODEL_IDS, \.\.\.\(shouldMigrateModels \? \["gpt-5\.6-sol", \.\.\.Object\.values\(TOKAXIS_GOOGLE_IMAGE_MODELS\), \.\.\.ACTIVE_GOOGLE_VIDEO_MODEL_IDS, \.\.\.TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS\]/,
+    /\.\.\.TOKAXIS_AGENT_TEXT_MODEL_IDS,[\s\S]*?shouldMigrateModels[\s\S]*?TOKAXIS_GOOGLE_IMAGE_MODELS\["4K"\][\s\S]*?\.\.\.ACTIVE_GOOGLE_VIDEO_MODEL_IDS,[\s\S]*?\.\.\.TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS,[\s\S]*?\.\.\.PRODUCT_VIDEO_MODEL_IDS/,
     "legacy channel model lists must receive Agent text routes, GPT-5.6 Sol, Google image sizes, active Omni models, and MiniMax H3 during migration",
 );
 assert.doesNotMatch(configStoreSource, /TOKAXIS_AGENT_TEXT_MODEL_IDS = \[[^\]]*deepseek/i, "DeepSeek must not remain in the Agent route pair");

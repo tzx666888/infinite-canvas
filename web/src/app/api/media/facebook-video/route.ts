@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { AuthError, authErrorResponse } from "@/lib/auth/auth-error";
 import { enforceSameOrigin, requireAuthUser } from "@/lib/auth/route-utils";
 import { facebookMediaPreset } from "@/lib/facebook-media";
+import { acquireWorkSlot, boundedFormData } from "@/server/work-limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,13 +31,15 @@ async function probeVideoDimensions(path: string): Promise<VideoDimensions> {
 
 export async function POST(request: Request) {
     let directory = "";
+    let release: (() => void) | undefined;
     try {
         enforceSameOrigin(request);
-        await requireAuthUser();
+        const user = await requireAuthUser();
+        release = acquireWorkSlot("conversion", user.id);
         const contentLength = Number(request.headers.get("content-length") || 0);
         if (Number.isFinite(contentLength) && contentLength > MAX_VIDEO_BYTES + 1024 * 1024) return Response.json({ error: { message: "视频文件超过 128MB，无法转换 Facebook 尺寸" } }, { status: 413 });
 
-        const form = await request.formData();
+        const form = await boundedFormData(request, MAX_VIDEO_BYTES + 1024 * 1024);
         const preset = facebookMediaPreset(String(form.get("preset") || ""));
         if (!preset) return Response.json({ error: { message: "Facebook 视频尺寸不支持" } }, { status: 400 });
 
@@ -56,9 +59,10 @@ export async function POST(request: Request) {
         const cropFilter = `crop=w='if(gt(a,${ratio}),ih*${ratio},iw)':h='if(gt(a,${ratio}),ih,iw/${ratio})',scale=${preset.width}:${preset.height}:flags=lanczos,setsar=1`;
         const containBlurFilter = `[0:v]split=2[bg][fg];[bg]scale=${preset.width}:${preset.height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${preset.width}:${preset.height},gblur=sigma=30[bg];[fg]scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease:flags=lanczos[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1,setsar=1[outv]`;
         const videoFilterArgs = useContainBlur ? ["-filter_complex", containBlurFilter, "-map", "[outv]"] : ["-map", "0:v:0", "-vf", cropFilter];
-        await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", inputPath, ...videoFilterArgs, "-map", "0:a?", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", outputPath], {
+        await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-threads", "2", "-filter_threads", "2", "-filter_complex_threads", "2", "-i", inputPath, ...videoFilterArgs, "-map", "0:a?", "-c:v", "libx264", "-threads", "2", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", outputPath], {
             timeout: 5 * 60 * 1000,
             maxBuffer: 2 * 1024 * 1024,
+            signal: request.signal,
         });
         const converted = await probeVideoDimensions(outputPath);
         if (converted.width !== preset.width || converted.height !== preset.height) {
@@ -80,5 +84,6 @@ export async function POST(request: Request) {
         return Response.json({ error: { message: "Facebook 视频尺寸转换失败，请稍后重试" } }, { status: 500 });
     } finally {
         if (directory) await rm(directory, { force: true, recursive: true }).catch(() => undefined);
+        release?.();
     }
 }

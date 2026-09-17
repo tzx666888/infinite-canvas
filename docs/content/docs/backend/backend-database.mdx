@@ -1,0 +1,22 @@
+---
+title: 画布认证与任务归属数据库
+description: 生产画布 SQLite 账本和任务安全边界
+---
+
+# 任务归属与账本
+
+认证数据库位于 `AUTH_DATA_DIR/canvas.sqlite`。数据库目录权限 700，文件权限 600。
+
+`video_task_owners` 保存上游异步视频任务的归属：`task_id` 为主键，`user_id` 引用 accounts，`request_id` 为画布请求编号，`created_at` 为创建时间。成功提交（包括内部增强和不计费环境）时记录，查询状态和下载内容前验证。既有已计费任务可从 billing_transactions.upstream_task_id 取得归属，无法确认归属则拒绝访问。
+
+`billing_transactions.request_id` 唯一约束配合立即事务保证同一提交只有一次预扣/提交权。已 reserved 的重复提交返回 409，不得再次执行上游请求。settled 不再次扣费；退款和佣金仍使用原子账本操作。
+
+启动后每分钟恢复任务对账。图片任务以持久化结果为依据结算/退款，删除过期文件前先完成对账。超过 30 分钟仍 reserved 的记录列入管理员总览；没有任务结果的历史记录不得仅凭时间自动退款。
+
+# 浏览器本地数据
+
+本地项目不等于服务端云备份。原数据库 `infinite-canvas` 保留，并通过一次性 legacy_data_owner 标记绑定原配置中的账户归属；旧数据没有归属信息时绑定首次认证账户。其他账户使用 `infinite-canvas-user-<userId>` 数据库。项目、素材、生成历史、工作流与 API 配置使用相同身份门禁；多标签账号切换停止旧会话读写并刷新。迁移不删除原媒体文件。
+
+# 单实例容量保护
+
+当前生产为单 Node 实例。图片任务默认全局 32、每用户 8；上传缓冲默认全局 16、每用户 4；转换默认全局 2、每用户 1。可通过 `CANVAS_{IMAGE|UPLOAD|CONVERSION}_{CONCURRENCY|USER_CONCURRENCY}` 调整。若改为多进程/多副本，须先把容量计数改为共享存储，不能直接增加副本绕过保护。

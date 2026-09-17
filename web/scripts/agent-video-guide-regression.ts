@@ -35,7 +35,7 @@ const snapshot: CanvasAgentSnapshot = {
 
 const portraitCatalog = agentVideoCapabilityCatalog(defaultConfig, "720x1280", 2);
 const omni = portraitCatalog.find((item) => modelOptionName(item.model).toLowerCase() === "omni_portrait");
-const minimax = portraitCatalog.find((item) => modelOptionName(item.model).toLowerCase() === "minimaxh3-720p");
+const minimax = portraitCatalog.find((item) => modelOptionName(item.model).toLowerCase() === "minimax-h3-720p");
 assert.ok(omni, "configured Omni portrait route must be discovered from the central capability contract");
 assert.deepEqual(omni.durationOptions, [10]);
 assert.equal(omni.referenceImageLimit >= 2, true);
@@ -47,7 +47,8 @@ assert.deepEqual(omni.agentPromptLimits, {
     compactDirectionWords: 72,
 });
 assert.ok(minimax, "configured MiniMax H3 route must be discovered from the central capability contract");
-assert.deepEqual(minimax.durationRange, [5, 15]);
+assert.deepEqual(minimax.durationOptions, [10, 15]);
+assert.equal(minimax.durationRange, undefined, "discrete 10/15 second products must not advertise unsupported durations");
 assert.equal(minimax.resolution, "720p");
 assert.equal(agentVideoPromptProfileSupportsType("first-last-frame", "creator"), false, "presenter plus product must not be routed to a first/last-frame model");
 assert.equal(agentVideoPromptProfileSupportsType("first-last-frame", "testimonial"), false);
@@ -113,7 +114,7 @@ assert.deepEqual(
 const h3DurationQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, model: minimax.model });
 assert.deepEqual(
     h3DurationQuestion?.options.map((item) => item.label),
-    ["5 秒", "10 秒", "15 秒"],
+    ["10 秒", "15 秒"],
 );
 const h3Preflight = prepareVideoGenerationPreflight({
     prompt: "A clean product demonstration with natural camera motion.",

@@ -627,6 +627,7 @@ export function getAdminOverview(rootUserId: string): AdminOverview {
         .all()
         .map((row): AdminInviteOverview => ({ ...toInviteSummary(row), registeredCount: Number(row.registered_count || 0) }));
     return {
+        billingReview: listStaleReservedBillingTasks(),
         totals: {
             accountCount: Number(accountStats.account_count || 0),
             activeAccountCount: Number(accountStats.active_account_count || 0),
@@ -958,7 +959,7 @@ export function reserveCredits(input: {
             if (!sameReservation) throw new AuthError("请求编号已被其他任务使用", 409, "request_id_conflict");
             if (existing.status === "refunded") throw new AuthError("该请求已经结束，请重新发起生成", 409, "request_already_refunded");
             if (existing.status === "submitted" || existing.status === "settled") throw new AuthError("该请求已经提交完成，请勿重复生成", 409, "request_already_completed");
-            return { requestId: String(existing.request_id), amount: Number(existing.amount), status: existing.status as CreditReservation["status"] };
+            throw new AuthError("该请求正在提交，请等待原任务返回，不要重复生成", 409, "request_in_progress");
         }
         let amount = requestedAmount;
         let baseAmount = normalizedCreditAmount(input.baseAmount ?? amount);
@@ -1094,6 +1095,14 @@ export function listSubmittedBillingTasks(limit = 100): SubmittedBillingTask[] {
             model: String(row.model),
             updatedAt: String(row.updated_at),
         }));
+}
+
+export function listStaleReservedBillingTasks() {
+    return canvasDatabase().prepare(`SELECT b.request_id, b.user_id, a.username, b.amount, b.model, b.created_at
+        FROM billing_transactions b JOIN accounts a ON a.id = b.user_id
+        WHERE b.status = 'reserved' AND b.created_at < ? ORDER BY b.created_at LIMIT 100`)
+        .all(new Date(Date.now() - 30 * 60_000).toISOString())
+        .map((row) => ({ requestId: String(row.request_id), userId: String(row.user_id), username: String(row.username), amount: Number(row.amount), model: String(row.model), createdAt: String(row.created_at) }));
 }
 
 function requireRoot(database: CanvasDatabase, userId: string) {

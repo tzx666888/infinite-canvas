@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { mock } from "node:test";
 import axios from "axios";
-import { readVideoMeta } from "../src/services/file-storage.ts";
+import { readAudioMeta, readVideoMeta } from "../src/services/file-storage.ts";
+import { pollGoogleFlowVideoTaskRequest } from "../src/services/api/video/google-flow-adapter.ts";
 import { pollSeedanceVideoTaskRequest } from "../src/services/api/video/seedance-adapter.ts";
 
 // A detached media element can emit neither loadedmetadata nor error (e.g.
@@ -36,6 +37,11 @@ try {
     const invalid = readVideoMeta("blob:invalid");
     video.onerror!();
     assert.equal((await invalid).width, undefined, "unknown dimensions must preserve the node's requested ratio");
+    video = fakeVideo();
+    const stalledAudio = readAudioMeta("blob:stalled-audio");
+    assert.equal(video.preload, "metadata");
+    mock.timers.tick(10_000);
+    assert.deepEqual(await stalledAudio, { durationMs: undefined });
 } finally {
     mock.timers.reset();
     Reflect.deleteProperty(globalThis, "document");
@@ -60,6 +66,11 @@ try {
     assert.equal(calls[1].options.timeout, 120_000);
     assert.ok(calls[1].url.includes("task-existing/content"), "recover via authenticated original task, never the upstream localhost URL");
     assert.equal(stages.length, 1);
+    calls.length = 0;
+    const flowResult = await pollGoogleFlowVideoTaskRequest({ endpoint: "https://canvas.test/v1/videos/task-existing", contentEndpoint: "https://canvas.test/v1/videos/task-existing/content", headers: {} });
+    assert.deepEqual(flowResult, { status: "completed", result: { blob } });
+    assert.equal(calls[0].options.timeout, 30_000);
+    assert.equal(calls[1].options.timeout, 120_000);
 } finally {
     get.mock.restore();
 }

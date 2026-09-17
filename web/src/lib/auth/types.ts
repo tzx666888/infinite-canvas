@@ -160,6 +160,7 @@ export type AdminInviteOverview = InviteSummary & {
 };
 
 export type AdminOverview = {
+    billingReview: Array<{ requestId: string; userId: string; username: string; amount: number; model: string; createdAt: string }>;
     totals: {
         accountCount: number;
         activeAccountCount: number;

@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { refundCredits, settleCredits } from "../lib/auth/store.ts";
+import { listStaleReservedBillingTasks, refundCredits, settleCredits } from "../lib/auth/store.ts";
 import { sanitizeMessage } from "../lib/gateway/errors.ts";
+import { acquireWorkSlot } from "./work-limits.ts";
 
 export const IMAGE_JOB_OPERATIONS = ["generations", "edits", "chat-completions"] as const;
 
@@ -102,7 +103,10 @@ export function isImageJobOperation(value: string): value is ImageJobOperation {
 
 export function submitImageJob(input: SubmitImageJobInput) {
     const pending = runtime.submissions.get(input.id);
-    if (pending) return pending;
+    if (pending) return pending.then((job) => {
+        if (job.userId !== input.userId) throw new Error("图片任务不存在或已过期");
+        return job;
+    });
 
     const submission = submitImageJobOnce(input).finally(() => {
         runtime.submissions.delete(input.id);
@@ -112,12 +116,15 @@ export function submitImageJob(input: SubmitImageJobInput) {
 }
 
 async function submitImageJobOnce(input: SubmitImageJobInput) {
+    const release = acquireWorkSlot("image", input.userId);
+    let handedOff = false;
+    try {
     await ensureImageJobDirectory();
     void cleanupExpiredImageJobs().catch(() => undefined);
 
     const existing = await readStoredImageJob(input.id);
     if (existing) {
-        if (existing.userId && existing.userId !== input.userId) throw new Error("图片任务不存在或已过期");
+        if (existing.userId !== input.userId) throw new Error("图片任务不存在或已过期");
         return existing;
     }
 
@@ -141,9 +148,14 @@ async function submitImageJobOnce(input: SubmitImageJobInput) {
         })
         .finally(() => {
             runtime.active.delete(job.id);
+            release();
         });
     runtime.active.set(job.id, { controller, task });
+    handedOff = true;
     return job;
+    } finally {
+        if (!handedOff) release();
+    }
 }
 
 export async function getImageJob(jobId: string, userId?: string) {
@@ -151,7 +163,7 @@ export async function getImageJob(jobId: string, userId?: string) {
     void cleanupExpiredImageJobs().catch(() => undefined);
     const job = await readStoredImageJob(jobId);
     if (!job) return null;
-    if (userId && job.userId && job.userId !== userId) return null;
+    if (userId && job.userId !== userId) return null;
 
     if (job.status === "running" && job.workerId !== runtime.workerId) {
         return failImageJob(job, "图片任务因服务重启而中断，请重新生成");
@@ -176,6 +188,8 @@ export function toPublicImageJob(job: StoredImageJob): PublicImageJob {
 }
 
 export async function cancelImageJob(jobId: string, userId?: string) {
+    const owned = await readStoredImageJob(jobId);
+    if (!owned || (userId && owned.userId !== userId)) return null;
     const active = runtime.active.get(jobId);
     if (active) {
         active.controller.abort(new DOMException("图片任务已取消", "AbortError"));
@@ -183,9 +197,22 @@ export async function cancelImageJob(jobId: string, userId?: string) {
     }
 
     const job = await readStoredImageJob(jobId);
-    if (userId && job?.userId && job.userId !== userId) return null;
+    if (userId && job?.userId !== userId) return null;
     if (!job || job.status !== "running") return job;
     return failImageJob(job, "图片任务已取消");
+}
+
+export async function reconcileReservedImageJobs() {
+    for (const entry of listStaleReservedBillingTasks()) {
+        const prefix = `image:${entry.userId}:`;
+        if (!entry.requestId.startsWith(prefix)) continue;
+        const id = entry.requestId.slice(prefix.length);
+        if (!isValidImageJobId(id)) continue;
+        const job = await getImageJob(id, entry.userId);
+        if (!job) continue; // Missing history is not evidence of failure: keep visible for review.
+        if (job.status === "succeeded") settleCredits(entry.requestId);
+        if (job.status === "failed") refundCredits(entry.requestId, "图片任务恢复对账：生成失败，积分退回");
+    }
 }
 
 export async function readImageJobResult(jobId: string, index: number, userId?: string) {
@@ -436,7 +463,13 @@ async function cleanupExpiredImageJobs() {
         if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
         const jobId = entry.name.slice(0, -5);
         const job = await readStoredImageJob(jobId);
-        if (job && now - job.updatedAt > IMAGE_JOB_TTL_MS && !runtime.active.has(jobId)) expiredIds.push(jobId);
+        if (job && now - job.updatedAt > IMAGE_JOB_TTL_MS && !runtime.active.has(jobId)) {
+            // Close the ledger before discarding the evidence, including interrupted workers.
+            if (job.status === "running") await failImageJob(job, "图片任务因服务重启而中断");
+            else if (job.billingRequestId && job.status === "succeeded") settleCredits(job.billingRequestId);
+            else if (job.billingRequestId) refundCredits(job.billingRequestId, "图片生成失败，积分退回");
+            expiredIds.push(jobId);
+        }
     }
 
     await Promise.all(

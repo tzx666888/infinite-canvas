@@ -1,6 +1,6 @@
 "use client";
 
-import localforage from "localforage";
+import { createUserScopedStore } from "@/lib/user-local-storage";
 
 import { nanoid } from "nanoid";
 import { dataUrlToFile, readImageMeta } from "@/lib/image-utils";
@@ -19,8 +19,8 @@ export type StoredImageStats = {
     bytes: number;
 };
 
-const store = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
-const batchWorkspaceStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_batch_workspace" });
+const store = createUserScopedStore("image_files");
+const batchWorkspaceStore = createUserScopedStore("image_batch_workspace");
 const objectUrls = new Map<string, string>();
 const IMAGE_DOWNLOAD_ATTEMPTS = 3;
 const IMAGE_STORAGE_ATTEMPTS = 2;

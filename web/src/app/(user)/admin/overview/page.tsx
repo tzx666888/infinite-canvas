@@ -103,6 +103,14 @@ export default function AdminOverviewPage() {
                     ))}
                 </Row>
 
+                {!!overview?.billingReview?.length && (
+                    <section role="status" className="mb-5 rounded border border-current p-4">
+                        <p>待核实预扣：{overview.billingReview.length} 笔。系统只按明确的任务结果结算或退款；缺少结果的历史记录不会自动改账。</p>
+                        <ul className="mt-2 text-sm">
+                            {overview.billingReview.map((item) => <li key={item.requestId}>{item.username} · {item.model} · {item.amount} 积分 · {date(item.createdAt)} · {item.requestId}</li>)}
+                        </ul>
+                    </section>
+                )}
                 <Card
                     title={
                         <span className="inline-flex items-center gap-2">

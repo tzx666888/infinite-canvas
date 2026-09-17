@@ -180,7 +180,7 @@ async function createProductEnhancedVideoTask(
     let sourceUrl = "";
     if (baseResult.blob) sourceUrl = await blobToDataUrl(baseResult.blob, "video/mp4");
     else if (baseResult.url) {
-        const source = await fetch(baseResult.url);
+        const source = await fetch(baseResult.url, { signal: requestOptions.signal ? AbortSignal.any([requestOptions.signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000) });
         if (!source.ok) throw new Error(`原模型视频下载失败（${source.status}）`);
         sourceUrl = await blobToDataUrl(await source.blob(), "video/mp4");
     }
@@ -201,18 +201,19 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
 
-export async function storeGeneratedVideo(result: VideoGenerationResult, requestedSize = ""): Promise<UploadedFile> {
+export async function storeGeneratedVideo(result: VideoGenerationResult, requestedSize = "", signal?: AbortSignal): Promise<UploadedFile> {
+    const boundedSignal = (ms: number) => signal ? AbortSignal.any([signal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms);
     const preset = facebookMediaPreset(requestedSize);
     if (preset) {
         const body = new FormData();
         body.set("preset", preset.id);
         if (result.blob) body.set("video", result.blob, "generated.mp4");
         else if (result.url) {
-            const source = await fetch(result.url);
+            const source = await fetch(result.url, { signal: boundedSignal(120_000) });
             if (!source.ok) throw new Error(`Facebook 视频尺寸转换前下载失败（${source.status}）`);
             body.set("video", await source.blob(), "generated.mp4");
         } else throw new Error("视频接口没有返回可播放的视频");
-        const response = await fetch("/api/media/facebook-video", { method: "POST", body });
+        const response = await fetch("/api/media/facebook-video", { method: "POST", body, signal: boundedSignal(360_000) });
         if (!response.ok) {
             const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
             throw new Error(payload?.error?.message || `Facebook 视频尺寸转换失败（${response.status}）`);

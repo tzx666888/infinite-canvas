@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { AuthError, authErrorResponse } from "@/lib/auth/auth-error";
 import { enforceSameOrigin, requireAuthUser } from "@/lib/auth/route-utils";
 import { facebookMediaPreset } from "@/lib/facebook-media";
+import { acquireWorkSlot, boundedFormData } from "@/server/work-limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,13 +17,15 @@ const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 
 export async function POST(request: Request) {
     let directory = "";
+    let release: (() => void) | undefined;
     try {
         enforceSameOrigin(request);
-        await requireAuthUser();
+        const user = await requireAuthUser();
+        release = acquireWorkSlot("conversion", user.id);
         const contentLength = Number(request.headers.get("content-length") || 0);
         if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES + 256 * 1024) return Response.json({ error: { message: "图片文件超过 32MB，无法转换 Facebook 尺寸" } }, { status: 413 });
 
-        const form = await request.formData();
+        const form = await boundedFormData(request, MAX_IMAGE_BYTES + 256 * 1024);
         const preset = facebookMediaPreset(String(form.get("preset") || ""));
         if (!preset) return Response.json({ error: { message: "Facebook 图片尺寸不支持" } }, { status: 400 });
 
@@ -36,9 +39,10 @@ export async function POST(request: Request) {
         await writeFile(inputPath, Buffer.from(await file.arrayBuffer()));
         const ratio = preset.width / preset.height;
         const filter = `crop=w='if(gt(a,${ratio}),ih*${ratio},iw)':h='if(gt(a,${ratio}),ih,iw/${ratio})',scale=${preset.width}:${preset.height}:flags=lanczos,setsar=1`;
-        await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", inputPath, "-frames:v", "1", "-vf", filter, outputPath], {
+        await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-threads", "2", "-filter_threads", "2", "-i", inputPath, "-frames:v", "1", "-vf", filter, "-threads", "2", outputPath], {
             timeout: 2 * 60 * 1000,
             maxBuffer: 2 * 1024 * 1024,
+            signal: request.signal,
         });
         const output = await readFile(outputPath);
         return new Response(output, {
@@ -55,5 +59,6 @@ export async function POST(request: Request) {
         return Response.json({ error: { message: "Facebook 图片尺寸转换失败，请稍后重试" } }, { status: 500 });
     } finally {
         if (directory) await rm(directory, { force: true, recursive: true }).catch(() => undefined);
+        release?.();
     }
 }

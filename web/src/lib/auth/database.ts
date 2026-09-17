@@ -98,6 +98,12 @@ export function canvasDatabase() {
             updated_at TEXT NOT NULL
         );
         CREATE UNIQUE INDEX IF NOT EXISTS billing_upstream_task_idx ON billing_transactions(upstream_task_id) WHERE upstream_task_id IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS video_task_owners (
+            task_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES accounts(id),
+            request_id TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS payment_orders (
             id TEXT PRIMARY KEY,
             order_no TEXT NOT NULL UNIQUE,

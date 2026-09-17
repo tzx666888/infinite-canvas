@@ -12,6 +12,7 @@ import { sanitizeGatewayErrorResponse } from "../../../../lib/gateway/errors.ts"
 import { resolveCanvasUpstreamAuthorization } from "../../../../lib/gateway/upstream-auth.ts";
 import { claimVideoEnhancementGrant, commitVideoEnhancementGrant, isCompatibleProductBaseModel, isInternalVideoEnhancerModel, isVideoCreationPath, rememberVideoEnhancementGrant, releaseVideoEnhancementGrant, type VideoEnhancementGrant } from "../../../../lib/gateway/video-enhancement-grants.ts";
 import { storeTemporaryMediaDataUrl } from "../../../../lib/temporary-media.ts";
+import { rememberVideoTaskOwner, requireVideoTaskOwner } from "../../../../lib/gateway/task-ownership.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,6 +93,9 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         const params = await context.params;
         const path = (params.path || []).join("/");
         if (!FORWARDED_PATHS.some((pattern) => pattern.test(path))) return Response.json({ error: { message: "模型接口路径不受支持" } }, { status: 404 });
+        if (request.method === "POST" && !["v1/responses", "v1/chat/completions", "v1/images/generations", "v1/images/edits", "v1/audio/speech", "v1/videos", "v1/videos/generations", "v1/contents/generations/tasks"].includes(path)) {
+            return Response.json({ error: { message: "该路径不支持提交操作" } }, { status: 405 });
+        }
 
         rejectOversizedContentLength(request);
         enforceRateLimit(`gateway-ip:${requestAddress(request)}`, GATEWAY_IP_RATE_LIMIT, GATEWAY_RATE_WINDOW_MS, "模型网关请求过多，请稍后再试");
@@ -99,6 +103,7 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         const suppliedAuthorization = request.headers.get("authorization") || "";
         const identity = await authenticateCanvasApiKey(suppliedAuthorization);
         if (!identity) return Response.json({ error: { code: "invalid_api_key", message: "画布专用 Key 无效" } }, { status: 401 });
+        if (request.method === "GET") requireVideoTaskOwner(path, identity.user.id);
         enforceRateLimit(`gateway-key:${identity.keyId}`, GATEWAY_KEY_RATE_LIMIT, GATEWAY_RATE_WINDOW_MS, "此画布 Key 请求过多，请稍后再试");
         if (!UPSTREAM_ORIGIN) throw new AuthError("模型服务尚未配置", 503, "gateway_not_configured");
         const authorization = resolveCanvasUpstreamAuthorization();
@@ -127,7 +132,7 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         if (request.method === "POST" && path === "v1/videos/generations") {
             videoModel = await videoGenerationRequestModel(bodyRequest());
             if (!isTokaxisAsyncVideoModel(videoModel)) {
-                if (isTokaxisLegacyGrokVideoModel(videoModel)) return finishGatewayResponse(await proxyLegacyGrokVideoGeneration(bodyRequest(), authorization, headers), reservation);
+                if (isTokaxisLegacyGrokVideoModel(videoModel)) return finishGatewayResponse(await rememberVideoTaskOwner(await proxyLegacyGrokVideoGeneration(bodyRequest(), authorization, headers), path, identity.user.id, canvasRequestId), reservation);
                 return finishGatewayResponse(Response.json({ error: { code: "unsupported_video_model", message: `视频模型 ${videoModel || "(空)"} 不支持此生成接口` } }, { status: 400 }), reservation);
             }
         }
@@ -177,6 +182,7 @@ async function proxyGateway(request: NextRequest, context: RouteContext) {
         if (enhancementGrant) commitVideoEnhancementGrant(enhancementGrant);
 
         const response = new Response(upstreamResponse.body, { status: upstreamResponse.status, statusText: upstreamResponse.statusText, headers: responseHeaders });
+        if (request.method === "POST") await rememberVideoTaskOwner(response, path, identity.user.id, canvasRequestId);
         const finalized = await finalizeGatewayResponse(response, reservation);
         return request.method === "GET" ? reconcileGatewayTaskResponse(path, finalized) : finalized;
     } catch (error) {

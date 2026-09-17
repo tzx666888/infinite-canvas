@@ -32,7 +32,7 @@ export async function createGoogleFlowVideoTaskRequest(input: {
 }): Promise<VideoGenerationTask> {
     const body = buildGoogleFlowVideoRequestBody(input);
 
-    const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(input.endpoint, body, { headers: input.headers, signal: input.options?.signal })).data);
+    const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(input.endpoint, body, { headers: input.headers, signal: input.options?.signal, timeout: 300_000 })).data);
     const taskId = readGoogleVideoTaskId(created);
     if (!taskId) throw new Error("视频接口没有返回任务 ID");
     return { id: taskId, provider: "google-flow", model: input.taskModel };
@@ -55,12 +55,12 @@ export function buildGoogleFlowVideoRequestBody(input: { model: string; prompt: 
 }
 
 export async function pollGoogleFlowVideoTaskRequest(input: { endpoint: string; contentEndpoint: string; headers: Record<string, string>; options?: VideoRequestOptions }): Promise<VideoGenerationTaskState> {
-    const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(input.endpoint, { headers: input.headers, signal: input.options?.signal })).data);
+    const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(input.endpoint, { headers: input.headers, signal: input.options?.signal, timeout: 30_000 })).data);
     const status = String(video.status || "").trim().toLowerCase();
     if (status === "completed" || status === "succeeded" || status === "done" || status === "success" || status === "finished") {
         const url = firstVideoUrl(video.video_url, video.result_url, video.url, video.output, video.content?.video_url, video.content?.url, video.video?.url);
         if (url && !isProtectedVideoContentUrl(url)) return { status: "completed", result: { url, mimeType: "video/mp4" } };
-        const content = await axios.get<Blob>(input.contentEndpoint, { headers: input.headers, responseType: "blob", signal: input.options?.signal });
+        const content = await axios.get<Blob>(input.contentEndpoint, { headers: input.headers, responseType: "blob", signal: input.options?.signal, timeout: 120_000 });
         await assertVideoBlob(content.data);
         return { status: "completed", result: { blob: content.data } };
     }

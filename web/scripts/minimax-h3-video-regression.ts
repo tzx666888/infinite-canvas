@@ -7,8 +7,8 @@ assert.equal(isTokaxisMiniMaxH3VideoModel("tokaxis::MiniMax-H3-c4"), false);
 assert.deepEqual(TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS, ["MiniMaxH3-720p", "MiniMaxH3-2k"]);
 assert.equal(isTokaxisMiniMaxH3VideoModel("tokaxis::MiniMaxH3-720p"), true);
 assert.equal(isTokaxisMiniMaxH3VideoModel("tokaxis::MiniMaxH3-2k"), true);
-assert.equal(normalizeMiniMaxH3Duration(4), 5);
-assert.equal(normalizeMiniMaxH3Duration(11.8), 11);
+assert.equal(normalizeMiniMaxH3Duration(4), 10);
+assert.equal(normalizeMiniMaxH3Duration(11.8), 10);
 assert.equal(normalizeMiniMaxH3Duration(16), 15);
 assert.equal(normalizeMiniMaxH3AspectRatio("720x1280"), "9:16");
 assert.equal(normalizeMiniMaxH3AspectRatio("1280x720"), "16:9");
@@ -27,7 +27,7 @@ assert.deepEqual(
         prompt: "cinematic sunrise",
         images: ["image"],
         audios: ["audio"],
-        duration: 7,
+        duration: 10,
         resolution: "768P",
         aspect_ratio: "9:16",
         generate_audio: true,
