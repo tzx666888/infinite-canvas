@@ -33,6 +33,7 @@ import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { createGoogleFlowVideoTaskRequest, pollGoogleFlowVideoTaskRequest } from "@/services/api/video/google-flow-adapter";
 import { createSeedanceVideoTaskRequest, pollSeedanceVideoTaskRequest } from "@/services/api/video/seedance-adapter";
 import type { VideoGenerationResult, VideoGenerationTask, VideoGenerationTaskState, VideoRequestOptions } from "@/services/api/video/provider-contract";
+import { VideoTaskFailedError } from "@/services/api/video/provider-contract";
 import { facebookMediaPreset, facebookVideoSafeFramePrompt, facebookVideoSourceSize } from "@/lib/facebook-media";
 
 export type { VideoGenerationResult, VideoGenerationTask, VideoGenerationTaskState } from "@/services/api/video/provider-contract";
@@ -86,8 +87,11 @@ export async function resumeVideoGenerationTask(config: AiConfig, task: VideoGen
             await delay(delayMs, options?.signal);
             continue;
         }
-        if (state.status === "completed") return state.result;
-        if (state.status === "failed") throw new Error(state.error);
+        if (state.status === "completed") {
+            options?.onProgress?.("成片已就绪，正在保存到画布...");
+            return state.result;
+        }
+        if (state.status === "failed") throw new VideoTaskFailedError(state.error);
         if (attempt === maxAttempts - 1) throw new Error(`${task.provider === "seedance" ? "Seedance " : task.provider === "video30" ? "30 秒长视频 " : task.provider === "aliyun-enhancer" ? "阿里超分 " : ""}视频任务超时，请稍后重试`);
         await delay(delayMs, options?.signal);
     }

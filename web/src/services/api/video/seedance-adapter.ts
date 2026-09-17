@@ -32,9 +32,10 @@ export async function createSeedanceVideoTaskRequest(input: {
 }
 
 export async function pollSeedanceVideoTaskRequest(input: { endpoint: string; contentEndpoint?: string; headers: Record<string, string>; options?: VideoRequestOptions }): Promise<VideoGenerationTaskState> {
-    const parsed = parseSeedanceVideoTaskState((await axios.get<ApiEnvelope<SeedanceTaskResponse>>(input.endpoint, { headers: input.headers, signal: input.options?.signal })).data);
+    const parsed = parseSeedanceVideoTaskState((await axios.get<ApiEnvelope<SeedanceTaskResponse>>(input.endpoint, { headers: input.headers, signal: input.options?.signal, timeout: 30_000 })).data);
     if (parsed.status !== "completed" || !parsed.result.url || !isProtectedVideoContentUrl(parsed.result.url) || !input.contentEndpoint) return parsed;
-    const content = await axios.get<Blob>(input.contentEndpoint, { headers: input.headers, responseType: "blob", signal: input.options?.signal });
+    input.options?.onProgress?.("视频已生成，正在下载成片...");
+    const content = await axios.get<Blob>(input.contentEndpoint, { headers: input.headers, responseType: "blob", signal: input.options?.signal, timeout: 120_000 });
     await assertVideoBlob(content.data);
     return { status: "completed", result: { blob: content.data } };
 }

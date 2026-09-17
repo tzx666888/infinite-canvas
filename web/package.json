@@ -1,6 +1,6 @@
 {
     "name": "infinite-canvas",
-    "version": "3.157.38",
+    "version": "3.157.39",
     "private": true,
     "type": "module",
     "scripts": {
@@ -15,6 +15,7 @@
         "test:seedance-video": "node --experimental-strip-types scripts/seedance-video-model-regression.ts",
         "test:minimax-h3-video": "node --experimental-strip-types scripts/minimax-h3-video-regression.ts",
         "test:video30": "node --experimental-strip-types scripts/video30-regression.ts",
+        "test:video-result-recovery": "node --experimental-strip-types scripts/video-result-recovery-regression.ts",
         "test:video-proxy": "node --experimental-strip-types scripts/video-proxy-contract-regression.ts",
         "test:omni-enhancer": "node --experimental-strip-types scripts/omni-enhancer-regression.ts",
         "test:omni-enhancer-e2e": "node --experimental-strip-types scripts/omni-enhancer-gateway-e2e.ts",

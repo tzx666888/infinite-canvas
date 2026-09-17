@@ -81,14 +81,15 @@ export function collectMediaStorageKeys(value: unknown, keys = new Set<string>()
     return keys;
 }
 
-function readVideoMeta(url: string) {
-    return new Promise<{ width: number; height: number; durationMs?: number }>((resolve) => {
+export function readVideoMeta(url: string) {
+    return new Promise<{ width?: number; height?: number; durationMs?: number }>((resolve) => {
         const video = document.createElement("video");
         let settled = false;
         const done = () => {
             if (settled) return;
             settled = true;
-            const result = { width: video.videoWidth || 1280, height: video.videoHeight || 720, durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : undefined };
+            clearTimeout(timer);
+            const result = { width: video.videoWidth || undefined, height: video.videoHeight || undefined, durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : undefined };
             video.onloadedmetadata = null;
             video.onerror = null;
             video.removeAttribute("src");
@@ -97,7 +98,12 @@ function readVideoMeta(url: string) {
         };
         video.onloadedmetadata = done;
         video.onerror = done;
+        const timer = setTimeout(done, 10_000);
+        video.preload = "metadata";
+        video.muted = true;
+        video.playsInline = true;
         video.src = url;
+        video.load();
     });
 }
 
