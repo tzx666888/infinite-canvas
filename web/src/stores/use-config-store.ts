@@ -82,7 +82,7 @@ const TOKAXIS_STATION_BASE_URL = "https://ai.tokaxis.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 // Bump this whenever the product model allow-list changes so existing
 // browsers re-run the persisted-config migration and receive new models.
-const TOKAXIS_DEFAULTS_VERSION = 33;
+const TOKAXIS_DEFAULTS_VERSION = 32;
 const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 32;
 export const TOKAXIS_AGENT_TEXT_MODEL_IDS = ["gpt-5.6-sol", "doubao-seed-2-1-pro-260628"] as const;
 const TOKAXIS_GEMINI_38_MODEL_ID = "gemini-3.8-flash-high";

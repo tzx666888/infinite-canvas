@@ -114,7 +114,7 @@ assert.deepEqual(
 const h3DurationQuestion = nextAgentVideoGuideQuestion(defaultConfig, { ...guidedBrief, model: minimax.model });
 assert.deepEqual(
     h3DurationQuestion?.options.map((item) => item.label),
-    ["10 秒", "15 秒"],
+    Array.from({ length: 12 }, (_, index) => `${index + 4} 秒`),
 );
 const h3Preflight = prepareVideoGenerationPreflight({
     prompt: "A clean product demonstration with natural camera motion.",
