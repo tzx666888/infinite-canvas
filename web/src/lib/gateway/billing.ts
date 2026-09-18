@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { AuthError } from "../auth/auth-error.ts";
 import { listSubmittedBillingTasks, refundCredits, refundCreditsByTask, reserveCredits, resolveCustomerPrice, settleCredits, settleCreditsByTask } from "../auth/store.ts";
 import { productVideoSpec } from "../product-video-models.ts";
+import { isH3BillingModel } from "../h3-billing.ts";
 import { resolveCanvasUpstreamAuthorization } from "./upstream-auth.ts";
 
 type PriceUnit = "request" | "image" | "second";
@@ -20,18 +21,9 @@ export type GatewayReservation = {
 
 export async function reserveGatewayRequest(request: Request, path: string, identity: GatewayIdentity, requestIdOverride?: string): Promise<GatewayReservation | null> {
     if (request.method !== "POST" || path === "v1/models") return null;
-    const prices = modelPrices();
     if (!billingEnabled()) return null;
     const usage = await requestUsage(request, path);
-    if (!usage.model) throw new AuthError("请求缺少模型名称", 400, "missing_model");
-    const rule = prices[usage.model.toLowerCase()];
-    if (!rule) throw new AuthError(`模型 ${usage.model} 暂未配置积分价格`, 409, "model_price_missing");
-    const baseCredits = requestBaseCredits(rule, usage.seconds);
-    const units = rule.unit === "second" ? usage.seconds : rule.unit === "image" ? usage.images : 1;
-    const priced = resolveCustomerPrice({ userId: identity.userId, model: usage.model, baseCredits, unit: rule.unit });
-    const billableUnits = Math.max(1, units);
-    const baseAmount = billedAmount(priced.baseCredits, billableUnits, rule.unit);
-    const amount = Math.max(baseAmount, billedAmount(priced.retailCredits, billableUnits, rule.unit));
+    const { rule, priced, units, baseAmount, amount } = customerQuote(identity.userId, usage);
     const requestId = requestIdOverride?.trim().slice(0, 100) || request.headers.get("x-canvas-request-id")?.trim().slice(0, 100) || randomUUID();
     const agentWindowMs = path === "v1/responses" && rule.unit === "request" ? agentBillingWindowMs() : 0;
     const agentWindowMinutes = Math.max(1, Math.round(agentWindowMs / 60_000));
@@ -54,6 +46,29 @@ export async function reserveGatewayRequest(request: Request, path: string, iden
         remark: agentWindowMs ? `${usage.model} Agent 对话计费（${agentWindowMinutes} 分钟内仅计一次）` : undefined,
     });
     return { requestId, path, model: usage.model, amount: reservation.amount };
+}
+
+function customerQuote(userId: string, usage: { model: string; seconds: number; images: number }) {
+    const prices = modelPrices();
+    if (!usage.model) throw new AuthError("请求缺少模型名称", 400, "missing_model");
+    const rule = prices[usage.model.toLowerCase()];
+    if (!rule) throw new AuthError(`模型 ${usage.model} 暂未配置积分价格`, 409, "model_price_missing");
+    const baseCredits = requestBaseCredits(rule, usage.seconds);
+    const units = rule.unit === "second" ? usage.seconds : rule.unit === "image" ? usage.images : 1;
+    if (rule.unit === "second" && isH3BillingModel(usage.model) && ![10, 15].includes(usage.seconds)) throw new AuthError("画布 H3 仅支持 10 秒或 15 秒，请重新选择时长", 400, "invalid_video_duration");
+    const priced = resolveCustomerPrice({ userId, model: usage.model, baseCredits, unit: rule.unit });
+    const billableUnits = Math.max(1, units);
+    const baseAmount = billedAmount(priced.baseCredits, billableUnits, rule.unit);
+    const amount = Math.max(baseAmount, billedAmount(priced.retailCredits, billableUnits, rule.unit));
+    return { rule, priced, units, baseAmount, amount };
+}
+
+export function quoteGatewayVideo(userId: string, model: string, seconds: number) {
+    if (!billingEnabled()) throw new AuthError("平台积分计费未开启", 409, "billing_disabled");
+    const normalized = model.trim().toLowerCase().split("::").at(-1) || "";
+    if (!isH3BillingModel(normalized)) throw new AuthError("此报价入口仅支持 H3", 400, "unsupported_quote_model");
+    const { rule, priced, units, amount } = customerQuote(userId, { model: normalized, seconds, images: 1 });
+    return { model: normalized, unit: rule.unit, rate: priced.retailCredits, units, amount };
 }
 
 function billedAmount(rate: number, units: number, unit: PriceUnit) {
@@ -214,21 +229,31 @@ async function requestUsage(request: Request, path: string) {
     let model = "";
     let images = 1;
     let seconds = 1;
+    let rawSeconds: unknown;
+    let rawDuration: unknown;
     const contentType = request.headers.get("content-type") || "";
     try {
         if (contentType.includes("multipart/form-data")) {
             const form = await request.clone().formData();
             model = text(form.get("model"));
+            rawSeconds = form.get("seconds");
+            rawDuration = form.get("duration");
             images = positiveNumber(form.get("n"), 1);
             seconds = positiveNumber(form.get("seconds") ?? form.get("duration"), 1);
         } else {
             const payload = (await request.clone().json()) as Record<string, unknown>;
             model = text(payload.model);
+            rawSeconds = payload.seconds;
+            rawDuration = payload.duration;
             images = positiveNumber(payload.n ?? payload.count, 1);
             seconds = positiveNumber(payload.seconds ?? payload.duration, defaultVideoSeconds(path));
         }
     } catch {
         throw new AuthError("请求内容无法解析", 400, "invalid_request_body");
+    }
+    if (isH3BillingModel(model) && modelPrices()[model.trim().toLowerCase()]?.unit === "second") {
+        if (rawSeconds != null && rawDuration != null && Number(rawSeconds) !== Number(rawDuration)) throw new AuthError("seconds 与 duration 必须一致", 400, "conflicting_video_duration");
+        seconds = rawSeconds == null && rawDuration == null ? 10 : Number(rawSeconds ?? rawDuration);
     }
     return { model: resolveCanvasBillingModel(model, request.headers.get("x-canvas-billing-model")), images, seconds };
 }

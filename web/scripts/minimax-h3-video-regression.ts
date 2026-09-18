@@ -61,6 +61,7 @@ const fallbackModelsBlock = configStoreSource.match(/const TOKAXIS_FALLBACK_MODE
 
 assert.match(fallbackModelsBlock, /PRODUCT_VIDEO_MODEL_IDS/);
 assert.doesNotMatch(fallbackModelsBlock, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/);
-assert.match(configStoreSource, /\.\.\.TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS\.map\(\(model\) => model\.toLowerCase\(\)\)/);
+assert.match(configStoreSource, /\.\.\.TOKAXIS_LEGACY_SEEDANCE_VIDEO_MODEL_IDS\.map\(\(model\) => model\.toLowerCase\(\)\)/);
+assert.match(configStoreSource, /\.\.\.TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_IDS\.map\(\(model\) => model\.toLowerCase\(\)\)/);
 
 console.log("MiniMax H3 video regression checks passed");

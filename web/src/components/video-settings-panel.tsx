@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
+import { H3BillingQuote } from "@/components/h3-billing-quote";
 import { Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
@@ -23,7 +24,7 @@ import { type CanvasTheme } from "@/lib/canvas-theme";
 import { normalizeVideoProductScaleMode, videoProductScaleOptions } from "@/lib/video-product-scale";
 import { normalizeVideoPromptMode, videoPromptModeOptions } from "@/lib/video-prompt-policy";
 import { fixedVideoDurationOptions, fixedVideoResolution, isGoogleVideoModel, normalizeModelVideoSeconds } from "@/lib/video-model-settings";
-import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
+import { modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import { isTokaxisMiniMaxH3VideoModel } from "@/lib/minimax-h3-video";
 import { FACEBOOK_MEDIA_PRESETS, facebookMediaPreset, facebookMediaTargetSize, facebookVideoSourceSize } from "@/lib/facebook-media";
 
@@ -59,6 +60,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const model = modelOptionName(config.videoModel || config.model);
     const googleVideo = isGoogleVideoModel(model);
     const miniMaxH3 = isTokaxisMiniMaxH3VideoModel(model);
+    const billingConfig = resolveModelRequestConfig(config, config.videoModel || config.model);
     const fixedSecondOptions = fixedVideoDurationOptions(model);
     const secondOptions = fixedSecondOptions || (miniMaxH3 ? [5, 10, 15] : defaultSecondOptions);
     const seconds = normalizeModelVideoSeconds(config.videoSeconds || "6", model);
@@ -147,6 +149,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         {fixedSecondOptions ? null : <NumberInput value={seconds} min={miniMaxH3 ? 5 : 1} max={miniMaxH3 ? 15 : 20} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
                     </div>
                 </SettingGroup>
+                {miniMaxH3 ? <H3BillingQuote model={model} seconds={Number(seconds)} apiKey={billingConfig.apiKey} platform={billingConfig.baseUrl.replace(/\/+$/, "") === "/api/gateway"} /> : null}
             </div>
         </ImageSettingsTheme>
     );

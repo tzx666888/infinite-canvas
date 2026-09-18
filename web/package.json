@@ -1,9 +1,10 @@
 {
     "name": "infinite-canvas",
-    "version": "3.157.41",
+    "version": "3.157.42",
     "private": true,
     "type": "module",
     "scripts": {
+        "test:h3-billing": "node --experimental-strip-types scripts/h3-billing-regression.ts",
         "test:security-boundaries": "node --import ./scripts/agent-video-guide-loader.mjs scripts/security-boundaries-regression.ts",
         "test:user-storage": "node --experimental-strip-types scripts/user-storage-regression.ts",
         "test:regression": "node scripts/regression-suite.mjs",

@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
+import { configuredH3Rate, isH3BillingModel } from "../h3-billing.ts";
 
 import { AuthError } from "./auth-error.ts";
 import { canvasDatabase, withImmediateTransaction, type CanvasDatabase } from "./database.ts";
@@ -821,7 +822,7 @@ function toBillingProfile(database: CanvasDatabase, row: AccountRow, basePrices:
     );
     const rules = Object.entries(wholesalePrices).map(([model, base]) => {
         const configuredRule = configured.get(model);
-        return { model, baseCredits: base.credits, creditsPerUnit: configuredRule ? Number(configuredRule.credits_per_unit) : base.credits, unit: base.unit } satisfies BillingPriceRule;
+        return { model, baseCredits: base.credits, creditsPerUnit: configuredRule ? configuredH3Rate(model, Number(configuredRule.credits_per_unit), String(configuredRule.unit), base.unit) : base.credits, unit: base.unit } satisfies BillingPriceRule;
     });
     return {
         id: String(row.id),
@@ -917,7 +918,8 @@ export function resolveCustomerPrice(input: { userId: string; model: string; bas
     const distributorPricing = childIsDistributor || Boolean(ownerIsDistributor);
     const baseCredits = distributorPricing ? distributorWholesaleCredits(input.baseCredits) : input.baseCredits;
     const validProfile = Boolean(ownerIsDistributor && Number(row?.active) === 1 && row?.billing_profile_id);
-    const configured = validProfile && row?.unit === input.unit ? Number(row?.credits_per_unit) : baseCredits;
+    const compatibleUnit = row?.unit === input.unit || (isH3BillingModel(input.model) && row?.unit === "request" && input.unit === "second");
+    const configured = validProfile && compatibleUnit ? configuredH3Rate(input.model, Number(row?.credits_per_unit), String(row?.unit), input.unit) : baseCredits;
     const retailCredits = Number.isFinite(configured) && configured >= baseCredits ? configured : baseCredits;
     return {
         baseCredits,

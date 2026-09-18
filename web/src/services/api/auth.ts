@@ -1,4 +1,10 @@
 import type { AdminOverview, AuthUser, BillingProfile, BillingUnit, CanvasApiKeySummary, CreditLedgerEntry, InviteSummary, ManagedUserDetails, ManagedUserSummary, PaymentMethod, PaymentOrderSummary, PaymentPackage } from "@/lib/auth/types";
+import type { BillingQuote } from "@/lib/h3-billing";
+
+export function fetchVideoQuote(model: string, seconds: number, apiKey: string, signal: AbortSignal) {
+    const params = new URLSearchParams({ model, seconds: String(seconds) });
+    return requestAuth<BillingQuote>(`/api/account/video-quote?${params}`, { cache: "no-store", signal, headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {} });
+}
 
 type AuthResponse = { user: AuthUser };
 
