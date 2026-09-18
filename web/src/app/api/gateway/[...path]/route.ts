@@ -13,6 +13,7 @@ import { resolveCanvasUpstreamAuthorization } from "../../../../lib/gateway/upst
 import { claimVideoEnhancementGrant, commitVideoEnhancementGrant, isCompatibleProductBaseModel, isInternalVideoEnhancerModel, isVideoCreationPath, rememberVideoEnhancementGrant, releaseVideoEnhancementGrant, type VideoEnhancementGrant } from "../../../../lib/gateway/video-enhancement-grants.ts";
 import { storeTemporaryMediaDataUrl } from "../../../../lib/temporary-media.ts";
 import { rememberVideoTaskOwner, requireVideoTaskOwner } from "../../../../lib/gateway/task-ownership.ts";
+import { isHiddenCanvasVideoModel } from "../../../../lib/canvas-video-catalog.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -247,7 +248,7 @@ function exactArrayBuffer(value: Uint8Array) {
 
 async function filterPublicModelCatalog(upstreamResponse: Response, responseHeaders: Headers) {
     const payload = await upstreamResponse.json().catch(() => null);
-    const allowedModels = new Set(Object.keys(publicModelPrices()).map((model) => model.toLowerCase()));
+    const allowedModels = new Set(Object.keys(publicModelPrices()).filter((model) => !isHiddenCanvasVideoModel(model)).map((model) => model.toLowerCase()));
     const data =
         payload && typeof payload === "object" && "data" in payload && Array.isArray((payload as { data?: unknown }).data)
             ? (payload as { data: unknown[] }).data.filter((item) => item && typeof item === "object" && typeof (item as { id?: unknown }).id === "string" && allowedModels.has((item as { id: string }).id.toLowerCase()))

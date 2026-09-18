@@ -2,6 +2,7 @@
 
 import { type ReactNode } from "react";
 import { H3BillingQuote } from "@/components/h3-billing-quote";
+import { H3_MIN_SECONDS, H3_MAX_SECONDS } from "@/lib/h3-billing";
 import { Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
@@ -140,14 +141,18 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </div>
                 </SettingGroup>
                 <SettingGroup title="秒数" color={theme.node.muted}>
-                    <div className={`grid gap-2.5 ${durationGridClass}`}>
+                    {miniMaxH3 ? <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs"><span>拖动选择时长</span><output className="text-sm font-medium">{seconds} 秒</output></div>
+                        <input aria-label="H3 视频时长（秒）" type="range" min={H3_MIN_SECONDS} max={H3_MAX_SECONDS} step={1} value={Number(seconds)} onChange={(event) => onConfigChange("videoSeconds", event.target.value)} className="w-full cursor-pointer" style={{ accentColor: theme.node.text }} />
+                        <div className="flex justify-between text-xs opacity-60"><span>{H3_MIN_SECONDS} 秒</span><span>每格 1 秒</span><span>{H3_MAX_SECONDS} 秒</span></div>
+                    </div> : <div className={`grid gap-2.5 ${durationGridClass}`}>
                         {secondOptions.map((value) => (
                             <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
                                 {googleVideo ? googleVideoDurationOptionLabel(value, model) : `${value}s`}
                             </OptionPill>
                         ))}
                         {fixedSecondOptions ? null : <NumberInput value={seconds} min={miniMaxH3 ? 5 : 1} max={miniMaxH3 ? 15 : 20} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
-                    </div>
+                    </div>}
                 </SettingGroup>
                 {miniMaxH3 ? <H3BillingQuote model={model} seconds={Number(seconds)} apiKey={billingConfig.apiKey} platform={billingConfig.baseUrl.replace(/\/+$/, "") === "/api/gateway"} /> : null}
             </div>

@@ -25,7 +25,7 @@ const identity = { userId: user.id, keyId: apiKey.id };
 const request = (model: string, seconds: unknown, extra: Record<string, unknown> = {}) => new Request("http://local.test/v1/videos/generations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, seconds, ...extra }) });
 const before = (await store.walletSummary(user.id)).credits;
 for (const [model, rate] of Object.entries(h3)) {
-    for (const seconds of [10, 15]) {
+    for (const seconds of [4, 5, 7, 10, 12, 15]) {
         const quote = billing.quoteGatewayVideo(user.id, model, seconds);
         assert.equal(quote.unit, "second");
         assert.equal(quote.amount, rate * seconds);
@@ -41,7 +41,7 @@ for (const [model, rate] of Object.entries(h3)) {
         assert.equal((await store.walletSummary(user.id)).credits, before, "failure refunds only once");
     }
 }
-for (const seconds of [0, -1, 1, 5, 14.5, 20, "bad"]) await assert.rejects(billing.reserveGatewayRequest(request("MiniMaxH3-720p", seconds), "v1/videos/generations", identity));
+for (const seconds of [0, -1, 1, 3, 14.5, 20, "bad"]) await assert.rejects(billing.reserveGatewayRequest(request("MiniMaxH3-720p", seconds), "v1/videos/generations", identity));
 await assert.rejects(billing.reserveGatewayRequest(request("MiniMaxH3-720p", 10, { duration: 15 }), "v1/videos/generations", identity));
 const form = new FormData(); form.set("model", "MiniMaxH3-720p"); form.set("duration", "15");
 const multipart = await billing.reserveGatewayRequest(new Request("http://local.test", { method: "POST", body: form }), "v1/videos", identity);

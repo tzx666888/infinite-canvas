@@ -102,6 +102,7 @@ export function videoModelCapabilityContract(model: string): VideoModelCapabilit
     return {
         routeFamily: googleMode ? `google:${googleMode}` : `model:${model.trim().toLowerCase().split("::").at(-1) || model}`,
         durations,
+        ...(isTokaxisMiniMaxH3VideoModel(model) ? { durationRange: [4, 15] as const } : {}),
         sizes: ["720x1280", "1280x720"],
         resolution,
         referenceImageLimit,

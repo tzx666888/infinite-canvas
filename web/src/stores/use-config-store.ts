@@ -7,6 +7,7 @@ import { localForageStorage } from "@/lib/localforage-storage";
 import { nanoid } from "nanoid";
 
 import { modelDisplayInfo } from "@/lib/model-display";
+import { isHiddenCanvasVideoModel } from "@/lib/canvas-video-catalog";
 import { TOKAXIS_GPT_IMAGE_2_5_MODEL_IDS } from "@/lib/gpt-image";
 import { TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID, TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS } from "@/lib/minimax-h3-video";
 import { TOKAXIS_VIDEO30_MODEL_IDS } from "@/lib/video30";
@@ -81,7 +82,7 @@ const TOKAXIS_STATION_BASE_URL = "https://ai.tokaxis.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 // Bump this whenever the product model allow-list changes so existing
 // browsers re-run the persisted-config migration and receive new models.
-const TOKAXIS_DEFAULTS_VERSION = 32;
+const TOKAXIS_DEFAULTS_VERSION = 33;
 const TOKAXIS_DEFAULT_SELECTIONS_VERSION = 32;
 export const TOKAXIS_AGENT_TEXT_MODEL_IDS = ["gpt-5.6-sol", "doubao-seed-2-1-pro-260628"] as const;
 const TOKAXIS_GEMINI_38_MODEL_ID = "gemini-3.8-flash-high";
@@ -91,7 +92,6 @@ const TOKAXIS_FALLBACK_MODELS = [
     TOKAXIS_GOOGLE_IMAGE_MODELS["4K"],
     ...GOOGLE_VEO_MODEL_IDS,
     ...ACTIVE_GOOGLE_VIDEO_MODEL_IDS,
-    ...TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_IDS,
     // PRODUCT_VIDEO_MODEL_IDS carries all nine public tiers; the bare upstream ids
     // (minimaxh3-720p, minimaxh3-2k, sd30) stay routable but are no longer offered.
     ...PRODUCT_VIDEO_MODEL_IDS,
@@ -629,6 +629,7 @@ function uniqueRawModels(models: string[]) {
 }
 
 function isDisabledModelName(model: string) {
+    if (isHiddenCanvasVideoModel(model)) return true;
     const value = modelOptionName(model).trim().toLowerCase();
     return TOKAXIS_DISABLED_VIDEO_MODEL_IDS.has(value) || TOKAXIS_REMOVED_MODEL_IDS.has(value);
 }

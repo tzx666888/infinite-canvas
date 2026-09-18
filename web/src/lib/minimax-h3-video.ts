@@ -1,5 +1,6 @@
 import type { AiConfig } from "@/stores/use-config-store";
 import { facebookVideoSourceSize } from "./facebook-media.ts";
+import { H3_MIN_SECONDS, H3_MAX_SECONDS } from "./h3-billing.ts";
 
 export const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID = "MiniMaxH3-720p";
 export const TOKAXIS_MINIMAX_H3_VIDEO_MODEL_IDS = [TOKAXIS_MINIMAX_H3_VIDEO_MODEL_ID, "MiniMaxH3-2k"] as const;
@@ -40,11 +41,11 @@ export function isMiniMaxH3VideoConfig(config: AiConfig | Pick<AiConfig, "model"
     return isTokaxisMiniMaxH3VideoModel(config.videoModel || config.model);
 }
 
-export const MINIMAX_H3_DURATION_OPTIONS = [10, 15] as const;
+export const MINIMAX_H3_DURATION_OPTIONS: readonly number[] = Array.from({ length: H3_MAX_SECONDS - H3_MIN_SECONDS + 1 }, (_, index) => H3_MIN_SECONDS + index);
 
 export function normalizeMiniMaxH3Duration(value: string | number) {
-    // Only 10s and 15s are sold; anything shorter snaps up to the 10s tier.
-    return Number(value) >= 15 ? 15 : 10;
+    const seconds = Number(value);
+    return Number.isFinite(seconds) && value !== "" ? Math.max(H3_MIN_SECONDS, Math.min(H3_MAX_SECONDS, Math.floor(seconds))) : 10;
 }
 
 export function normalizeMiniMaxH3AspectRatio(value: string) {

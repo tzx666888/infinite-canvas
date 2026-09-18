@@ -180,7 +180,9 @@ assert.match(serviceSource, /buildTokaxisSeedanceVideoPayload/, "TokAxis Seedanc
 assert.match(proxySource, /isTokaxisAsyncVideoModel/, "the proxy must isolate async TokAxis video models from the legacy Grok rewrite");
 assert.match(proxySource, /videos\\\/generations\(\?:\\\/\[\^\/\]\+\)\?/, "the proxy must allow Seedance polling paths");
 const fallbackModelsBlock = configSource.match(/const TOKAXIS_FALLBACK_MODELS = \[([\s\S]*?)\n\];/)?.[1] ?? "";
-assert.match(fallbackModelsBlock, /TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_IDS/, "official Ark Seedance models must be public fallback models");
+assert.doesNotMatch(fallbackModelsBlock, /TOKAXIS_OFFICIAL_SEEDANCE_VIDEO_MODEL_IDS/, "official Ark Seedance models must stay out of canvas selections");
+assert.match(configSource, /if \(isHiddenCanvasVideoModel\(model\)\) return true/, "cached and synced Seedance selections must be filtered");
+assert.match(proxySource, /filter\(\(model\) => !isHiddenCanvasVideoModel\(model\)\)/, "canvas model API must not re-add Seedance");
 assert.doesNotMatch(fallbackModelsBlock, /TOKAXIS_LEGACY_SEEDANCE_VIDEO_MODEL_IDS/, "the three legacy Seedance ids must stay out of the client fallback registry");
 assert.match(configSource, /TOKAXIS_LEGACY_SEEDANCE_VIDEO_MODEL_IDS\.map\(\(model\) => model\.toLowerCase\(\)\)/, "persisted legacy Seedance selections must be filtered during migration");
 assert.doesNotMatch(settingsRouteSource, /TOKAXIS_SEEDANCE_VIDEO_MODEL_IDS/, "withdrawn Seedance models must stay out of the server fallback registry");

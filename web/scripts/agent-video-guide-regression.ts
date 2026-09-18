@@ -47,8 +47,8 @@ assert.deepEqual(omni.agentPromptLimits, {
     compactDirectionWords: 72,
 });
 assert.ok(minimax, "configured MiniMax H3 route must be discovered from the central capability contract");
-assert.deepEqual(minimax.durationOptions, [10, 15]);
-assert.equal(minimax.durationRange, undefined, "discrete 10/15 second products must not advertise unsupported durations");
+assert.deepEqual(minimax.durationOptions, Array.from({ length: 12 }, (_, index) => index + 4));
+assert.deepEqual(minimax.durationRange, [4, 15], "H3 exposes the existing bridge's integer duration range");
 assert.equal(minimax.resolution, "720p");
 assert.equal(agentVideoPromptProfileSupportsType("first-last-frame", "creator"), false, "presenter plus product must not be routed to a first/last-frame model");
 assert.equal(agentVideoPromptProfileSupportsType("first-last-frame", "testimonial"), false);

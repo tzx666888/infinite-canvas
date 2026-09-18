@@ -1,3 +1,6 @@
+export const H3_MIN_SECONDS = 4;
+export const H3_MAX_SECONDS = 15;
+
 export function isH3BillingModel(model: string) {
     return /^(minimaxh3-(720p|2k)|minimax-h3-(720p|1080p|1080p-pro|c4))$/.test(model.trim().toLowerCase().split("::").at(-1) || "");
 }

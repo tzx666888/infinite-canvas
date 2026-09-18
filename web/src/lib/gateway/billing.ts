@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { AuthError } from "../auth/auth-error.ts";
 import { listSubmittedBillingTasks, refundCredits, refundCreditsByTask, reserveCredits, resolveCustomerPrice, settleCredits, settleCreditsByTask } from "../auth/store.ts";
 import { productVideoSpec } from "../product-video-models.ts";
-import { isH3BillingModel } from "../h3-billing.ts";
+import { isH3BillingModel, H3_MIN_SECONDS, H3_MAX_SECONDS } from "../h3-billing.ts";
 import { resolveCanvasUpstreamAuthorization } from "./upstream-auth.ts";
 
 type PriceUnit = "request" | "image" | "second";
@@ -55,7 +55,7 @@ function customerQuote(userId: string, usage: { model: string; seconds: number; 
     if (!rule) throw new AuthError(`模型 ${usage.model} 暂未配置积分价格`, 409, "model_price_missing");
     const baseCredits = requestBaseCredits(rule, usage.seconds);
     const units = rule.unit === "second" ? usage.seconds : rule.unit === "image" ? usage.images : 1;
-    if (rule.unit === "second" && isH3BillingModel(usage.model) && ![10, 15].includes(usage.seconds)) throw new AuthError("画布 H3 仅支持 10 秒或 15 秒，请重新选择时长", 400, "invalid_video_duration");
+    if (rule.unit === "second" && isH3BillingModel(usage.model) && (!Number.isInteger(usage.seconds) || usage.seconds < H3_MIN_SECONDS || usage.seconds > H3_MAX_SECONDS)) throw new AuthError(`H3 支持 ${H3_MIN_SECONDS}–${H3_MAX_SECONDS} 秒，请选择整数秒`, 400, "invalid_video_duration");
     const priced = resolveCustomerPrice({ userId, model: usage.model, baseCredits, unit: rule.unit });
     const billableUnits = Math.max(1, units);
     const baseAmount = billedAmount(priced.baseCredits, billableUnits, rule.unit);
