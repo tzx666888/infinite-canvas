@@ -43,6 +43,7 @@ import { isGoogleVideoModel, normalizeModelVideoSeconds, selectVideoReferenceIma
 import { isTokaxisMiniMaxH3VideoModel } from "@/lib/minimax-h3-video";
 import { isProductVideoModel } from "@/lib/product-video-models";
 import { isSeedanceVideoModel } from "@/lib/seedance-video";
+import { isVideo30Config, VIDEO30_REFERENCE_LIMITS } from "@/lib/video30";
 import { isGrokVideoModel } from "@/lib/video-providers/grok-video";
 import { buildStoryboardVideoConstraintPrompt, GROK_STORYBOARD_CONSTRAINT_TEMPLATE_VERSION, STORYBOARD_DIRECTED_VIDEO_MARKER, unwrapStoryboardVideoUserDirection } from "@/lib/storyboard-video-constraints";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
@@ -129,7 +130,7 @@ import {
     type ViewportTransform,
 } from "../types";
 import type { ReferenceImage } from "@/types/image";
-import type { ReferenceAudio } from "@/types/media";
+import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
 type CanvasClipboard = {
     nodes: CanvasNodeData[];
@@ -4382,7 +4383,7 @@ function InfiniteCanvasPage() {
                     const videoIdentityImages = usesWholeStoryboardSheet ? [] : mergeReferenceImages(generationContext.referenceImages, storyboardIdentityImages);
                     const storyboardVideoImages = usesWholeStoryboardSheet ? wholeStoryboardImages : storyboardReferenceFrames;
                     const allVideoReferenceImages = mergeReferenceImages(videoIdentityImages, storyboardVideoImages);
-                    const videoReferenceVideos = usesWholeStoryboardSheet ? [] : generationContext.referenceVideos;
+                    let videoReferenceVideos = usesWholeStoryboardSheet ? [] : generationContext.referenceVideos;
                     const videoReferenceAudios = usesWholeStoryboardSheet ? [] : generationContext.referenceAudios;
                     const baseVideoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, allVideoReferenceImages.length);
                     let videoReferenceImages = usesWholeStoryboardSheet ? storyboardVideoImages : selectVideoReferenceImagesWithPriority(videoIdentityImages, storyboardVideoImages, baseVideoGenerationConfig.model);
@@ -4393,6 +4394,11 @@ function InfiniteCanvasPage() {
                         videoPromptSource = directProductLock.prompt;
                     }
                     const videoGenerationConfig = resolveReferenceImageVideoConfig(generationConfig, directProductLock ? 1 : videoReferenceImages.length);
+                    if (isVideo30Config(videoGenerationConfig) && videoReferenceVideos.length) {
+                        const materialized = await materializeVideo30ReferenceFrames(videoGenerationConfig, videoReferenceImages, videoReferenceVideos);
+                        videoReferenceImages = materialized.images;
+                        videoReferenceVideos = materialized.videos;
+                    }
                     const videoIdentityReferenceCount = Math.min(videoIdentityImages.length, videoReferenceImages.length);
                     const selectedReviewPlan = selectedReviewNode?.metadata?.commerceVideoPlan;
                     let storyboardPlan = selectedReviewPlan?.beats?.length ? selectedReviewPlan : resolveStoryboardVideoPlan(selectedReviewNode?.id || nodeId, nodesRef.current, connectionsRef.current, videoPromptSource);
@@ -4892,7 +4898,7 @@ function InfiniteCanvasPage() {
             const promptResolutionSnapshot = hasSavedImageMetadata ? buildSelfPromptResolutionSnapshot(retryPromptSourceNodeId, prompt) : buildPromptResolutionSnapshot(retryPromptSourceNodeId, retryRawPrompt, prompt, retryNodes, retryConnections);
             const storyboardRetryWholeImages = node.type === CanvasNodeType.Video ? storyboardReviewSheetWholeReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
             const retriesWholeStoryboardSheet = storyboardRetryWholeImages.length > 0 || isStoredWholeStoryboardVideo(node);
-            const retryReferenceVideos = retriesWholeStoryboardSheet ? [] : context?.referenceVideos || [];
+            let retryReferenceVideos = retriesWholeStoryboardSheet ? [] : context?.referenceVideos || [];
             const retryReferenceAudios = retriesWholeStoryboardSheet ? [] : context?.referenceAudios || [];
             const storedVideoReferenceImages = node.type === CanvasNodeType.Video ? await resolveStoredVideoImageReferences(node.metadata) : [];
             const storyboardRetryIdentityImages = node.type === CanvasNodeType.Video ? await storyboardReviewSheetIdentityReferences(sourceNode.id, nodesRef.current, connectionsRef.current) : [];
@@ -4949,6 +4955,11 @@ function InfiniteCanvasPage() {
                     retryVideoPromptSource = retryDirectProductLock.prompt;
                 }
                 generationConfig = resolveReferenceImageVideoConfig(retryOriginalGenerationConfig, retryDirectProductLock ? 1 : retryVideoImages.length);
+                if (isVideo30Config(generationConfig) && retryReferenceVideos.length) {
+                    const materialized = await materializeVideo30ReferenceFrames(generationConfig, retryVideoImages, retryReferenceVideos);
+                    retryVideoImages = materialized.images;
+                    retryReferenceVideos = materialized.videos;
+                }
             }
             const retryAllProductComposite = savedImageMetadata?.referenceRoleMode === "all-products" || (!savedImageMetadata?.fusionPlacementPlanV1 && retrySourceImages.length === 0 && retryImages.length > 1 && isLikelyFusionPrompt(prompt));
             const retryPrompt = savedImageMetadata?.productDetailShot
@@ -6140,6 +6151,42 @@ function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
 function videoFailureMetadata(metadata: CanvasNodeMetadata | undefined, error: unknown, errorDetails: string): CanvasNodeMetadata {
     const bridgeTimeout = /task exceeded the bridge timeout/i.test(errorDetails);
     return { ...metadata, pendingVideoTask: error instanceof VideoTaskFailedError && !bridgeTimeout ? undefined : metadata?.pendingVideoTask, status: NODE_STATUS_ERROR, statusMessage: undefined, errorDetails };
+}
+
+/**
+ * SD30 accepts text plus still images, while a canvas connection can also be a
+ * completed video node. Materialize one persisted opening frame for each such
+ * input before creating the paid job, so a retry never fails locally merely
+ * because its source happens to be a video.
+ */
+async function materializeVideo30ReferenceFrames(config: AiConfig, images: ReferenceImage[], videos: ReferenceVideo[]) {
+    if (!isVideo30Config(config) || !videos.length) return { images, videos };
+    if (images.length + videos.length > VIDEO30_REFERENCE_LIMITS.images) {
+        throw new Error(`30 秒长视频最多支持 ${VIDEO30_REFERENCE_LIMITS.images} 张参考图；每个参考视频会自动提取 1 张首帧`);
+    }
+
+    const frames = await Promise.all(
+        videos.map(async (video, index): Promise<ReferenceImage> => {
+            try {
+                const frame = (await extractVideoKeyFrames(video.url, { minFrames: 1, maxFrames: 1 }))[0];
+                if (!frame?.dataUrl) throw new Error("未提取到有效画面");
+                const saved = await uploadImage(frame.dataUrl);
+                const name = video.name.replace(/\.[^.]+$/, "") || `参考视频 ${index + 1}`;
+                return {
+                    id: `${video.id}-opening-frame`,
+                    name: `${name}-首帧.jpg`,
+                    type: saved.mimeType || "image/jpeg",
+                    dataUrl: saved.url,
+                    url: saved.url,
+                    storageKey: saved.storageKey,
+                };
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : "未知错误";
+                throw new Error(`参考视频“${video.name || `视频 ${index + 1}`}”首帧提取失败：${reason}`);
+            }
+        }),
+    );
+    return { images: mergeReferenceImages(images, frames), videos: [] as ReferenceVideo[] };
 }
 
 function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {

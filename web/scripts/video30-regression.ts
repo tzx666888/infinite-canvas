@@ -24,6 +24,11 @@ const gatewaySource = readFileSync(new URL("../src/app/api/gateway/[...path]/rou
 const billingSource = readFileSync(new URL("../src/lib/gateway/billing.ts", import.meta.url), "utf8");
 assert.match(preflightSource, /if \(isVideo30Config\(selectedConfig\)\)/, "sd30 must have a dedicated normalization branch");
 assert.match(preflightSource, /if \(isVideo30Config\(input\.config\)\)/, "sd30 must have a dedicated validation branch");
+assert.match(preflightSource, /每个参考视频会自动提取 1 张首帧/, "SD30 preflight must count converted video frames against its image limit");
+assert.doesNotMatch(preflightSource, /30 秒长视频不支持参考视频/, "SD30 preflight must not block a connected canvas video before its first frame is extracted");
+const canvasSource = readFileSync(new URL("../src/app/(user)/canvas/[id]/canvas-client-page.tsx", import.meta.url), "utf8");
+assert.match(canvasSource, /materializeVideo30ReferenceFrames\(videoGenerationConfig, videoReferenceImages, videoReferenceVideos\)/, "new SD30 jobs must convert connected video inputs before submission");
+assert.match(canvasSource, /materializeVideo30ReferenceFrames\(generationConfig, retryVideoImages, retryReferenceVideos\)/, "SD30 retries must convert connected video inputs before submission");
 assert.match(serviceSource, /if \(isVideo30Config\(configuredRequest\)\)/, "sd30 must route before the generic Google fallback");
 assert.match(serviceSource, /provider: "video30"/, "sd30 tasks must use the extended polling budget");
 assert.match(serviceSource, /seconds: "30"/, "sd30 requests must pin the upstream duration");

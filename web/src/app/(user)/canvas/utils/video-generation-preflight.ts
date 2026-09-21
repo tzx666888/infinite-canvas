@@ -190,10 +190,12 @@ function validateNormalizedVideoGenerationPreflight(input: VideoGenerationPrefli
     }
 
     if (isVideo30Config(input.config)) {
-        if (videos.length) errors.push("30 秒长视频不支持参考视频，请移除参考视频后重试");
+        // The canvas converts every connected video into one persisted opening
+        // frame before submitting an SD30 job. Count those frames here so the
+        // customer gets an actionable limit before any paid request is made.
         if (audios.length) errors.push("30 秒长视频不支持参考音频，请移除参考音频后重试");
-        if (images.length > VIDEO30_REFERENCE_LIMITS.images) errors.push(`30 秒长视频最多支持 ${VIDEO30_REFERENCE_LIMITS.images} 张参考图`);
-        if (!input.prompt && !images.length) errors.push("请输入视频提示词，或至少连接 1 张参考图");
+        if (images.length + videos.length > VIDEO30_REFERENCE_LIMITS.images) errors.push(`30 秒长视频最多支持 ${VIDEO30_REFERENCE_LIMITS.images} 张参考图；每个参考视频会自动提取 1 张首帧`);
+        if (!input.prompt && !images.length && !videos.length) errors.push("请输入视频提示词，或至少连接 1 张参考图");
         return errors;
     }
 
