@@ -13,7 +13,7 @@ export async function GET() {
         const user = await requireAuthUser();
         const since = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
         const rows = canvasDatabase()
-            .prepare("SELECT o.task_id, b.model FROM video_task_owners o JOIN billing_transactions b ON b.request_id = o.request_id WHERE o.user_id = ? AND b.status = 'refunded' AND b.model = 'sd30' AND b.created_at >= ? ORDER BY b.created_at DESC LIMIT 3")
+            .prepare("SELECT o.task_id, b.model FROM video_task_owners o JOIN billing_transactions b ON b.request_id = o.request_id WHERE o.user_id = ? AND b.model = 'sd30' AND b.created_at >= ? AND (b.status = 'refunded' OR (b.status = 'settled' AND EXISTS (SELECT 1 FROM credit_ledger l WHERE l.request_id = b.request_id AND l.type = 'refund'))) ORDER BY b.created_at DESC LIMIT 3")
             .all(user.id, since);
         const origin = (process.env.CANVAS_UPSTREAM_ORIGIN || process.env.TOKAXIS_INTERNAL_ORIGIN || "").replace(/\/+$/, "");
         const authorization = resolveCanvasUpstreamAuthorization();
