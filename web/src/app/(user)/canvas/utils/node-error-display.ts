@@ -40,6 +40,16 @@ export function describeCanvasNodeError(errorDetails?: string): CanvasNodeErrorD
         return { title: "请求太密集", message: "系统已保留节点和提示词，稍等片刻后点重试即可。" };
     }
 
+    // A 499 is emitted by the edge server when the browser closed a request
+    // before the upstream accepted it. It is neither a model-policy rejection
+    // nor a missing entitlement, and must not be presented as either one.
+    if (/\b499\b|client.*(?:closed|abort)|request.*(?:aborted|cancelled)|network.*(?:abort|interrupted)|failed to fetch|load failed|err_network/.test(lower)) {
+        return {
+            title: "浏览器连接中断",
+            message: "本次请求未送达模型服务，未产生生成任务。节点和素材已保留，可直接重试。",
+        };
+    }
+
     if (/public_error_audio_filtered|audio[_ -]?filtered/.test(lower)) {
         return {
             title: "音频生成被模型过滤",

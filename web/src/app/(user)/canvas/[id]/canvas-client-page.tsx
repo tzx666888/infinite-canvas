@@ -912,13 +912,16 @@ function InfiniteCanvasPage() {
     useEffect(() => {
         if (!projectLoaded) return;
         // Completed tasks can remain in an error node when the first content
-        // download fails. Resume those nodes from the original task id on
-        // reopen; never submit a second paid generation for recovery.
+        // download or local media persistence fails. Resume every node that
+        // still owns an original task id on reopen; never submit a second paid
+        // generation for recovery.
         const pendingNodes = nodes.filter(
             (node) =>
                 node.type === CanvasNodeType.Video &&
                 node.metadata?.pendingVideoTask &&
-                (node.metadata.status === NODE_STATUS_LOADING || node.metadata.status === NODE_STATUS_ERROR),
+                (node.metadata.status === NODE_STATUS_LOADING ||
+                    node.metadata.status === NODE_STATUS_ERROR ||
+                    (node.metadata.status === NODE_STATUS_SUCCESS && !node.metadata.content)),
         );
         pendingNodes.forEach((pendingNode) => {
             const task = pendingNode.metadata?.pendingVideoTask;
