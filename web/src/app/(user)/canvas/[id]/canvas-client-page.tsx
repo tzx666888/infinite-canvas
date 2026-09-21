@@ -911,7 +911,15 @@ function InfiniteCanvasPage() {
 
     useEffect(() => {
         if (!projectLoaded) return;
-        const pendingNodes = nodes.filter((node) => node.type === CanvasNodeType.Video && node.metadata?.pendingVideoTask && node.metadata.status === NODE_STATUS_LOADING);
+        // Completed tasks can remain in an error node when the first content
+        // download fails. Resume those nodes from the original task id on
+        // reopen; never submit a second paid generation for recovery.
+        const pendingNodes = nodes.filter(
+            (node) =>
+                node.type === CanvasNodeType.Video &&
+                node.metadata?.pendingVideoTask &&
+                (node.metadata.status === NODE_STATUS_LOADING || node.metadata.status === NODE_STATUS_ERROR),
+        );
         pendingNodes.forEach((pendingNode) => {
             const task = pendingNode.metadata?.pendingVideoTask;
             if (!task || recoveringVideoTaskIdsRef.current.has(task.id) || generationRequestsRef.current.has(pendingNode.id)) return;
