@@ -515,6 +515,7 @@ function InfiniteCanvasPage() {
     const recoveringImageJobIdsRef = useRef(new Set<string>());
     const attemptedImageJobRecoveryIdsRef = useRef(new Set<string>());
     const recoveringVideoTaskIdsRef = useRef(new Set<string>());
+    const recoveredBridgeTimeoutTaskIdsRef = useRef(new Set<string>());
     const hydratingMediaKeysRef = useRef(new Set<string>());
     const undoNotificationKeysRef = useRef<Set<string>>(new Set());
     const telemetrySeenConnectionIdsRef = useRef<{ projectId: string; ids: Set<string> } | null>(null);
@@ -745,6 +746,25 @@ function InfiniteCanvasPage() {
         if (!projectLoaded || historyPausedRef.current) return;
         updateProject(projectId, { nodes, connections, chatSessions, activeChatId, backgroundMode, showImageInfo });
     }, [activeChatId, backgroundMode, chatSessions, connections, nodes, projectId, projectLoaded, showImageInfo, updateProject]);
+
+    useEffect(() => {
+        if (!projectLoaded) return;
+        const interruptedNodes = nodes.filter((node) => node.type === CanvasNodeType.Video && node.metadata?.status === NODE_STATUS_ERROR && !node.metadata.pendingVideoTask && /task exceeded the bridge timeout/i.test(node.metadata.errorDetails || "") && modelOptionName(node.metadata.model || "").toLowerCase() === "sd30");
+        if (interruptedNodes.length !== 1) return;
+        let cancelled = false;
+        void fetch("/api/account/video-tasks/recoverable", { cache: "no-store" })
+            .then(async (response) => response.ok ? await response.json() as { tasks?: Array<{ id?: string; model?: string; provider?: "video30" }> } : null)
+            .then((payload) => {
+                const task = payload?.tasks?.filter((item) => item.model === "sd30" && item.provider === "video30" && item.id).at(0);
+                if (cancelled || !task?.id || recoveredBridgeTimeoutTaskIdsRef.current.has(task.id)) return;
+                recoveredBridgeTimeoutTaskIdsRef.current.add(task.id);
+                setNodes((prev) => prev.map((node) => node.id === interruptedNodes[0].id ? { ...node, metadata: { ...node.metadata, pendingVideoTask: { id: task.id!, provider: "video30", model: node.metadata?.model || "sd30" }, status: NODE_STATUS_LOADING, statusMessage: "正在恢复原视频任务...", errorDetails: undefined } } : node));
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, [nodes, projectLoaded]);
 
     useEffect(() => {
         if (!projectLoaded) return;
@@ -6118,7 +6138,8 @@ function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
 }
 
 function videoFailureMetadata(metadata: CanvasNodeMetadata | undefined, error: unknown, errorDetails: string): CanvasNodeMetadata {
-    return { ...metadata, pendingVideoTask: error instanceof VideoTaskFailedError ? undefined : metadata?.pendingVideoTask, status: NODE_STATUS_ERROR, statusMessage: undefined, errorDetails };
+    const bridgeTimeout = /task exceeded the bridge timeout/i.test(errorDetails);
+    return { ...metadata, pendingVideoTask: error instanceof VideoTaskFailedError && !bridgeTimeout ? undefined : metadata?.pendingVideoTask, status: NODE_STATUS_ERROR, statusMessage: undefined, errorDetails };
 }
 
 function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {
