@@ -298,6 +298,9 @@ export function buildReferenceVideoPrompt(
     const duration = normalizeDurationNumber(seconds);
     const promptRoute = classifyVideoPromptDetail(direction);
     const hardConstraints = buildVideoHardConstraintGuidance(direction);
+    if (promptRoute === "short" && /(?:带货|爆款|种草|电商|卖货|直播|commerce|ecommerce|shop|seller|viral|direct[-\s]?response|tiktok|reels|shorts)/i.test(direction)) {
+        return buildNaturalCommerceVideoPrompt(direction, duration, requestReferenceCount, referenceMode, hardConstraints, productScaleMode, promptMode);
+    }
     const productOnly = forbidsPeople(direction);
     const directionLimit = promptRoute === "detailed" ? 2600 : promptRoute === "medium" ? 1700 : 700;
     const userDirection = `USER DIRECTION (${promptRoute.toUpperCase()} PRIORITY): ${limitInlinePrompt(direction || "Animate the references naturally while preserving visual identity and scene continuity.", directionLimit)}`;
@@ -402,6 +405,46 @@ export function buildReferenceVideoPrompt(
         .join("\n");
 }
 
+function buildNaturalCommerceVideoPrompt(
+    direction: string,
+    duration: number,
+    referenceCount: number,
+    referenceMode: ReturnType<typeof googleVideoReferenceMode>,
+    hardConstraints: string,
+    productScaleMode: string,
+    promptMode: string,
+) {
+    const openingEnd = Math.max(1, Math.round(duration * 0.2));
+    const heroStart = Math.max(openingEnd + 1, duration - Math.max(1, Math.round(duration * 0.2)));
+    const explicitOpening = hasConcreteVideoOpening(direction) || /(?:开头|首镜|第一镜|起手|opening|start with)[^。；;]{1,80}/i.test(direction);
+    const productOnly = forbidsPeople(direction);
+    const opening = explicitOpening
+        ? "Use the user's stated opening action and its natural continuation; do not replace it with a stock Hook."
+        : "Open with the actual product or a relevant, visible moment of its real use. Create curiosity through one clear detail, action, or framing change tied to this product; the product may appear from the first frame.";
+    const references = referenceCount
+        ? referenceMode === "i2v"
+            ? "Animate the attached image as the opening frame and exact product identity anchor."
+            : `Use all ${referenceCount} attached images in their stated roles as identity references; keep people, product, and scene distinct.`
+        : "Use only the product and context stated by the user; do not invent specifications or brand details.";
+    const audio = forbidsSpeech(direction)
+        ? "Use only the sound treatment the user requested; no speech or invented narration."
+        : "If the selected model generates speech, use one short natural line about a visible product detail or shown action, in the user's specified language; do not invent benefits or claims.";
+    const intensity = promptMode === "commerce" ? "Keep the opening visually distinctive, but physically plausible and directly connected to the product." : "Keep the opening restrained and natural, like a real creator demonstrating the product.";
+    return [
+        `Create exactly ${duration} seconds of coherent commerce footage.`,
+        references,
+        hardConstraints,
+        `USER DIRECTION (HIGHEST PRIORITY): ${direction}`,
+        `0-${openingEnd}s: ${opening} ${intensity}`,
+        `${openingEnd}-${heroStart}s: continue the same action into one readable product demonstration; if use is unknown, show only observable form, texture, scale, and handling without inventing a function.`,
+        `${heroStart}-${duration}s: settle on the unchanged product and one soft call to action only if the user requested one.`,
+        productOnly ? "Keep people, hands, and body parts out of every frame." : "Use a presenter only if shown in the references or requested by the user; keep their identity and movement consistent.",
+        audio,
+        "Preserve the product's geometry, colors, count, logo and label placement. Use simple motivated cuts and continuous physical motion. No unrelated accidents, parcels, falls, surprise props, forced whip-pans, morphing, invented text, or unsupported claims.",
+        productScaleMode !== "auto" ? buildVideoProductScalePrompt(productScaleMode) : "",
+    ].filter(Boolean).join("\n");
+}
+
 function isCompiledVideoPrompt(prompt: string) {
     return prompt.includes("STORYBOARD-DIRECTED VIDEO.") || prompt.includes(VIDEO_WORKBENCH_PROMPT_MARKER) || prompt.includes("PRODUCT-LOCKED KEYFRAME VIDEO.");
 }
@@ -425,7 +468,7 @@ function forbidsPeople(direction: string) {
 }
 
 function forbidsSpeech(direction: string) {
-    return /(?:no dialogue|no voice|no speech|silent|music only|without (?:dialogue|voice|speech)|do not (?:add|include|generate) (?:dialogue|voice|speech)|不要口播|无台词|无对白|无口播|静音|只要音乐)/i.test(direction);
+    return /(?:no dialogue|no voice|no speech|silent|music only|without (?:dialogue|voice|speech)|do not (?:add|include|generate) (?:dialogue|voice|speech)|不要[^。；;]{0,12}口播|无台词|无对白|无口播|静音|只要音乐)/i.test(direction);
 }
 
 function buildVideoHardConstraintGuidance(direction: string) {

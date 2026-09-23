@@ -109,6 +109,8 @@ assert.equal(workbenchShotCount(15), 4);
 
 assert.match(commerceHookRoutingDirection("生成一条带货视频", 10), /0-2s/);
 assert.match(commerceHookRoutingDirection("生成一条带货视频", 15), /0-3s/);
+assert.match(commerceHookRoutingDirection("生成一条带货视频", 10), /show product naturally/);
+assert.doesNotMatch(commerceHookRoutingDirection("生成一条带货视频", 10), /accident|surprise prop.*reveal the unchanged product/i);
 assert.match(commerceHookRoutingDirection("开头让纸箱从高处掉落并在落地前冻结", 10), /User-directed route/);
 assert.doesNotMatch(commerceHookRoutingDirection("开头让纸箱从高处掉落并在落地前冻结", 10), /Short route/);
 const detailedDirection = `Total duration: 10 seconds. 0-2s: black screen with one title. 2-6s: keep the product front-only. 6-10s: final hero shot. ${"Strictly preserve the supplied product and do not rotate, deform, relabel, duplicate, or add people. ".repeat(8)}`;

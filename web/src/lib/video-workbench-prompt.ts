@@ -28,7 +28,7 @@ export function commerceHookRoutingDirection(sourcePrompt: string, duration: num
         return "Light-touch route: preserve the user's existing idea and opening. Clarify timing only; do not replace it with a generic accident or surprise hook.";
     }
     const hookSeconds = duration >= 15 ? 3 : duration >= 10 ? 2 : Math.max(1, Math.round(duration * 0.2));
-    return `Short route: varied hook 0-${hookSeconds}s; then reveal the unchanged product.`;
+    return `Short 0-${hookSeconds}s: show product naturally; no unrelated incident.`;
 }
 
 export function compileVideoWorkbenchPrompt(direction: string, context: VideoWorkbenchPromptContext) {
@@ -81,7 +81,7 @@ export function hasWorkbenchSpokenScript(prompt: string) {
 }
 
 export function requestsNoSpeech(prompt: string) {
-    return /(?:no\s+(?:speech|dialogue|voice|narration)|silent\s+video|ambient[-\s]?only|music[-\s]?only|不要说话|无口播|无人声|纯音乐|只要环境音|静音)/i.test(prompt);
+    return /(?:no\s+(?:speech|dialogue|voice|narration)|silent\s+video|ambient[-\s]?only|music[-\s]?only|不要说话|不要[^。；;]{0,12}口播|无口播|无人声|纯音乐|只要环境音|静音)/i.test(prompt);
 }
 
 function workbenchReferenceDirection(mode: VideoReferenceMode, referenceCount: number) {
